@@ -14,7 +14,7 @@ namespace velk_ui {
 struct InstanceData
 {
     float x, y, width, height;
-    float r, g, b, a;
+    velk::color color;
 };
 
 /// CPU-side bookkeeping per visual slot.

@@ -1,6 +1,7 @@
 #ifndef VELK_UI_INTF_ELEMENT_H
 #define VELK_UI_INTF_ELEMENT_H
 
+#include <velk/api/math_types.h>
 #include <velk/interface/intf_metadata.h>
 
 namespace velk_ui {
@@ -9,14 +10,12 @@ class IElement : public velk::Interface<IElement>
 {
 public:
     VELK_INTERFACE(
-        (PROP, float, x, 0.f),
-        (PROP, float, y, 0.f),
-        (PROP, float, width, 100.f),
-        (PROP, float, height, 100.f),
-        (PROP, float, r, 1.f),
-        (PROP, float, g, 0.f),
-        (PROP, float, b, 0.f),
-        (PROP, float, a, 1.f)
+        (PROP, velk::vec3, position, {}),
+        (PROP, velk::size, size, {}),
+        (PROP, velk::color, color, {}),
+        (PROP, velk::mat4, local_transform, {}),
+        (RPROP, velk::mat4, world_matrix, {}),
+        (PROP, int32_t, z_index, 0)
     )
 };
 

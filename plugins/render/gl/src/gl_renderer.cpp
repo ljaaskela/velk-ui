@@ -133,8 +133,12 @@ bool GlRenderer::init(int width, int height)
 
     // Per-instance color (location 1): r, g, b, a
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
-                          reinterpret_cast<void*>(offsetof(InstanceData, r)));
+    glVertexAttribPointer(1,
+                          4,
+                          GL_FLOAT,
+                          GL_FALSE,
+                          sizeof(InstanceData),
+                          reinterpret_cast<void *>(offsetof(InstanceData, color)));
     glVertexAttribDivisor(1, 1);
 
     glBindVertexArray(0);
@@ -241,14 +245,11 @@ void GlRenderer::sync_slot(uint32_t slot, velk::IObject* element)
     auto state = velk::read_state<IElement>(element);
     if (state) {
         auto& inst = cpu_buffer_[slot];
-        inst.x = state->x;
-        inst.y = state->y;
-        inst.width = state->width;
-        inst.height = state->height;
-        inst.r = state->r;
-        inst.g = state->g;
-        inst.b = state->b;
-        inst.a = state->a;
+        inst.x = state->position.x;
+        inst.y = state->position.y;
+        inst.width = state->size.width;
+        inst.height = state->size.height;
+        inst.color = state->color;
     }
 }
 
@@ -294,7 +295,7 @@ IRenderer::VisualId GlRenderer::add_visual(velk::IObject::Ptr element)
     if (meta) {
         // Subscribe to each IElement property's on_changed
         static constexpr velk::string_view prop_names[] = {
-            "x", "y", "width", "height", "r", "g", "b", "a"};
+            "position", "size", "color"};
 
         velk::IObject::WeakPtr weak_element(element);
         for (auto& name : prop_names) {
@@ -339,7 +340,7 @@ void GlRenderer::remove_visual(VisualId id)
         auto* meta = velk::interface_cast<velk::IMetadata>(entry.element);
         if (meta) {
             static constexpr velk::string_view prop_names[] = {
-                "x", "y", "width", "height", "r", "g", "b", "a"};
+                "position", "size", "color"};
             size_t listener_idx = 0;
             for (auto& name : prop_names) {
                 auto prop = meta->get_property(name, velk::Resolve::Existing);
