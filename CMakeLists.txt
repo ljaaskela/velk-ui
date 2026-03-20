@@ -23,6 +23,8 @@ add_library(velk SHARED IMPORTED GLOBAL)
 set_target_properties(velk PROPERTIES
     IMPORTED_LOCATION "${VELK_BUILD}/bin/Release/velk.dll"
     IMPORTED_IMPLIB   "${VELK_BUILD}/velk/Release/velk.lib"
+    IMPORTED_LOCATION_DEBUG "${VELK_BUILD}/bin/Debug/velk.dll"
+    IMPORTED_IMPLIB_DEBUG   "${VELK_BUILD}/velk/Debug/velk.lib"
     INTERFACE_INCLUDE_DIRECTORIES "${VELK_ROOT}/velk/include;${VELK_BUILD}/velk/include"
 )
 

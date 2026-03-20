@@ -2,14 +2,28 @@
 
 namespace velk_ui {
 
-velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig&)
+velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig& config)
 {
-    return velk::register_type<Element>(velk);
+    config.enableUpdate = true;
+
+    auto rv = velk::register_type<Element>(velk);
+    rv &= velk::register_type<Scene>(velk);
+    rv &= velk::register_type<Stack>(velk);
+    rv &= velk::register_type<FixedSize>(velk);
+    rv &= velk::register_type<ConstraintImportHandler>(velk);
+    return rv;
 }
 
 velk::ReturnValue VelkUiPlugin::shutdown(velk::IVelk&)
 {
     return velk::ReturnValue::Success;
+}
+
+void VelkUiPlugin::post_update(const IPlugin::PostUpdateInfo&)
+{
+    for (auto* scene : Scene::live_scenes()) {
+        scene->update();
+    }
 }
 
 } // namespace velk_ui

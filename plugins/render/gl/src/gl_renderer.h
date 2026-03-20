@@ -6,6 +6,7 @@
 #include <velk/ext/object.h>
 
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace velk_ui {
@@ -20,8 +21,8 @@ struct InstanceData
 /// CPU-side bookkeeping per visual slot.
 struct VisualEntry
 {
-    velk::IObject::Ptr element;
-    std::vector<velk::IFunction::ConstPtr> listeners;
+    IElement::Ptr element;
+    velk::vector<velk::IFunction::ConstPtr> listeners;
     bool dirty = false;
     bool alive = false;
 };
@@ -34,20 +35,22 @@ public:
     ~GlRenderer() override;
 
     // IRenderer pure virtuals
-    VisualId add_visual(velk::IObject::Ptr element) override;
+    VisualId add_visual(const IElement::Ptr& element) override;
     void remove_visual(VisualId id) override;
+    void update_visuals(velk::array_view<IElement*> changed) override;
 
     bool init(int width, int height) override;
     void render() override;
     void shutdown() override;
 
 private:
-    void sync_slot(uint32_t slot, velk::IObject* element);
+    void sync_slot(uint32_t slot, IElement* element);
 
-    std::vector<InstanceData> cpu_buffer_;
-    std::vector<VisualEntry> entries_;
-    std::vector<uint32_t> free_slots_;
-    std::vector<uint32_t> dirty_slots_;
+    velk::vector<InstanceData> cpu_buffer_;
+    velk::vector<VisualEntry> entries_;
+    velk::vector<uint32_t> free_slots_;
+    velk::vector<uint32_t> dirty_slots_;
+    std::unordered_map<IElement*, uint32_t> object_to_slot_;
 
     uint32_t vao_ = 0;
     uint32_t vbo_quad_ = 0;

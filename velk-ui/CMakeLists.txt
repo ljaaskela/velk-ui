@@ -1,10 +1,27 @@
 add_library(velk_ui SHARED
     src/plugin.h
     src/plugin.cpp
+    src/element.cpp
+    src/scene.h
+    src/scene.cpp
+    src/layout_solver.h
+    src/layout_solver.cpp
+    src/layout/stack.h
+    src/layout/stack.cpp
+    src/constraint/fixed_size.h
+    src/constraint/fixed_size.cpp
+    src/constraint_import_handler.h
+    src/constraint_import_handler.cpp
     include/velk-ui/interface/intf_element.h
     include/velk-ui/interface/intf_renderer.h
+    include/velk-ui/interface/intf_constraint.h
+    include/velk-ui/interface/intf_scene.h
+    include/velk-ui/interface/intf_scene_observer.h
+    include/velk-ui/interface/constraint/intf_stack.h
+    include/velk-ui/interface/constraint/intf_fixed_size.h
     include/velk-ui/element.h
     include/velk-ui/plugin.h
+    include/velk-ui/types.h
 )
 
 target_link_libraries(velk_ui PRIVATE velk)

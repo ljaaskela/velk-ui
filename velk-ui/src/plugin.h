@@ -4,6 +4,11 @@
 #include <velk-ui/element.h>
 #include <velk/ext/plugin.h>
 
+#include "constraint_import_handler.h"
+#include "constraint/fixed_size.h"
+#include "scene.h"
+#include "layout/stack.h"
+
 namespace velk_ui {
 
 class VelkUiPlugin final : public velk::ext::Plugin<VelkUiPlugin>
@@ -15,6 +20,8 @@ public:
 
     velk::ReturnValue initialize(velk::IVelk& velk, velk::PluginConfig& config) override;
     velk::ReturnValue shutdown(velk::IVelk& velk) override;
+
+    void post_update(const IPlugin::PostUpdateInfo& info) override;
 };
 
 } // namespace velk_ui

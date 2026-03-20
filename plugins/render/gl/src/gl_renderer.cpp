@@ -240,7 +240,7 @@ void GlRenderer::shutdown()
     initialized_ = false;
 }
 
-void GlRenderer::sync_slot(uint32_t slot, velk::IObject* element)
+void GlRenderer::sync_slot(uint32_t slot, IElement* element)
 {
     auto state = velk::read_state<IElement>(element);
     if (state) {
@@ -253,7 +253,7 @@ void GlRenderer::sync_slot(uint32_t slot, velk::IObject* element)
     }
 }
 
-IRenderer::VisualId GlRenderer::add_visual(velk::IObject::Ptr element)
+IRenderer::VisualId GlRenderer::add_visual(const IElement::Ptr& element)
 {
     if (!element) return 0;
 
@@ -297,7 +297,7 @@ IRenderer::VisualId GlRenderer::add_visual(velk::IObject::Ptr element)
         static constexpr velk::string_view prop_names[] = {
             "position", "size", "color"};
 
-        velk::IObject::WeakPtr weak_element(element);
+        IElement::WeakPtr weak_element(element);
         for (auto& name : prop_names) {
             auto prop = meta->get_property(name, velk::Resolve::Existing);
             if (!prop) continue;
@@ -323,6 +323,7 @@ IRenderer::VisualId GlRenderer::add_visual(velk::IObject::Ptr element)
     }
 
     dirty_slots_.push_back(slot);
+    object_to_slot_[element.get()] = slot;
 
     return slot + 1; // VisualId 0 = invalid
 }
@@ -353,6 +354,7 @@ void GlRenderer::remove_visual(VisualId id)
     }
 
     entry.listeners.clear();
+    object_to_slot_.erase(entry.element.get());
     entry.element = nullptr;
     entry.alive = false;
     entry.dirty = true;
@@ -362,6 +364,21 @@ void GlRenderer::remove_visual(VisualId id)
     dirty_slots_.push_back(slot);
 
     free_slots_.push_back(slot);
+}
+
+void GlRenderer::update_visuals(velk::array_view<IElement*> changed)
+{
+    for (auto* element : changed) {
+        auto it = object_to_slot_.find(element);
+        if (it == object_to_slot_.end()) continue;
+
+        uint32_t slot = it->second;
+        sync_slot(slot, element);
+        if (!entries_[slot].dirty) {
+            entries_[slot].dirty = true;
+            dirty_slots_.push_back(slot);
+        }
+    }
 }
 
 } // namespace velk_ui

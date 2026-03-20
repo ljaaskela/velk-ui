@@ -1,0 +1,26 @@
+#ifndef VELK_UI_INTF_FIXED_SIZE_H
+#define VELK_UI_INTF_FIXED_SIZE_H
+
+#include <velk-ui/types.h>
+#include <velk/interface/intf_metadata.h>
+
+namespace velk_ui {
+
+/**
+ * @brief Constraint that clamps an element to a specific width and/or height.
+ *
+ * Either axis can be dim::none() to leave it unconstrained. Values are
+ * resolved against the parent's available space (px = absolute, pct = relative).
+ */
+class IFixedSize : public velk::Interface<IFixedSize>
+{
+public:
+    VELK_INTERFACE(
+        (PROP, dim, width, dim::none()),  ///< Fixed width. None = use parent's width.
+        (PROP, dim, height, dim::none())  ///< Fixed height. None = use parent's height.
+    )
+};
+
+} // namespace velk_ui
+
+#endif // VELK_UI_INTF_FIXED_SIZE_H

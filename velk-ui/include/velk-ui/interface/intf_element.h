@@ -1,22 +1,34 @@
 #ifndef VELK_UI_INTF_ELEMENT_H
 #define VELK_UI_INTF_ELEMENT_H
 
+#include <velk-ui/types.h>
 #include <velk/api/math_types.h>
 #include <velk/interface/intf_metadata.h>
 
+#include <cstdint>
+
 namespace velk_ui {
 
+/**
+ * @brief Base interface for all UI elements.
+ *
+ * Provides position, size, color, transform, and z-ordering properties.
+ * The solver writes local_transform and world_matrix; user code reads them.
+ */
 class IElement : public velk::Interface<IElement>
 {
 public:
     VELK_INTERFACE(
-        (PROP, velk::vec3, position, {}),
-        (PROP, velk::size, size, {}),
-        (PROP, velk::color, color, {}),
-        (PROP, velk::mat4, local_transform, {}),
-        (RPROP, velk::mat4, world_matrix, {}),
-        (PROP, int32_t, z_index, 0)
+        (PROP, velk::vec3, position, {}),         ///< Position in parent-local space.
+        (PROP, velk::size, size, {}),             ///< Element size (width, height).
+        (PROP, velk::color, color, {}),           ///< Fill color (RGBA).
+        (RPROP, velk::mat4, local_transform, {}), ///< Transform relative to parent. Written by solver.
+        (RPROP, velk::mat4, world_matrix, {}), ///< Computed world-space transform. Written by solver.
+        (PROP, int32_t, z_index, 0)            ///< Draw order among siblings. Higher draws on top.
     )
+
+    /** @brief Atomically reads and clears accumulated dirty flags for this element. */
+    virtual DirtyFlags consume_dirty() = 0;
 };
 
 } // namespace velk_ui
