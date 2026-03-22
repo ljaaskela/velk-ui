@@ -14,23 +14,17 @@ namespace velk_ui {
 /**
  * @brief Renders shaped text as textured glyph quads.
  *
+ * Owns the font and text content (via ITextVisual::text PROP).
  * Uses IFont for text shaping and an internal GlyphAtlas for rasterization.
- * Implements IVisual (draw commands), ITextureProvider (atlas pixels),
- * and ITextVisual (text content setting).
+ * Reshapes automatically when text or font changes.
  */
 class TextVisual : public ext::Visual<TextVisual, ITextureProvider, ITextVisual>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::Text, "TextVisual");
 
-    /**
-     * @brief Shapes text with the given font and caches glyph draw commands.
-     *
-     * Populates the internal glyph atlas and builds TexturedQuad commands.
-     * Fires on_visual_changed when done.
-     */
     // ITextVisual
-    void set_text(velk::string_view text, IFont& font) override;
+    void set_font(const IFont::Ptr& font) override;
 
     // IVisual
     velk::vector<DrawCommand> get_draw_commands(const velk::rect& bounds) override;
@@ -42,7 +36,14 @@ public:
     bool is_texture_dirty() const override;
     void clear_texture_dirty() override;
 
+protected:
+    // Override to reshape when the text property changes
+    void on_property_changed(velk::IProperty& property) override;
+
 private:
+    void reshape();
+
+    IFont::Ptr font_;
     GlyphAtlas atlas_;
     velk::vector<DrawCommand> cached_commands_;
 };

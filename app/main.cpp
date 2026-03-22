@@ -142,38 +142,36 @@ int main(int argc, char* argv[])
     scene->load(*import_result.store);
 
     // Programmatically create a text element with "Hello, Velk!"
-    velk::IObject::Ptr font_obj;
     {
-        font_obj = velk.create<velk::IObject>(velk_ui::ClassId::Font);
-        auto* font = velk::interface_cast<velk_ui::IFont>(font_obj);
+        // Create font
+        auto font_obj = velk.create<velk::IObject>(velk_ui::ClassId::Font);
+        auto font = velk::interface_pointer_cast<velk_ui::IFont>(font_obj);
         if (font && font->init_default() && font->set_size(32.f)) {
-            // Create TextVisual, set color to white, shape text
+            // Create TextVisual: owns the font, holds the text
             auto tv_obj = velk.create<velk::IObject>(velk_ui::ClassId::Visual::Text);
             velk::write_state<velk_ui::IVisual>(
                 tv_obj, [](velk_ui::IVisual::State& s) { s.color = velk::color::white(); });
 
             auto* tv = velk::interface_cast<velk_ui::ITextVisual>(tv_obj);
             if (tv) {
-                tv->set_text("Hello, Velk!", *font);
+                tv->text().set_value("Hello, Velk!");
+                tv->set_font(font);
             }
 
             // Create element for the text
             auto text_elem = velk.create<velk::IObject>(velk_ui::ClassId::Element);
 
-            // Attach TextVisual to element
+            // Attach TextVisual and FixedSize constraint to element
             auto* storage = velk::interface_cast<velk::IObjectStorage>(text_elem);
             if (storage) {
-                auto att = velk::interface_pointer_cast<velk::IInterface>(tv_obj);
-                storage->add_attachment(att);
+                storage->add_attachment(velk::interface_pointer_cast<velk::IInterface>(tv_obj));
 
-                // Give the element a fixed size
                 auto fs_obj = velk.create<velk::IObject>(velk_ui::ClassId::Constraint::FixedSize);
                 velk::write_state<velk_ui::IFixedSize>(fs_obj, [](velk_ui::IFixedSize::State& s) {
                     s.width = velk_ui::dim::px(400.f);
                     s.height = velk_ui::dim::px(50.f);
                 });
-                auto fs_att = velk::interface_pointer_cast<velk::IInterface>(fs_obj);
-                storage->add_attachment(fs_att);
+                storage->add_attachment(velk::interface_pointer_cast<velk::IInterface>(fs_obj));
             }
 
             // Add text element to scene hierarchy (as child of root)
@@ -195,7 +193,6 @@ int main(int argc, char* argv[])
     }
 
     scene_obj = nullptr;
-    font_obj = nullptr;
     renderer->shutdown();
     renderer_obj = nullptr;
 

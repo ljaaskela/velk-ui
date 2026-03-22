@@ -1,24 +1,28 @@
 #ifndef VELK_UI_INTF_TEXT_VISUAL_H
 #define VELK_UI_INTF_TEXT_VISUAL_H
 
-#include <velk/interface/intf_interface.h>
-#include <velk/string_view.h>
+#include <velk/interface/intf_metadata.h>
+#include <velk/string.h>
 
 #include <velk-ui/interface/intf_font.h>
 
 namespace velk_ui {
 
 /**
- * @brief Interface for setting text content on a TextVisual.
+ * @brief Interface for configuring a TextVisual.
  *
- * Implemented by TextVisual. Allows external code to shape text
- * without depending on the concrete TextVisual class.
+ * The visual owns the font. Set the font, then set the text (or vice versa).
+ * Reshaping happens automatically when both are present.
  */
 class ITextVisual : public velk::Interface<ITextVisual>
 {
 public:
-    /** @brief Shapes text with the given font and rebuilds glyph commands. */
-    virtual void set_text(velk::string_view text, IFont& font) = 0;
+    VELK_INTERFACE(
+        (PROP, velk::string, text, {})  ///< Text content to render.
+    )
+
+    /** @brief Sets the font used for shaping and rasterization. Takes ownership (shared). */
+    virtual void set_font(const IFont::Ptr& font) = 0;
 };
 
 } // namespace velk_ui

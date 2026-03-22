@@ -4,14 +4,38 @@
 
 namespace velk_ui {
 
-void TextVisual::set_text(velk::string_view text, IFont& font)
+void TextVisual::set_font(const IFont::Ptr& font)
+{
+    font_ = font;
+    reshape();
+    invoke_visual_changed();
+}
+
+void TextVisual::on_property_changed(velk::IProperty&)
+{
+    reshape();
+    invoke_visual_changed();
+}
+
+void TextVisual::reshape()
 {
     cached_commands_.clear();
 
-    velk::vector<IFont::GlyphPosition> positions;
-    font.shape_text(text, positions);
+    if (!font_) {
+        return;
+    }
 
-    auto font_state = velk::read_state<IFont>(&font);
+    auto state = velk::read_state<ITextVisual>(this);
+    if (!state || state->text.empty()) {
+        return;
+    }
+
+    velk::string_view text(state->text.data(), state->text.size());
+
+    velk::vector<IFont::GlyphPosition> positions;
+    font_->shape_text(text, positions);
+
+    auto font_state = velk::read_state<IFont>(font_);
     float ascender = font_state ? font_state->ascender : 0.f;
 
     float atlas_w = static_cast<float>(atlas_.get_width());
@@ -20,7 +44,7 @@ void TextVisual::set_text(velk::string_view text, IFont& font)
     float cursor_x = 0.f;
 
     for (auto& gp : positions) {
-        const AtlasRect* rect = atlas_.ensure_glyph(font, gp.glyph_id);
+        const AtlasRect* rect = atlas_.ensure_glyph(*font_, gp.glyph_id);
         if (!rect || (rect->w == 0 && rect->h == 0)) {
             cursor_x += gp.advance.x;
             continue;
@@ -42,8 +66,6 @@ void TextVisual::set_text(velk::string_view text, IFont& font)
         cached_commands_.push_back(cmd);
         cursor_x += gp.advance.x;
     }
-
-    invoke_visual_changed();
 }
 
 velk::vector<DrawCommand> TextVisual::get_draw_commands(const velk::rect& bounds)
