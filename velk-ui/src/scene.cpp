@@ -10,6 +10,12 @@
 
 #include <algorithm>
 
+#ifdef VELK_LAYOUT_DEBUG
+#define LAYOUT_LOG(...) VELK_LOG(I, __VA_ARGS__)
+#else
+#define LAYOUT_LOG(...) ((void)0)
+#endif
+
 namespace velk_ui {
 
 namespace {
@@ -114,6 +120,7 @@ void Scene::set_geometry(velk::aabb geometry)
     if (geometry_ != geometry) {
         geometry_ = geometry;
         set_dirty(DirtyFlags::Layout);
+        LAYOUT_LOG("Scene::set_geometry: %.0fx%.0f", geometry.extent.width, geometry.extent.height);
     }
 }
 

@@ -39,8 +39,7 @@ public:
     /** @brief Sets a material as the paint, overriding the default color. */
     void set_paint(const IMaterial::Ptr& material)
     {
-        write_state<IVisual>(
-            [&](IVisual::State& s) { s.paint.set(interface_pointer_cast<velk::IObject>(material)); });
+        write_state<IVisual>([&](IVisual::State& s) { velk::set_object_ref(s.paint, material); });
     }
 };
 

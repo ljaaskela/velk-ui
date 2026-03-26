@@ -10,8 +10,9 @@ namespace velk_ui {
 
 enum class DrawCommandType : uint8_t
 {
-    FillRect,    ///< Solid color rectangle.
-    TexturedQuad ///< Textured quad (glyph from atlas).
+    FillRect,        ///< Solid color rectangle.
+    FillRoundedRect, ///< Rounded rectangle (SDF corners).
+    TexturedQuad     ///< Textured quad (glyph from atlas).
 };
 
 /**

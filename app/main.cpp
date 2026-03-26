@@ -3,14 +3,10 @@
 #include <velk/interface/intf_plugin_registry.h>
 
 #include <GLFW/glfw3.h>
-#include <velk-ui/api/constraint/fixed_size.h>
-#include <velk-ui/api/element.h>
 #include <velk-ui/api/material/shader.h>
 #include <velk-ui/api/render_context.h>
 #include <velk-ui/api/scene.h>
 #include <velk-ui/api/visual/rect.h>
-#include <velk-ui/plugins/text/api/font.h>
-#include <velk-ui/plugins/text/api/text_visual.h>
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -23,8 +19,7 @@ static velk_ui::ISurface::Ptr g_surface;
 static void glfw_framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     if (g_scene) {
-        g_scene->set_geometry(velk::aabb::from_size({
-            static_cast<float>(width), static_cast<float>(height)}));
+        g_scene->set_geometry(velk::aabb::from_size({static_cast<float>(width), static_cast<float>(height)}));
     }
     if (g_surface) {
         velk::write_state<velk_ui::ISurface>(g_surface, [&](velk_ui::ISurface::State& s) {
@@ -82,9 +77,8 @@ int main(int argc, char* argv[])
     auto surface = ctx.create_surface(kWidth, kHeight);
 
     // Load scene
-    auto scene = velk_ui::create_scene("app://scenes/stack_test.json");
-    scene.set_geometry(velk::aabb::from_size({
-        static_cast<float>(kWidth), static_cast<float>(kHeight)}));
+    auto scene = velk_ui::create_scene("app://scenes/dashboard.json");
+    scene.set_geometry(velk::aabb::from_size({static_cast<float>(kWidth), static_cast<float>(kHeight)}));
 
     renderer->attach(surface, scene);
 
@@ -92,43 +86,29 @@ int main(int argc, char* argv[])
     g_surface = surface;
     glfwSetFramebufferSizeCallback(window, glfw_framebuffer_size_callback);
 
-    auto root = scene.root();
-    auto child3 = scene.child_at(root, 2);
-    // Apply a gradient shader to the blue rect (child3)
+    // Add gradient background to the root element
     {
-        auto visual = child3.find_trait<velk_ui::IVisual>();
-        if (visual) {
-            auto mat = velk_ui::material::create_shader();
-            mat.set_fragment_source(R"(
-                #version 330 core
-                in vec4 v_color;
-                out vec4 frag_color;
-                uniform vec4 u_rect;
-                void main()
-                {
-                    float t = (gl_FragCoord.x - u_rect.x) / max(u_rect.z, 1.0);
-                    vec3 top = vec3(0.1, 0.4, 0.9);
-                    vec3 bot = vec3(0.9, 0.2, 0.6);
-                    frag_color = vec4(mix(top, bot, t), 1.0);
-                }
-            )");
-            velk::write_state<velk_ui::IVisual>(
-                visual, [&](velk_ui::IVisual::State& s) { s.paint = velk::create_object_ref(mat); });
-            VELK_LOG(I, "Paint set on child2, mat=%p", static_cast<void*>(mat.get().get()));
-        }
-    }
+        auto root = scene.root();
+        auto bg = velk_ui::visual::create_rect();
+        bg.set_color(velk::color::red());
 
-    // Programmatically create a text element with "Hello, Velk!"
-    {
-        auto font = velk_ui::create_font();
-        if (font.init_default() && font.set_size(32.f)) {
-            auto tv = velk_ui::visual::create_text();
-            tv.set_font(font);
-            tv.set_text("Hello, Velk!");
-            tv.set_color(velk::color::white());
+        auto mat = velk_ui::material::create_shader();
+        mat.set_fragment_source(R"(
+            #version 330 core
+            in vec4 v_color;
+            out vec4 frag_color;
+            uniform vec4 u_rect;
+            void main()
+            {
+                float t = 1.0 - gl_FragCoord.y / max(u_rect.w, 1.0);
+                vec3 top = vec3(0.05, 0.07, 0.15);
+                vec3 bot = vec3(0.18, 0.12, 0.28);
+                frag_color = vec4(mix(top, bot, t), 1.0);
+            }
+        )");
+        bg.set_paint(mat);
 
-            child3.add_trait(tv);
-        }
+        root.add_trait(bg);
     }
 
     // First frame
@@ -141,9 +121,12 @@ int main(int argc, char* argv[])
         auto stats = velk.get_stats();
         VELK_LOG(I, "Plugins (%zu):", stats.plugins.size());
         for (auto& p : stats.plugins) {
-            VELK_LOG(I, "  %.*s v%d.%d.%d [update=%s]",
-                     static_cast<int>(p.plugin_name.size()), p.plugin_name.data(),
-                     velk::version_major(p.version), velk::version_minor(p.version),
+            VELK_LOG(I,
+                     "  %.*s v%d.%d.%d [update=%s]",
+                     static_cast<int>(p.plugin_name.size()),
+                     p.plugin_name.data(),
+                     velk::version_major(p.version),
+                     velk::version_minor(p.version),
                      velk::version_patch(p.version),
                      p.update_enabled ? "on" : "off");
         }

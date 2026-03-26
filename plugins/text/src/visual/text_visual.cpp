@@ -1,6 +1,7 @@
 #include "text_visual.h"
 
 #include <velk/api/state.h>
+#include <velk/api/velk.h>
 
 namespace velk_ui {
 
@@ -20,10 +21,25 @@ void TextVisual::on_state_changed(velk::string_view name, velk::IMetadata& owner
     invoke_visual_changed();
 }
 
+void TextVisual::ensure_default_font()
+{
+    if (font_) {
+        return;
+    }
+
+    auto obj = velk::instance().create<velk::IObject>(ClassId::Font);
+    font_ = interface_pointer_cast<IFont>(obj);
+    if (font_) {
+        font_->init_default();
+        font_->set_size(16.f);
+    }
+}
+
 void TextVisual::reshape()
 {
     cached_commands_.clear();
 
+    ensure_default_font();
     if (!font_) {
         return;
     }

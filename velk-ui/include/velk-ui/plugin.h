@@ -28,6 +28,9 @@ namespace Visual {
 /** @brief Solid color rectangle filling the element bounds. */
 inline constexpr velk::Uid Rect{"e3a7b1c2-d4f5-4e6a-8b9c-0d1e2f3a4b5c"};
 
+/** @brief Rounded rectangle with SDF corners. */
+inline constexpr velk::Uid RoundedRect{"7b2c4d5e-6f8a-4e1b-9c3d-0e5f6a7b8c9d"};
+
 } // namespace Visual
 
 namespace Material {

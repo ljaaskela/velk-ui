@@ -13,6 +13,8 @@ add_library(velk_ui SHARED
     src/constraint/fixed_size.cpp
     src/visual/rect_visual.h
     src/visual/rect_visual.cpp
+    src/visual/rounded_rect_visual.h
+    src/visual/rounded_rect_visual.cpp
     src/material/shader_material.h
     src/import/dim_type_extension.h
     src/import/dim_type_extension.cpp
@@ -37,6 +39,7 @@ add_library(velk_ui SHARED
     include/velk-ui/api/trait.h
     include/velk-ui/api/visual.h
     include/velk-ui/api/visual/rect.h
+    include/velk-ui/api/visual/rounded_rect.h
     include/velk-ui/interface/intf_material.h
     include/velk-ui/interface/intf_trait.h
     include/velk-ui/plugin.h
@@ -50,4 +53,10 @@ target_include_directories(velk_ui
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+option(VELK_LAYOUT_DEBUG "Enable verbose layout logging" OFF)
+
 target_compile_definitions(velk_ui PRIVATE VELK_EXPORTS)
+
+if(VELK_LAYOUT_DEBUG)
+    target_compile_definitions(velk_ui PRIVATE VELK_LAYOUT_DEBUG)
+endif()

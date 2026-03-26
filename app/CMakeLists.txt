@@ -13,5 +13,8 @@ add_custom_command(TARGET velk_ui_app POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/test/scenes/stack_test.json"
         "$<TARGET_FILE_DIR:velk_ui_app>/scenes/stack_test.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/test/scenes/dashboard.json"
+        "$<TARGET_FILE_DIR:velk_ui_app>/scenes/dashboard.json"
     COMMENT "Copying scene files to output directory"
 )

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "objects": [
+    { "id": "root", "class": "velk-ui.Element" },
+    { "id": "header", "class": "velk-ui.Element" },
+    { "id": "body", "class": "velk-ui.Element" },
+    { "id": "sidebar", "class": "velk-ui.Element" },
+    { "id": "nav1", "class": "velk-ui.Element" },
+    { "id": "nav2", "class": "velk-ui.Element" },
+    { "id": "nav3", "class": "velk-ui.Element" },
+    { "id": "content", "class": "velk-ui.Element" },
+    { "id": "card1", "class": "velk-ui.Element" },
+    { "id": "card2", "class": "velk-ui.Element" },
+    { "id": "card3", "class": "velk-ui.Element" },
+    { "id": "card4", "class": "velk-ui.Element" }
+  ],
+  "hierarchies": {
+    "scene": {
+      "root": ["header", "body"],
+      "body": ["sidebar", "content"],
+      "sidebar": ["nav1", "nav2", "nav3"],
+      "content": ["card1", "card2", "card3", "card4"]
+    }
+  },
+  "attachments": [
+    { "targets": ["root"],    "class": "velk-ui.Stack", "properties": { "axis": 1, "spacing": 0 } },
+    { "targets": ["body"],    "class": "velk-ui.Stack", "properties": { "axis": 0, "spacing": 0 } },
+    { "targets": ["sidebar"], "class": "velk-ui.Stack", "properties": { "axis": 1, "spacing": 4 } },
+    { "targets": ["content"], "class": "velk-ui.Stack", "properties": { "axis": 1, "spacing": 16 } },
+
+    { "targets": ["header"],  "class": "velk-ui.FixedSize", "properties": { "height": "48px" } },
+    { "targets": ["sidebar"], "class": "velk-ui.FixedSize", "properties": { "width": "180px" } },
+    { "targets": ["nav1", "nav2", "nav3"], "class": "velk-ui.FixedSize", "properties": { "height": "40px" } },
+    { "targets": ["card1", "card2", "card3", "card4"], "class": "velk-ui.FixedSize", "properties": { "height": "120px" } },
+
+    { "targets": ["header"],  "class": "velk-ui.RectVisual",        "properties": { "color": { "r": 0.1, "g": 0.1, "b": 0.15, "a": 0.7 } } },
+    { "targets": ["sidebar"], "class": "velk-ui.RectVisual",        "properties": { "color": { "r": 0.06, "g": 0.06, "b": 0.10, "a": 0.6 } } },
+    { "targets": ["nav1"],    "class": "velk-ui.RoundedRectVisual", "properties": { "color": { "r": 0.3, "g": 0.4, "b": 0.7, "a": 0.5 } } },
+    { "targets": ["nav2", "nav3"],    "class": "velk-ui.RoundedRectVisual", "properties": { "color": { "r": 0.15, "g": 0.15, "b": 0.22, "a": 0.4 } } },
+    { "targets": ["card1", "card2", "card3", "card4"],   "class": "velk-ui.RoundedRectVisual", "properties": { "color": { "r": 0.12, "g": 0.14, "b": 0.22, "a": 0.35 } } },
+
+    { "targets": ["header"],  "class": "velk_text.TextVisual", "properties": { "text": "Dashboard", "color": { "r": 0.85, "g": 0.85, "b": 0.9, "a": 1.0 } } },
+    { "targets": ["nav1"],    "class": "velk_text.TextVisual", "properties": { "text": "Overview", "color": { "r": 0.9, "g": 0.9, "b": 0.95, "a": 1.0 } } },
+    { "targets": ["nav2"],    "class": "velk_text.TextVisual", "properties": { "text": "Analytics", "color": { "r": 0.6, "g": 0.6, "b": 0.65, "a": 1.0 } } },
+    { "targets": ["nav3"],    "class": "velk_text.TextVisual", "properties": { "text": "Settings", "color": { "r": 0.6, "g": 0.6, "b": 0.65, "a": 1.0 } } },
+    { "targets": ["card1"],   "class": "velk_text.TextVisual", "properties": { "text": "Total Users", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
+    { "targets": ["card2"],   "class": "velk_text.TextVisual", "properties": { "text": "Revenue", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
+    { "targets": ["card3"],   "class": "velk_text.TextVisual", "properties": { "text": "Active Sessions", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
+    { "targets": ["card4"],   "class": "velk_text.TextVisual", "properties": { "text": "Uptime", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } }
+  ]
+}

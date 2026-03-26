@@ -42,6 +42,7 @@ protected:
 
 private:
     void reshape();
+    void ensure_default_font();
 
     IFont::Ptr font_;
     GlyphAtlas atlas_;

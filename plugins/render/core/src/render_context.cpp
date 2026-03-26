@@ -52,6 +52,9 @@ bool RenderContextImpl::init(const RenderConfig& config)
     PipelineDesc text_desc{text_vertex_src, text_fragment_src, VertexFormat::Textured};
     backend_->register_pipeline(PipelineKey::Text, text_desc);
 
+    PipelineDesc rounded_rect_desc{rounded_rect_vertex_src, rounded_rect_fragment_src, VertexFormat::Untextured};
+    backend_->register_pipeline(PipelineKey::RoundedRect, rounded_rect_desc);
+
     initialized_ = true;
     VELK_LOG(I, "RenderContext initialized (backend=%d)", static_cast<int>(config.backend));
     return true;

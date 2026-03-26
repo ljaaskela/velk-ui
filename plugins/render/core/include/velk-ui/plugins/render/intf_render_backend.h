@@ -14,6 +14,7 @@ namespace velk_ui {
 namespace PipelineKey {
 inline constexpr uint64_t Rect = 1;
 inline constexpr uint64_t Text = 2;
+inline constexpr uint64_t RoundedRect = 3;
 inline constexpr uint64_t CustomBase = 1000;
 } // namespace PipelineKey
 

@@ -178,17 +178,23 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
             if (cmd.type == DrawCommandType::FillRect) {
                 if (pipeline == 0) pipeline = PipelineKey::Rect;
                 format = VertexFormat::Untextured;
+            } else if (cmd.type == DrawCommandType::FillRoundedRect) {
+                if (pipeline == 0) pipeline = PipelineKey::RoundedRect;
+                format = VertexFormat::Untextured;
             } else if (cmd.type == DrawCommandType::TexturedQuad) {
                 if (pipeline == 0) pipeline = PipelineKey::Text;
                 format = VertexFormat::Textured;
-                texture = TextureKey::Atlas;
+                texture = cache.texture_provider
+                    ? reinterpret_cast<uint64_t>(cache.texture_provider)
+                    : TextureKey::Atlas;
             } else {
                 continue;
             }
 
-            bool is_custom = (pipeline >= PipelineKey::CustomBase);
+            bool needs_rect = (pipeline >= PipelineKey::CustomBase)
+                || (cmd.type == DrawCommandType::FillRoundedRect);
 
-            uint64_t bkey = is_custom
+            uint64_t bkey = needs_rect
                 ? make_batch_key(pipeline, format, reinterpret_cast<uintptr_t>(element))
                 : make_batch_key(pipeline, format, texture);
 
@@ -226,7 +232,7 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
                 pack_instance(batch.instance_data, data, VertexFormat::UntexturedStride);
             }
 
-            if (is_custom && !batch.has_rect) {
+            if (needs_rect && !batch.has_rect) {
                 batch.rect = {x, y, w, h};
                 batch.has_rect = true;
             }
@@ -291,7 +297,8 @@ void Renderer::render()
                     uint32_t th = tp->get_texture_height();
                     const uint8_t* pixels = tp->get_pixels();
                     if (pixels && tw > 0 && th > 0) {
-                        backend_->upload_texture(TextureKey::Atlas, pixels,
+                        uint64_t tex_key = reinterpret_cast<uint64_t>(tp);
+                        backend_->upload_texture(tex_key, pixels,
                                                  static_cast<int>(tw), static_cast<int>(th));
                         tp->clear_texture_dirty();
                         textures_uploaded = true;

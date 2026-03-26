@@ -239,7 +239,7 @@ void GlBackend::begin_frame(uint64_t surface_id)
     int h = it->second.height;
 
     glViewport(0, 0, w, h);
-    glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     float L = 0.0f;
