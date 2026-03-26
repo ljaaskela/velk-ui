@@ -21,6 +21,7 @@ add_library(velk_ui SHARED
     include/velk-ui/interface/intf_renderer.h
     include/velk-ui/interface/intf_constraint.h
     include/velk-ui/interface/intf_scene.h
+    include/velk-ui/interface/intf_surface.h
     include/velk-ui/interface/intf_scene_observer.h
     include/velk-ui/interface/constraint/intf_stack.h
     include/velk-ui/interface/constraint/intf_fixed_size.h

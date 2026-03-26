@@ -9,7 +9,8 @@
 #include <velk-ui/api/material/shader.h>
 #include <velk-ui/api/scene.h>
 #include <velk-ui/api/visual/rect.h>
-#include <velk-ui/plugins/gl/plugin.h>
+#include <velk-ui/interface/intf_renderer.h>
+#include <velk-ui/plugins/render/plugin.h>
 #include <velk-ui/plugins/text/api/font.h>
 #include <velk-ui/plugins/text/api/text_visual.h>
 
@@ -18,16 +19,22 @@ static void glfw_error_callback(int error, const char* description)
     VELK_LOG(E, "GLFW error %d: %s", error, description);
 }
 
+static velk_ui::IRenderer* g_renderer = nullptr;
+static velk_ui::Scene* g_scene = nullptr;
+static velk_ui::ISurface::Ptr g_surface;
+
 static void glfw_framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-    auto* renderer = static_cast<velk_ui::IRenderer*>(glfwGetWindowUserPointer(window));
-    if (renderer) {
-        velk::write_state<velk_ui::IRenderer>(renderer, [&](velk_ui::IRenderer::State& s) {
-            s.viewport_width = static_cast<uint32_t>(width);
-            s.viewport_height = static_cast<uint32_t>(height);
+    if (g_scene) {
+        g_scene->set_geometry(velk::aabb::from_size({
+            static_cast<float>(width), static_cast<float>(height)}));
+    }
+    if (g_surface) {
+        velk::write_state<velk_ui::ISurface>(g_surface, [&](velk_ui::ISurface::State& s) {
+            s.width = width;
+            s.height = height;
         });
     }
-    glViewport(0, 0, width, height);
 }
 
 int main(int argc, char* argv[])
@@ -63,28 +70,46 @@ int main(int argc, char* argv[])
 
     VELK_LOG(I, "OpenGL %s", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
+    glfwSwapInterval(1); // vsync
+
     auto& velk = velk::instance();
 
     // Load plugins
     velk.plugin_registry().load_plugin_from_path("velk_ui.dll");
+    velk.plugin_registry().load_plugin_from_path("velk_render.dll");
     velk.plugin_registry().load_plugin_from_path("velk_gl.dll");
     velk.plugin_registry().load_plugin_from_path("velk_text.dll");
     velk.plugin_registry().load_plugin_from_path("velk_importer.dll");
 
     // Create and init renderer
-    auto renderer = velk.create<velk_ui::IRenderer>(velk_ui::ClassId::GlRenderer);
-    if (!renderer || !renderer->init(kWidth, kHeight)) {
+    auto renderer_obj = velk.create<velk_ui::IRenderer>(velk_ui::ClassId::Renderer);
+    if (!renderer_obj) {
+        VELK_LOG(E, "Failed to create renderer");
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+
+    velk_ui::RenderConfig config{velk_ui::RenderBackendType::GL};
+    if (!renderer_obj->init(config)) {
         VELK_LOG(E, "Failed to initialize renderer");
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
     }
 
-    // Load scene
-    auto scene = velk_ui::create_scene("app://scenes/stack_test.json");
-    scene.set_renderer(renderer);
+    // Create surface and scene
+    auto surface = renderer_obj->create_surface(kWidth, kHeight);
 
-    glfwSetWindowUserPointer(window, renderer.get());
+    auto scene = velk_ui::create_scene("app://scenes/stack_test.json");
+    scene.set_geometry(velk::aabb::from_size({
+        static_cast<float>(kWidth), static_cast<float>(kHeight)}));
+
+    renderer_obj->attach(surface, static_cast<velk_ui::IScene::Ptr>(scene));
+
+    g_renderer = renderer_obj.get();
+    g_scene = &scene;
+    g_surface = surface;
     glfwSetFramebufferSizeCallback(window, glfw_framebuffer_size_callback);
 
     auto root = scene.root();
@@ -123,11 +148,11 @@ int main(int argc, char* argv[])
             tv.set_text("Hello, Velk!");
             tv.set_color(velk::color::white());
 
+            auto text_elem = velk_ui::create_element();
+
             child3.add_trait(tv);
 
-            /*auto text_elem = velk_ui::create_element();
-
-            auto fs = velk_ui::constraint::create_fixed_size();
+            /*auto fs = velk_ui::constraint::create_fixed_size();
             fs.set_size(velk_ui::dim::px(400.f), velk_ui::dim::px(50.f));
 
             text_elem.add_trait(fs);
@@ -139,17 +164,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Main loop: velk.update() drives scene layout via plugin post_update
+    // Main loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         velk.update();
-        renderer->render();
+        renderer_obj->render();
         glfwSwapBuffers(window);
     }
 
+    g_renderer = nullptr;
+    g_scene = nullptr;
+    g_surface = nullptr;
+
     scene = velk_ui::Scene{};
-    renderer->shutdown();
-    renderer = nullptr;
+    renderer_obj->shutdown();
+    renderer_obj = nullptr;
 
     glfwDestroyWindow(window);
     glfwTerminate();

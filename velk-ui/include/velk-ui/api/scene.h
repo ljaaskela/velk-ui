@@ -17,8 +17,7 @@ namespace velk_ui {
  * return safe defaults when the underlying object is null.
  *
  *   auto scene = create_scene("app://scenes/my_scene.json");
- *   scene.set_renderer(renderer);
- *   scene.set_viewport(viewport);
+ *   scene.set_geometry(velk::aabb::from_size({800, 600}));
  */
 class Scene : public velk::Hierarchy
 {
@@ -48,13 +47,21 @@ public:
         return velk::Future<velk::ReturnValue>(with<IScene>([&](auto& s) { return s.load_from(path); }));
     }
 
-    /** @brief Sets the renderer that will receive visual updates. May be null. */
-    void set_renderer(const IRenderer::Ptr& renderer)
+    /** @brief Sets the layout bounds for this scene. */
+    void set_geometry(velk::aabb geometry)
     {
-        with<IScene>([&](auto& s) { s.set_renderer(renderer); });
+        with<IScene>([&](auto& s) { s.set_geometry(geometry); });
     }
 
-    /** @brief Processes one frame: runs layout, collects changes, pushes to renderer. */
+    /** @brief Returns the current scene state and clears change tracking. */
+    SceneState consume_state()
+    {
+        SceneState state;
+        with<IScene>([&](auto& s) { state = s.consume_state(); });
+        return state;
+    }
+
+    /** @brief Processes one frame: runs layout, collects changes. */
     void update(const velk::UpdateInfo& info)
     {
         with<IScene>([&](auto& s) { s.update(info); });

@@ -1,49 +1,43 @@
 #ifndef VELK_UI_INTF_RENDERER_H
 #define VELK_UI_INTF_RENDERER_H
 
-#include <velk/array_view.h>
 #include <velk/interface/intf_metadata.h>
-#include <velk/interface/intf_object.h>
 
-#include <velk-ui/interface/intf_element.h>
+#include <velk-ui/interface/intf_surface.h>
+#include <velk-ui/types.h>
 
 namespace velk_ui {
 
+class IScene;
+
 /**
- * @brief Interface for rendering UI elements.
+ * @brief Backend-agnostic renderer interface.
  *
- * Manages GPU resources for visible elements. Elements are registered via
- * add_visual and unregistered via remove_visual. Each frame, the scene
- * calls update_visuals with the list of elements whose properties changed.
+ * The renderer is passive: it performs no work unless the app calls render().
+ * Scenes are attached to surfaces; during render() the renderer pulls
+ * SceneState from each attached scene, rebuilds batches as needed, and
+ * submits them to the backend.
  */
 class IRenderer : public velk::Interface<IRenderer>
 {
 public:
-    /** @brief Opaque handle to a registered visual. Zero is invalid. */
-    using VisualId = uint32_t;
+    /** @brief Initializes the renderer and loads the requested backend plugin. */
+    virtual bool init(const RenderConfig& config) = 0;
 
-    VELK_INTERFACE(
-        (PROP, uint32_t, viewport_width, 0),  ///< Viewport width in pixels.
-        (PROP, uint32_t, viewport_height, 0)  ///< Viewport height in pixels.
-    )
+    /** @brief Creates a render target surface with the given dimensions. */
+    virtual ISurface::Ptr create_surface(int width, int height) = 0;
 
-    /** @brief Initializes GPU resources. Must be called with a valid GL context. */
-    virtual bool init(int width, int height) = 0;
+    /** @brief Attaches a scene to a surface for rendering. */
+    virtual void attach(const ISurface::Ptr& surface, const velk::IInterface::Ptr& scene) = 0;
 
-    /** @brief Uploads dirty data and draws all registered visuals. */
+    /** @brief Detaches a surface, stopping rendering of its attached scene. */
+    virtual void detach(const ISurface::Ptr& surface) = 0;
+
+    /** @brief Pulls state from attached scenes, rebuilds batches, and draws. */
     virtual void render() = 0;
 
-    /** @brief Releases all GPU resources. */
+    /** @brief Releases all GPU resources and unloads the backend. */
     virtual void shutdown() = 0;
-
-    /** @brief Registers an element and allocates a GPU slot for it. */
-    virtual VisualId add_visual(const IElement::Ptr& element) = 0;
-
-    /** @brief Unregisters an element and frees its GPU slot. */
-    virtual void remove_visual(VisualId id) = 0;
-
-    /** @brief Re-reads state for each changed element and marks their GPU slots dirty. */
-    virtual void update_visuals(velk::array_view<IElement*> changed) = 0;
 };
 
 } // namespace velk_ui

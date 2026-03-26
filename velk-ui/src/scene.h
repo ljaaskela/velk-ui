@@ -9,7 +9,6 @@
 #include <velk/vector.h>
 
 #include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
 #include <velk-ui/interface/intf_scene_observer.h>
 
@@ -26,8 +25,9 @@ public:
     // IScene
     velk::IFuture::Ptr load_from(velk::string_view path) override;
     void load(velk::IStore& store) override;
-    void set_renderer(const IRenderer::Ptr& renderer) override;
+    void set_geometry(velk::aabb geometry) override;
     void update(const velk::UpdateInfo& info) override;
+    SceneState consume_state() override;
 
     void notify_dirty(IElement& element, DirtyFlags flags) override;
     velk::array_view<IElement*> get_visual_list() override;
@@ -59,21 +59,24 @@ private:
     void attach_element(const velk::IObject::Ptr& obj);
     void detach_element(const velk::IObject::Ptr& obj);
     void detach_subtree(const velk::IObject::Ptr& obj);
-    void register_visual(IElement* elem);
     void replicate_children(velk::IHierarchy& src, const velk::IObject::Ptr& parent);
     void rebuild_visual_list();
     void collect_visual_list(const velk::IObject::Ptr& obj);
 
     velk::Hierarchy logical_;
     LayoutSolver solver_;
-
-    IRenderer::Ptr renderer_;
-    velk::vector<velk::ScopedHandler> renderer_subs_;
+    velk::aabb geometry_{};
 
     void set_dirty(DirtyFlags flags) { dirty_ |= flags; }
 
     velk::vector<IElement*> dirty_elements_;
     velk::vector<IElement*> visual_list_;
+    velk::vector<IElement*> redraw_list_;
+    velk::vector<velk::IObject::Ptr> removed_list_;
+
+    // Double-buffered for consume_state(): returned views stay valid until next consume.
+    velk::vector<IElement*> consumed_redraw_;
+    velk::vector<velk::IObject::Ptr> consumed_removed_;
     DirtyFlags dirty_ = DirtyFlags::All;
     bool initialized_ = false;
 };

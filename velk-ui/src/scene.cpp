@@ -9,7 +9,6 @@
 #include <velk/plugins/importer/api/importer.h>
 
 #include <algorithm>
-#include <velk-ui/interface/intf_renderer.h>
 
 namespace velk_ui {
 
@@ -82,7 +81,6 @@ void Scene::load(velk::IStore& store)
     ensure_hierarchy();
 
     // Find the first hierarchy in the store (convention: "hierarchy:<name>")
-    // Try common names
     static const velk::string_view hierarchy_keys[] = {"hierarchy:scene", "hierarchy:main", "hierarchy:root"};
     velk::IObject::Ptr hierarchy_obj;
     for (auto& key : hierarchy_keys) {
@@ -111,27 +109,12 @@ void Scene::load(velk::IStore& store)
     replicate_children(*src, src_root);
 }
 
-void Scene::set_renderer(const IRenderer::Ptr& renderer)
+void Scene::set_geometry(velk::aabb geometry)
 {
-    renderer_subs_.clear();
-    renderer_ = renderer;
-
-    if (renderer_) {
-        auto* meta = interface_cast<velk::IMetadata>(renderer_);
-        if (meta) {
-            auto vw = meta->get_property("viewport_width");
-            auto vh = meta->get_property("viewport_height");
-            auto on_resize = [this]() { set_dirty(DirtyFlags::Layout); };
-            if (vw) {
-                renderer_subs_.emplace_back(velk::Event(vw->on_changed()), on_resize);
-            }
-            if (vh) {
-                renderer_subs_.emplace_back(velk::Event(vh->on_changed()), on_resize);
-            }
-        }
+    if (geometry_ != geometry) {
+        geometry_ = geometry;
+        set_dirty(DirtyFlags::Layout);
     }
-
-    set_dirty(DirtyFlags::All);
 }
 
 void Scene::update(const velk::UpdateInfo& info)
@@ -142,39 +125,45 @@ void Scene::update(const velk::UpdateInfo& info)
     }
 
     // Merge per-element dirty flags into scene-level flags
-    velk::vector<IElement*> changes;
     for (auto* elem : dirty_elements_) {
         auto f = elem->consume_dirty();
         dirty_ |= f;
         if (f != DirtyFlags::None) {
-            changes.push_back(elem);
+            redraw_list_.push_back(elem);
         }
     }
     dirty_elements_.clear();
 
-    if ((dirty_ & DirtyFlags::Layout) != DirtyFlags::None) {
-        velk::aabb viewport{};
-        if (renderer_) {
-            auto r = velk::read_state<IRenderer>(renderer_.get());
-            if (r) {
-                viewport.extent.width = static_cast<float>(r->viewport_width);
-                viewport.extent.height = static_cast<float>(r->viewport_height);
-            }
-        }
-        solver_.solve(*h, viewport);
-        for (auto* elem : visual_list_) {
-            changes.push_back(elem);
-        }
-    }
     if ((dirty_ & DirtyFlags::DrawOrder) != DirtyFlags::None) {
         rebuild_visual_list();
     }
 
-    dirty_ = DirtyFlags::None;
-
-    if (renderer_ && !changes.empty()) {
-        renderer_->update_visuals(changes);
+    if ((dirty_ & DirtyFlags::Layout) != DirtyFlags::None) {
+        solver_.solve(*h, geometry_);
+        // Layout changed, all elements need redraw
+        redraw_list_.clear();
+        for (auto* elem : visual_list_) {
+            redraw_list_.push_back(elem);
+        }
     }
+
+    dirty_ = DirtyFlags::None;
+}
+
+SceneState Scene::consume_state()
+{
+    // Swap into local buffers so the returned array_views stay valid
+    // until the next consume_state() call.
+    consumed_redraw_.swap(redraw_list_);
+    consumed_removed_.swap(removed_list_);
+    redraw_list_.clear();
+    removed_list_.clear();
+
+    SceneState state;
+    state.visual_list = {visual_list_.data(), visual_list_.size()};
+    state.redraw_list = {consumed_redraw_.data(), consumed_redraw_.size()};
+    state.removed_list = {consumed_removed_.data(), consumed_removed_.size()};
+    return state;
 }
 
 void Scene::notify_dirty(IElement& element, DirtyFlags)
@@ -202,12 +191,6 @@ void Scene::attach_element(const velk::IObject::Ptr& obj)
         observer->on_attached(*this);
     }
 
-    // Register with renderer if one is set
-    auto* element = interface_cast<IElement>(obj);
-    if (element) {
-        register_visual(element);
-    }
-
     set_dirty(DirtyFlags::DrawOrder);
 }
 
@@ -217,6 +200,10 @@ void Scene::detach_element(const velk::IObject::Ptr& obj)
     if (observer) {
         observer->on_detached(*this);
     }
+
+    // Keep removed elements alive until the renderer consumes them
+    removed_list_.push_back(obj);
+
     set_dirty(DirtyFlags::DrawOrder);
 }
 
@@ -238,14 +225,6 @@ void Scene::detach_subtree(const velk::IObject::Ptr& obj)
         }
         detach_element(node);
     }
-}
-
-void Scene::register_visual(IElement* elem)
-{
-    if (!renderer_ || !elem) {
-        return;
-    }
-    renderer_->add_visual(velk::get_self<IElement>(elem));
 }
 
 void Scene::replicate_children(velk::IHierarchy& src, const velk::IObject::Ptr& parent)
@@ -381,11 +360,6 @@ void Scene::rebuild_visual_list()
     visual_list_.clear();
     if (auto r = root()) {
         collect_visual_list(r);
-    }
-    if (renderer_) {
-        for (auto* elem : visual_list_) {
-            register_visual(elem);
-        }
     }
 }
 

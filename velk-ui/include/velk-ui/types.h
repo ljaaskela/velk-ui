@@ -104,6 +104,17 @@ inline float resolve_dim(dim d, float available)
     }
 }
 
+enum class RenderBackendType : uint8_t
+{
+    GL,
+    Vulkan
+};
+
+struct RenderConfig
+{
+    RenderBackendType backend{RenderBackendType::GL};
+};
+
 } // namespace velk_ui
 
 #endif // VELK_UI_TYPES_H

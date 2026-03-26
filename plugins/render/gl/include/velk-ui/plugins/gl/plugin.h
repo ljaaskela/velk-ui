@@ -7,8 +7,8 @@ namespace velk_ui {
 
 namespace ClassId {
 
-/** @brief OpenGL 3.3 renderer. Instanced quads for rects, textured quads for text. */
-inline constexpr velk::Uid GlRenderer{"2302c979-1531-4d0b-bab6-d1bac99f0a11"};
+/** @brief OpenGL 3.3 render backend. */
+inline constexpr velk::Uid GlBackend{"2302c979-1531-4d0b-bab6-d1bac99f0a11"};
 
 } // namespace ClassId
 
