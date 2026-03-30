@@ -105,6 +105,20 @@ inline float resolve_dim(dim d, float available)
     }
 }
 
+enum class HAlign : uint8_t
+{
+    Left,
+    Center,
+    Right
+};
+
+enum class VAlign : uint8_t
+{
+    Top,
+    Center,
+    Bottom
+};
+
 enum class RenderBackendType : uint8_t
 {
     GL,

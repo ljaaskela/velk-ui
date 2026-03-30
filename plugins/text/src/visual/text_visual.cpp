@@ -14,8 +14,7 @@ void TextVisual::set_font(const IFont::Ptr& font)
 
 void TextVisual::on_state_changed(velk::string_view name, velk::IMetadata& owner, velk::Uid interfaceId)
 {
-    if (interfaceId == ITextVisual::UID) {
-        // Only ITextVisual props can affect shaping (?)
+    if (interfaceId == ITextVisual::UID && name == "text") {
         reshape();
     }
     invoke_visual_changed();
@@ -38,6 +37,8 @@ void TextVisual::ensure_default_font()
 void TextVisual::reshape()
 {
     cached_commands_.clear();
+    text_width_ = 0.f;
+    text_height_ = 0.f;
 
     ensure_default_font();
     if (!font_) {
@@ -56,6 +57,7 @@ void TextVisual::reshape()
 
     auto font_state = velk::read_state<IFont>(font_);
     float ascender = font_state ? font_state->ascender : 0.f;
+    float line_height = font_state ? font_state->line_height : 0.f;
 
     float atlas_w = static_cast<float>(atlas_.get_width());
     float atlas_h = static_cast<float>(atlas_.get_height());
@@ -85,20 +87,42 @@ void TextVisual::reshape()
         cached_commands_.push_back(cmd);
         cursor_x += gp.advance.x;
     }
+
+    text_width_ = cursor_x;
+    text_height_ = line_height;
 }
 
 velk::vector<DrawCommand> TextVisual::get_draw_commands(const velk::rect& bounds)
 {
-    auto state = velk::read_state<IVisual>(this);
-    velk::color col = state ? state->color : velk::color::white();
+    auto visual_state = velk::read_state<IVisual>(this);
+    velk::color col = visual_state ? visual_state->color : velk::color::white();
+
+    auto text_state = velk::read_state<ITextVisual>(this);
+    HAlign ha = text_state ? text_state->h_align : HAlign::Left;
+    VAlign va = text_state ? text_state->v_align : VAlign::Top;
+
+    float offset_x = bounds.x;
+    float offset_y = bounds.y;
+
+    switch (ha) {
+    case HAlign::Center: offset_x += (bounds.width - text_width_) * 0.5f; break;
+    case HAlign::Right:  offset_x += bounds.width - text_width_; break;
+    default: break;
+    }
+
+    switch (va) {
+    case VAlign::Center: offset_y += (bounds.height - text_height_) * 0.5f; break;
+    case VAlign::Bottom: offset_y += bounds.height - text_height_; break;
+    default: break;
+    }
 
     velk::vector<DrawCommand> result;
     result.reserve(cached_commands_.size());
 
     for (auto& cmd : cached_commands_) {
         DrawCommand out = cmd;
-        out.bounds.x += bounds.x;
-        out.bounds.y += bounds.y;
+        out.bounds.x += offset_x;
+        out.bounds.y += offset_y;
         out.color = col;
         result.push_back(out);
     }

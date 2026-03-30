@@ -16,6 +16,8 @@ add_library(velk_ui SHARED
     src/visual/rounded_rect_visual.h
     src/visual/rounded_rect_visual.cpp
     src/material/shader_material.h
+    src/import/align_type_extension.h
+    src/import/align_type_extension.cpp
     src/import/dim_type_extension.h
     src/import/dim_type_extension.cpp
     include/velk-ui/interface/intf_element.h

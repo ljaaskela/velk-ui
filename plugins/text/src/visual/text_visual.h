@@ -47,6 +47,8 @@ private:
     IFont::Ptr font_;
     GlyphAtlas atlas_;
     velk::vector<DrawCommand> cached_commands_;
+    float text_width_{};
+    float text_height_{};
 };
 
 } // namespace velk_ui

@@ -37,7 +37,7 @@ void Element::on_state_changed(velk::string_view name, velk::IMetadata& owner, v
     }
 
     DirtyFlags flag = DirtyFlags::None;
-    if (name == "position" || name == "size" || name == "local_transform") {
+    if (name == "position" || name == "size") {
         flag = DirtyFlags::Layout;
     } else if (name == "z_index") {
         flag = DirtyFlags::DrawOrder;

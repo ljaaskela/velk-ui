@@ -47,7 +47,6 @@ public:
     auto get_size() const { return read_state_value<IElement>(&IElement::State::size); }
     void set_size(const velk::size& v) { write_state_value<IElement>(&IElement::State::size, v); }
 
-    auto get_local_transform() const { return read_state_value<IElement>(&IElement::State::local_transform); }
     auto get_world_matrix() const { return read_state_value<IElement>(&IElement::State::world_matrix); }
 
     auto get_z_index() const { return read_state_value<IElement>(&IElement::State::z_index); }

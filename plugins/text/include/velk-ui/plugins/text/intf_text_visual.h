@@ -5,6 +5,7 @@
 #include <velk/string.h>
 
 #include <velk-ui/interface/intf_font.h>
+#include <velk-ui/types.h>
 
 namespace velk_ui {
 
@@ -18,7 +19,9 @@ class ITextVisual : public velk::Interface<ITextVisual>
 {
 public:
     VELK_INTERFACE(
-        (PROP, velk::string, text, {})  ///< Text content to render.
+        (PROP, velk::string, text, {}),          ///< Text content to render.
+        (PROP, velk_ui::HAlign, h_align, velk_ui::HAlign::Left),  ///< Horizontal text alignment.
+        (PROP, velk_ui::VAlign, v_align, velk_ui::VAlign::Top)    ///< Vertical text alignment.
     )
 
     /** @brief Sets the font used for shaping and rasterization. Takes ownership (shared). */

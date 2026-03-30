@@ -78,7 +78,7 @@ void LayoutSolver::solve_element(velk::IHierarchy& hierarchy, const velk::IObjec
         return;
     }
 
-    velk::mat4 world = parent_world * velk::mat4::translate(reader->position) * reader->local_transform;
+    velk::mat4 world = parent_world * velk::mat4::translate(reader->position);
     velk::write_state<IElement>(element, [&](IElement::State& s) { s.world_matrix = world; });
 
     // Recurse: each child gets its own allocated bounds (set by this element's Stack)

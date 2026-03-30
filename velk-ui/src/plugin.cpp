@@ -2,6 +2,7 @@
 
 #include "constraint/fixed_size.h"
 #include "element.h"
+#include "import/align_type_extension.h"
 #include "import/dim_type_extension.h"
 #include "layout/stack.h"
 #include "material/shader_material.h"
@@ -25,7 +26,10 @@ velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig
     rv &= velk::register_type<RoundedRectVisual>(velk);
     rv &= velk::register_type<ShaderMaterial>(velk);
     rv &= velk::register_type<DimTypeExtension>(velk);
+    rv &= velk::register_type<AlignTypeExtension>(velk);
     rv &= velk::register_type<velk::ext::AnyValue<dim>>(velk);
+    rv &= velk::register_type<velk::ext::AnyValue<HAlign>>(velk);
+    rv &= velk::register_type<velk::ext::AnyValue<VAlign>>(velk);
     return rv;
 }
 

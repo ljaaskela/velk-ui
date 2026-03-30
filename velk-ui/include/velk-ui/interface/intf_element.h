@@ -14,17 +14,16 @@ class IScene;
 /**
  * @brief Base interface for all UI elements.
  *
- * Provides position, size, transform, and z-ordering properties.
+ * Provides position, size, and z-ordering properties.
  * Visual appearance is defined by IVisual attachments (not by IElement itself).
- * The solver writes local_transform and world_matrix; user code reads them.
+ * The solver writes world_matrix; user code reads it.
  */
 class IElement : public velk::Interface<IElement, velk::IObject>
 {
 public:
     VELK_INTERFACE(
-        (PROP, velk::vec3, position, {}),         ///< Position in parent-local space.
-        (PROP, velk::size, size, {}),             ///< Element size (width, height).
-        (RPROP, velk::mat4, local_transform, {}), ///< Transform relative to parent. Written by solver.
+        (PROP, velk::vec3, position, {}),      ///< Position in parent-local space.
+        (PROP, velk::size, size, {}),          ///< Element size (width, height).
         (RPROP, velk::mat4, world_matrix, {}), ///< Computed world-space transform. Written by solver.
         (PROP, int32_t, z_index, 0)            ///< Draw order among siblings. Higher draws on top.
     )
