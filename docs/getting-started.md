@@ -68,7 +68,7 @@ Build UI in code using the API wrappers:
 
 ```cpp
 #include <velk-ui/api/element.h>
-#include <velk-ui/api/constraint/fixed_size.h>
+#include <velk-ui/api/trait/fixed_size.h>
 #include <velk-ui/api/visual/rect.h>
 
 auto elem = velk_ui::create_element();

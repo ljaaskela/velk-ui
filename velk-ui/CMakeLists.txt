@@ -15,6 +15,10 @@ add_library(velk_ui SHARED
     src/visual/rect_visual.cpp
     src/visual/rounded_rect_visual.h
     src/visual/rounded_rect_visual.cpp
+    src/transform/trs.h
+    src/transform/trs.cpp
+    src/transform/matrix.h
+    src/transform/matrix.cpp
     src/material/shader_material.h
     src/import/align_type_extension.h
     src/import/align_type_extension.cpp
@@ -24,17 +28,23 @@ add_library(velk_ui SHARED
     include/velk-ui/interface/intf_font.h
     include/velk-ui/interface/intf_render_context.h
     include/velk-ui/interface/intf_renderer.h
-    include/velk-ui/interface/intf_constraint.h
+    include/velk-ui/interface/intf_layout_trait.h
+    include/velk-ui/interface/intf_transform_trait.h
     include/velk-ui/interface/intf_scene.h
     include/velk-ui/interface/intf_surface.h
     include/velk-ui/interface/intf_scene_observer.h
-    include/velk-ui/interface/constraint/intf_stack.h
-    include/velk-ui/interface/constraint/intf_fixed_size.h
+    include/velk-ui/interface/trait/intf_stack.h
+    include/velk-ui/interface/trait/intf_fixed_size.h
+    include/velk-ui/interface/trait/intf_trs.h
+    include/velk-ui/interface/trait/intf_matrix.h
+    include/velk-ui/api/trait/trs.h
+    include/velk-ui/api/trait/matrix.h
     include/velk-ui/interface/intf_visual.h
     include/velk-ui/interface/intf_texture_provider.h
+    include/velk-ui/ext/trait.h
     include/velk-ui/ext/visual.h
-    include/velk-ui/api/constraint/fixed_size.h
-    include/velk-ui/api/constraint/stack.h
+    include/velk-ui/api/trait/fixed_size.h
+    include/velk-ui/api/trait/stack.h
     include/velk-ui/api/element.h
     include/velk-ui/api/material/shader.h
     include/velk-ui/api/scene.h

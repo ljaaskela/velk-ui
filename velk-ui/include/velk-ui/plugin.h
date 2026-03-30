@@ -23,6 +23,16 @@ inline constexpr velk::Uid FixedSize{"a7f3c1d2-8e4b-4f6a-9c5d-1b2e3f4a5b6c"};
 
 } // namespace Constraint
 
+namespace Transform {
+
+/** @brief Decomposed transform: translate, rotate (Z), scale. */
+inline constexpr velk::Uid Trs{"f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"};
+
+/** @brief Raw 4x4 matrix transform. */
+inline constexpr velk::Uid Matrix{"e2b3c4d5-f6a7-4e8b-9c0d-1e2f3a4b5c6d"};
+
+} // namespace Transform
+
 namespace Visual {
 
 /** @brief Solid color rectangle filling the element bounds. */

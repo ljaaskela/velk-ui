@@ -19,7 +19,7 @@ class RoundedRectVisual : public Visual
 public:
     RoundedRectVisual() = default;
     explicit RoundedRectVisual(velk::IObject::Ptr obj) : Visual(std::move(obj)) {}
-    explicit RoundedRectVisual(IVisual::Ptr v) : Visual(interface_pointer_cast<velk::IObject>(v)) {}
+    explicit RoundedRectVisual(IVisual::Ptr v) : Visual(velk::as_object(v)) {}
 };
 
 namespace visual {

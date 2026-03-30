@@ -9,53 +9,44 @@
 
 namespace velk_ui {
 
-ConstraintPhase Stack::get_phase() const
-{
-    return ConstraintPhase::Layout;
-}
-
 namespace {
 
 struct ChildInfo
 {
     velk::IObject::Ptr obj;
     IElement* element;
-    velk::vector<IConstraint*> constraints;
+    velk::vector<ILayoutTrait*> layout_traits;
     float measured_main = 0.f;
     bool fixed = false;
 };
 
-void collect_constraints(velk::IObject* obj, velk::vector<IConstraint*>& out)
+void collect_layout_traits(velk::IObject* obj, velk::vector<ILayoutTrait*>& out)
 {
     auto* storage = interface_cast<velk::IObjectStorage>(obj);
     if (!storage) {
         return;
     }
 
-    static constexpr velk::AttachmentQuery query{IConstraint::UID, {}};
+    static constexpr velk::AttachmentQuery query{ILayoutTrait::UID, {}};
     auto matches = storage->find_attachments(query);
     for (auto& att : matches) {
-        auto* constraint = interface_cast<IConstraint>(att);
-        if (constraint) {
-            out.push_back(constraint);
+        auto* lt = interface_cast<ILayoutTrait>(att);
+        if (lt) {
+            out.push_back(lt);
         }
     }
 }
 
 } // namespace
 
-Constraint Stack::measure(const Constraint& c, IElement& element, velk::IHierarchy* hierarchy)
+Constraint Stack::measure(const Constraint& c, IElement& element, velk::IHierarchy& hierarchy)
 {
     // Stack fills its parent bounds
     return c;
 }
 
-void Stack::apply(const Constraint& c, IElement& element, velk::IHierarchy* hierarchy)
+void Stack::apply(const Constraint& c, IElement& element, velk::IHierarchy& hierarchy)
 {
-    if (!hierarchy) {
-        return;
-    }
-
     auto state = velk::read_state<IStack>(this);
     if (!state) {
         return;
@@ -69,7 +60,7 @@ void Stack::apply(const Constraint& c, IElement& element, velk::IHierarchy* hier
         return;
     }
     auto self = obj->get_self();
-    auto children = hierarchy->children_of(self);
+    auto children = hierarchy.children_of(self);
     if (children.empty()) {
         return;
     }
@@ -91,27 +82,27 @@ void Stack::apply(const Constraint& c, IElement& element, velk::IHierarchy* hier
             continue;
         }
 
-        collect_constraints(child_ptr.get(), info.constraints);
+        collect_layout_traits(child_ptr.get(), info.layout_traits);
 
         // Sort: Constraint-phase first for measuring
-        std::sort(info.constraints.begin(), info.constraints.end(), [](IConstraint* a, IConstraint* b) {
+        std::sort(info.layout_traits.begin(), info.layout_traits.end(), [](ILayoutTrait* a, ILayoutTrait* b) {
             return static_cast<uint8_t>(a->get_phase()) > static_cast<uint8_t>(b->get_phase());
         });
 
-        // Run measure on constraint-phase constraints to determine fixed sizes
+        // Run measure on constraint-phase traits to determine fixed sizes
         Constraint child_c;
         child_c.bounds.extent.width = (axis == 1) ? cross_available : remaining;
         child_c.bounds.extent.height = (axis == 1) ? remaining : cross_available;
 
-        for (auto* con : info.constraints) {
-            if (con->get_phase() == ConstraintPhase::Constraint) {
-                child_c = con->measure(child_c, *info.element, hierarchy);
+        for (auto* lt : info.layout_traits) {
+            if (lt->get_phase() == TraitPhase::Constraint) {
+                child_c = lt->measure(child_c, *info.element, hierarchy);
             }
         }
 
         float measured = (axis == 1) ? child_c.bounds.extent.height : child_c.bounds.extent.width;
 
-        // Check if a constraint-phase constraint set a fixed size on the main axis
+        // Check if a constraint-phase trait set a fixed size on the main axis
         float original = (axis == 1) ? remaining : remaining;
         if (measured != original) {
             info.fixed = true;
@@ -159,15 +150,15 @@ void Stack::apply(const Constraint& c, IElement& element, velk::IHierarchy* hier
             }
         });
 
-        // Apply constraint-phase constraints on the child
+        // Apply constraint-phase traits on the child
         Constraint child_c;
         child_c.bounds.position = velk::read_state<IElement>(info.element)->position;
         child_c.bounds.extent.width = (axis == 1) ? child_cross : child_main;
         child_c.bounds.extent.height = (axis == 1) ? child_main : child_cross;
 
-        for (auto* con : info.constraints) {
-            if (con->get_phase() == ConstraintPhase::Constraint) {
-                con->apply(child_c, *info.element, hierarchy);
+        for (auto* lt : info.layout_traits) {
+            if (lt->get_phase() == TraitPhase::Constraint) {
+                lt->apply(child_c, *info.element, hierarchy);
             }
         }
 

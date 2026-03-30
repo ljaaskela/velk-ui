@@ -7,6 +7,8 @@
 #include "layout/stack.h"
 #include "material/shader_material.h"
 #include "scene.h"
+#include "transform/matrix.h"
+#include "transform/trs.h"
 #include "visual/rect_visual.h"
 #include "visual/rounded_rect_visual.h"
 
@@ -25,6 +27,8 @@ velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig
     rv &= velk::register_type<RectVisual>(velk);
     rv &= velk::register_type<RoundedRectVisual>(velk);
     rv &= velk::register_type<ShaderMaterial>(velk);
+    rv &= velk::register_type<Trs>(velk);
+    rv &= velk::register_type<Matrix>(velk);
     rv &= velk::register_type<DimTypeExtension>(velk);
     rv &= velk::register_type<AlignTypeExtension>(velk);
     rv &= velk::register_type<velk::ext::AnyValue<dim>>(velk);

@@ -32,7 +32,7 @@ public:
     {}
 
     explicit Element(IElement::Ptr e)
-        : Node(make_node(e ? interface_pointer_cast<velk::IObject>(e) : velk::IObject::Ptr{}))
+        : Node(make_node(e ? velk::as_object(e) : velk::IObject::Ptr{}))
     {}
 
     explicit Element(velk::Node node)

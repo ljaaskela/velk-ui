@@ -1,10 +1,10 @@
-#ifndef VELK_UI_API_CONSTRAINT_FIXED_SIZE_H
-#define VELK_UI_API_CONSTRAINT_FIXED_SIZE_H
+#ifndef VELK_UI_API_TRAIT_FIXED_SIZE_H
+#define VELK_UI_API_TRAIT_FIXED_SIZE_H
 
 #include <velk/api/state.h>
 
 #include <velk-ui/api/trait.h>
-#include <velk-ui/interface/constraint/intf_fixed_size.h>
+#include <velk-ui/interface/trait/intf_fixed_size.h>
 #include <velk-ui/plugin.h>
 
 namespace velk_ui {
@@ -28,7 +28,7 @@ public:
     explicit FixedSize(velk::IObject::Ptr obj) : Trait(check_object<IFixedSize>(obj)) {}
 
     /** @brief Wraps an existing IFixedSize pointer. */
-    explicit FixedSize(IFixedSize::Ptr f) : Trait(interface_pointer_cast<velk::IObject>(f)) {}
+    explicit FixedSize(IFixedSize::Ptr f) : Trait(velk::as_object(f)) {}
 
     /** @brief Implicit conversion to IFixedSize::Ptr. */
     operator IFixedSize::Ptr() const { return as_ptr<IFixedSize>(); }
@@ -60,11 +60,11 @@ namespace constraint {
 /** @brief Creates a new FixedSize constraint. */
 inline FixedSize create_fixed_size()
 {
-    return FixedSize(velk::instance().create<velk::IObject>(ClassId::Constraint::FixedSize));
+    return FixedSize(velk::instance().create<IFixedSize>(ClassId::Constraint::FixedSize));
 }
 
 } // namespace constraint
 
 } // namespace velk_ui
 
-#endif // VELK_UI_API_CONSTRAINT_FIXED_SIZE_H
+#endif // VELK_UI_API_TRAIT_FIXED_SIZE_H

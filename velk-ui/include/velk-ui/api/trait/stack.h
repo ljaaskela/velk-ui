@@ -1,10 +1,10 @@
-#ifndef VELK_UI_API_CONSTRAINT_STACK_H
-#define VELK_UI_API_CONSTRAINT_STACK_H
+#ifndef VELK_UI_API_TRAIT_STACK_H
+#define VELK_UI_API_TRAIT_STACK_H
 
 #include <velk/api/state.h>
 
 #include <velk-ui/api/trait.h>
-#include <velk-ui/interface/constraint/intf_stack.h>
+#include <velk-ui/interface/trait/intf_stack.h>
 #include <velk-ui/plugin.h>
 
 namespace velk_ui {
@@ -28,7 +28,7 @@ public:
     explicit Stack(velk::IObject::Ptr obj) : Trait(check_object<IStack>(obj)) {}
 
     /** @brief Wraps an existing IStack pointer. */
-    explicit Stack(IStack::Ptr s) : Trait(interface_pointer_cast<velk::IObject>(s)) {}
+    explicit Stack(IStack::Ptr s) : Trait(velk::as_object(s)) {}
 
     /** @brief Implicit conversion to IStack::Ptr. */
     operator IStack::Ptr() const { return as_ptr<IStack>(); }
@@ -51,11 +51,11 @@ namespace constraint {
 /** @brief Creates a new Stack constraint. */
 inline Stack create_stack()
 {
-    return Stack(velk::instance().create<velk::IObject>(ClassId::Constraint::Stack));
+    return Stack(velk::instance().create<IStack>(ClassId::Constraint::Stack));
 }
 
 } // namespace constraint
 
 } // namespace velk_ui
 
-#endif // VELK_UI_API_CONSTRAINT_STACK_H
+#endif // VELK_UI_API_TRAIT_STACK_H

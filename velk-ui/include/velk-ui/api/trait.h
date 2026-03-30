@@ -22,7 +22,7 @@ public:
     /** @brief Wraps an existing IObject pointer, rejected if it does not implement ITrait. */
     explicit Trait(velk::IObject::Ptr obj) : Object(check_object<ITrait>(obj)) {}
 
-    explicit Trait(ITrait::Ptr t) : velk::Object(interface_pointer_cast<velk::IObject>(t)) {}
+    explicit Trait(ITrait::Ptr t) : velk::Object(velk::as_object(t)) {}
 
     /** @brief Implicit conversion to ITrait::Ptr. */
     operator ITrait::Ptr() const { return as_ptr<ITrait>(); }

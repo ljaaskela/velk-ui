@@ -29,7 +29,7 @@ public:
     explicit Scene(velk::IObject::Ptr obj) : velk::Hierarchy(check_object<IScene>(obj)) {}
 
     /** @brief Wraps an existing IScene pointer. */
-    explicit Scene(IScene::Ptr scene) : velk::Hierarchy(interface_pointer_cast<velk::IObject>(scene)) {}
+    explicit Scene(IScene::Ptr scene) : velk::Hierarchy(velk::as_object(scene)) {}
 
     /** @brief Implicit conversion to IScene::Ptr. */
     operator IScene::Ptr() const { return as_ptr<IScene>(); }

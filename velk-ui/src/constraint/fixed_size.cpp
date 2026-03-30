@@ -6,12 +6,7 @@
 
 namespace velk_ui {
 
-ConstraintPhase FixedSize::get_phase() const
-{
-    return ConstraintPhase::Constraint;
-}
-
-Constraint FixedSize::measure(const Constraint& c, IElement& element, velk::IHierarchy*)
+Constraint FixedSize::measure(const Constraint& c, IElement& element, velk::IHierarchy&)
 {
     auto state = velk::read_state<IFixedSize>(this);
     if (!state) {
@@ -32,7 +27,7 @@ Constraint FixedSize::measure(const Constraint& c, IElement& element, velk::IHie
     return result;
 }
 
-void FixedSize::apply(const Constraint& c, IElement& element, velk::IHierarchy*)
+void FixedSize::apply(const Constraint& c, IElement& element, velk::IHierarchy&)
 {
     velk::write_state<IElement>(&element, [&](IElement::State& s) {
         s.size.width = c.bounds.extent.width;

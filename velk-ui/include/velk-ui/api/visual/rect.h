@@ -24,7 +24,7 @@ public:
     explicit RectVisual(velk::IObject::Ptr obj) : Visual(std::move(obj)) {}
 
     /** @brief Wraps an existing IVisual pointer. */
-    explicit RectVisual(IVisual::Ptr v) : Visual(interface_pointer_cast<velk::IObject>(v)) {}
+    explicit RectVisual(IVisual::Ptr v) : Visual(velk::as_object(v)) {}
 };
 
 namespace visual {
