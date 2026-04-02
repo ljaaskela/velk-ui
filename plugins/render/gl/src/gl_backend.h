@@ -24,6 +24,7 @@ public:
     void update_surface(uint64_t surface_id, const SurfaceDesc& desc) override;
 
     bool register_pipeline(uint64_t pipeline_key, const PipelineDesc& desc) override;
+    velk::vector<UniformInfo> get_pipeline_uniforms(uint64_t pipeline_key) const override;
     void upload_texture(uint64_t texture_key,
                         const uint8_t* pixels, int width, int height) override;
 
@@ -35,9 +36,7 @@ private:
     struct PipelineEntry
     {
         uint32_t program = 0;
-        int proj_uniform = -1;
-        int rect_uniform = -1;
-        int atlas_uniform = -1;
+        velk::vector<UniformInfo> uniforms; ///< All active uniforms (introspected at registration).
     };
 
     struct SurfaceInfo

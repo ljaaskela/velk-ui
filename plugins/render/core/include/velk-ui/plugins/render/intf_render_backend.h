@@ -15,6 +15,7 @@ namespace PipelineKey {
 inline constexpr uint64_t Rect = 1;
 inline constexpr uint64_t Text = 2;
 inline constexpr uint64_t RoundedRect = 3;
+inline constexpr uint64_t Gradient = 4;
 inline constexpr uint64_t CustomBase = 1000;
 } // namespace PipelineKey
 
@@ -44,6 +45,22 @@ struct PipelineDesc
     uint64_t vertex_format_key{};
 };
 
+/** @brief Descriptor for a shader uniform discovered via introspection. */
+struct UniformInfo
+{
+    velk::string name;   ///< Uniform name in the shader (e.g. "u_start_color").
+    velk::Uid typeUid;   ///< Mapped velk type UID (float, color/vec4, mat4).
+    int location{-1};    ///< Backend-specific location handle.
+};
+
+/** @brief A uniform value to be set on the GPU before a draw call. */
+struct UniformValue
+{
+    int location{-1};
+    velk::Uid typeUid;
+    float data[16]{};    ///< Enough for mat4; smaller types use a prefix.
+};
+
 /**
  * @brief Internal batch representation.
  *
@@ -58,6 +75,9 @@ struct RenderBatch
     velk::vector<uint8_t> instance_data;
     uint32_t instance_stride{};
     uint32_t instance_count{};
+
+    /// Per-batch uniform values for material properties.
+    velk::vector<UniformValue> uniforms;
 
     /// Per-batch element rect (screen space). Set for custom material batches.
     velk::rect rect{};
@@ -82,6 +102,9 @@ public:
     virtual void update_surface(uint64_t surface_id, const SurfaceDesc& desc) = 0;
 
     virtual bool register_pipeline(uint64_t pipeline_key, const PipelineDesc& desc) = 0;
+
+    /** @brief Returns the active uniforms for a registered pipeline. */
+    virtual velk::vector<UniformInfo> get_pipeline_uniforms(uint64_t pipeline_key) const = 0;
     virtual void upload_texture(uint64_t texture_key,
                                 const uint8_t* pixels,
                                 int width, int height) = 0;

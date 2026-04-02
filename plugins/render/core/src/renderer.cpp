@@ -1,10 +1,9 @@
 #include "renderer.h"
-#include "default_shaders.h"
 
+#include <velk/api/any.h>
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
-#include <velk-ui/interface/intf_material.h>
 #include <velk-ui/interface/intf_visual.h>
 
 #include <cstring>
@@ -18,16 +17,6 @@
 namespace velk_ui {
 
 namespace {
-
-uint64_t hash_string(velk::string_view s)
-{
-    uint64_t h = 14695981039346656037ULL;
-    for (size_t i = 0; i < s.size(); ++i) {
-        h ^= static_cast<uint64_t>(static_cast<uint8_t>(s[i]));
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
 
 uint64_t make_batch_key(uint64_t pipeline, uint64_t format, uint64_t texture)
 {
@@ -43,9 +32,10 @@ void pack_instance(velk::vector<uint8_t>& buf, const float* data, uint32_t strid
 
 } // namespace
 
-void Renderer::set_backend(const IRenderBackend::Ptr& backend)
+void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx)
 {
     backend_ = backend;
+    render_ctx_ = ctx;
 }
 
 void Renderer::attach(const ISurface::Ptr& surface, const IScene::Ptr& scene)
@@ -116,26 +106,12 @@ void Renderer::rebuild_commands(IElement* element)
             auto vstate = velk::read_state<IVisual>(visual);
             auto mat_obj = (vstate && vstate->paint) ? vstate->paint.get() : velk::IObject::Ptr{};
             auto* mat = mat_obj ? interface_cast<IMaterial>(mat_obj) : nullptr;
-            if (mat) {
-                auto mstate = velk::read_state<IMaterial>(mat);
-                if (mstate && !mstate->fragment_source.empty()) {
-                    auto src_hash = hash_string(mstate->fragment_source);
-                    auto it = material_hash_to_pipeline_.find(src_hash);
-                    if (it != material_hash_to_pipeline_.end()) {
-                        vc.pipeline_key = it->second;
-                    } else {
-                        uint64_t key = next_pipeline_key_++;
-                        material_hash_to_pipeline_[src_hash] = key;
-                        vc.pipeline_key = key;
-
-                        if (backend_) {
-                            PipelineDesc desc{
-                                rect_vertex_src,
-                                mstate->fragment_source.c_str(),
-                                VertexFormat::Untextured};
-                            backend_->register_pipeline(key, desc);
-                        }
-                    }
+            if (mat && render_ctx_) {
+                uint64_t handle = mat->get_pipeline_handle(*render_ctx_);
+                if (handle != 0) {
+                    vc.pipeline_key = handle;
+                    vc.material = mat;
+                    populate_uniform_bindings(vc, mat);
                 }
             }
 
@@ -235,6 +211,11 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
             if (needs_rect && !batch.has_rect) {
                 batch.rect = {x, y, w, h};
                 batch.has_rect = true;
+
+                // Fill material uniforms for this batch (once per batch creation)
+                if (vc.material) {
+                    fill_batch_uniforms(batch, vc, x, y, w, h);
+                }
             }
 
             batch.instance_count++;
@@ -326,6 +307,105 @@ void Renderer::render()
     }
 }
 
+void Renderer::populate_uniform_bindings(VisualCommands& vc, IMaterial* mat)
+{
+    if (!backend_) return;
+
+    uint64_t key = vc.pipeline_key;
+
+    // Get or cache pipeline uniforms
+    auto uit = pipeline_uniforms_.find(key);
+    if (uit == pipeline_uniforms_.end()) {
+        pipeline_uniforms_[key] = backend_->get_pipeline_uniforms(key);
+        uit = pipeline_uniforms_.find(key);
+    }
+
+    auto* meta = interface_cast<velk::IMetadata>(mat);
+    if (!meta) return;
+
+    RENDER_LOG("populate_uniform_bindings: pipeline=%llu, uniform_count=%zu",
+               key, uit->second.size());
+
+    vc.uniform_bindings.clear();
+    for (auto& info : uit->second) {
+        // Skip renderer-managed uniforms
+        if (info.name == "u_projection" || info.name == "u_rect") {
+            continue;
+        }
+
+        // Try to find a property matching the uniform name (strip u_ prefix)
+        velk::string_view prop_name = info.name;
+        if (prop_name.size() > 2 && prop_name[0] == 'u' && prop_name[1] == '_') {
+            prop_name = velk::string_view(prop_name.data() + 2, prop_name.size() - 2);
+        }
+
+        auto prop = meta->get_property(prop_name, velk::Resolve::Existing);
+        if (!prop) {
+            prop = meta->get_property(prop_name, velk::Resolve::Create);
+        }
+
+        if (prop) {
+            RENDER_LOG("  bound uniform '%.*s' -> property '%.*s' loc=%d",
+                       static_cast<int>(info.name.size()), info.name.data(),
+                       static_cast<int>(prop_name.size()), prop_name.data(),
+                       info.location);
+            UniformBinding binding;
+            binding.location = info.location;
+            binding.typeUid = info.typeUid;
+            binding.property = prop;
+            vc.uniform_bindings.push_back(std::move(binding));
+        } else {
+            RENDER_LOG("  uniform '%.*s' -> no property '%.*s'",
+                       static_cast<int>(info.name.size()), info.name.data(),
+                       static_cast<int>(prop_name.size()), prop_name.data());
+        }
+    }
+}
+
+void Renderer::fill_batch_uniforms(RenderBatch& batch, const VisualCommands& vc,
+                                   float x, float y, float w, float h) const
+{
+    // Projection uniform
+    auto proj_it = pipeline_uniforms_.find(batch.pipeline_key);
+    if (proj_it != pipeline_uniforms_.end()) {
+        for (auto& info : proj_it->second) {
+            if (info.name == "u_projection") {
+                // Projection is set per-frame; we don't have it here.
+                // The backend still needs it. We'll pack it from the entry.
+                // For now, leave it for the caller to set.
+            } else if (info.name == "u_rect") {
+                UniformValue uv;
+                uv.location = info.location;
+                uv.typeUid = info.typeUid;
+                uv.data[0] = x;
+                uv.data[1] = y;
+                uv.data[2] = w;
+                uv.data[3] = h;
+                batch.uniforms.push_back(uv);
+            }
+        }
+    }
+
+    // Material property uniforms
+    for (auto& binding : vc.uniform_bindings) {
+        if (!binding.property) continue;
+
+        UniformValue uv;
+        uv.location = binding.location;
+        uv.typeUid = binding.typeUid;
+
+        auto val = binding.property->get_value();
+        if (val) {
+            size_t data_size = val->get_data_size(binding.typeUid);
+            if (data_size > 0 && data_size <= sizeof(uv.data)) {
+                val->get_data(uv.data, data_size, binding.typeUid);
+            }
+        }
+
+        batch.uniforms.push_back(uv);
+    }
+}
+
 void Renderer::shutdown()
 {
     if (backend_) {
@@ -339,7 +419,7 @@ void Renderer::shutdown()
     element_cache_.clear();
     batch_index_.clear();
     batches_.clear();
-    material_hash_to_pipeline_.clear();
+    pipeline_uniforms_.clear();
 }
 
 } // namespace velk_ui

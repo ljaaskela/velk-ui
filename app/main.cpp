@@ -3,6 +3,7 @@
 #include <velk/interface/intf_plugin_registry.h>
 
 #include <GLFW/glfw3.h>
+#include <velk-ui/api/material/gradient.h>
 #include <velk-ui/api/material/shader.h>
 #include <velk-ui/api/render_context.h>
 #include <velk-ui/api/scene.h>
@@ -91,22 +92,8 @@ int main(int argc, char* argv[])
         auto root = scene.root();
         auto bg = velk_ui::visual::create_rect();
         bg.set_color(velk::color::red());
-
-        auto mat = velk_ui::material::create_shader();
-        mat.set_fragment_source(R"(
-            #version 330 core
-            in vec4 v_color;
-            out vec4 frag_color;
-            uniform vec4 u_rect;
-            void main()
-            {
-                float t = 1.0 - gl_FragCoord.y / max(u_rect.w, 1.0);
-                vec3 top = vec3(0.05, 0.07, 0.15);
-                vec3 bot = vec3(0.18, 0.12, 0.28);
-                frag_color = vec4(mix(top, bot, t), 1.0);
-            }
-        )");
-        bg.set_paint(mat);
+        bg.set_paint(velk_ui::material::create_gradient(
+            velk::color{0.05, 0.07, 0.15, 1.f}, velk::color{0.18, 0.12, 0.28, 1.f}, 90.f));
 
         root.add_trait(bg);
     }

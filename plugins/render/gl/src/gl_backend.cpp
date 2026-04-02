@@ -93,6 +93,19 @@ void setup_textured_vao(GLuint vao, GLuint vbo)
     glBindVertexArray(0);
 }
 
+velk::Uid gl_type_to_velk_uid(GLenum gl_type)
+{
+    switch (gl_type) {
+    case GL_FLOAT:      return velk::type_uid<float>();
+    case GL_FLOAT_VEC2: return velk::type_uid<velk::vec2>();
+    case GL_FLOAT_VEC4: return velk::type_uid<velk::color>(); // vec4 and color are the same layout
+    case GL_FLOAT_MAT4: return velk::type_uid<velk::mat4>();
+    case GL_INT:        return velk::type_uid<int32_t>();
+    case GL_SAMPLER_2D: return velk::type_uid<int32_t>(); // sampler bound as int
+    default:            return {};
+    }
+}
+
 } // namespace
 
 GlBackend::~GlBackend()
@@ -180,7 +193,6 @@ void GlBackend::update_surface(uint64_t surface_id, const SurfaceDesc& desc)
 
 bool GlBackend::register_pipeline(uint64_t pipeline_key, const PipelineDesc& desc)
 {
-    // Check if already registered
     if (pipelines_.count(pipeline_key)) {
         return true;
     }
@@ -192,12 +204,41 @@ bool GlBackend::register_pipeline(uint64_t pipeline_key, const PipelineDesc& des
 
     PipelineEntry entry;
     entry.program = program;
-    entry.proj_uniform = glGetUniformLocation(program, "u_projection");
-    entry.rect_uniform = glGetUniformLocation(program, "u_rect");
-    entry.atlas_uniform = glGetUniformLocation(program, "u_atlas");
-    pipelines_[pipeline_key] = entry;
 
+    // Introspect all active uniforms
+    GLint uniform_count = 0;
+    glGetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniform_count);
+    for (GLint i = 0; i < uniform_count; ++i) {
+        char name_buf[128];
+        GLsizei name_len = 0;
+        GLint size = 0;
+        GLenum gl_type = 0;
+        glGetActiveUniform(program, static_cast<GLuint>(i), sizeof(name_buf),
+                           &name_len, &size, &gl_type, name_buf);
+
+        int location = glGetUniformLocation(program, name_buf);
+        if (location < 0) {
+            continue;
+        }
+
+        UniformInfo info;
+        info.name = velk::string(name_buf, static_cast<size_t>(name_len));
+        info.typeUid = gl_type_to_velk_uid(gl_type);
+        info.location = location;
+        entry.uniforms.push_back(std::move(info));
+    }
+
+    pipelines_[pipeline_key] = std::move(entry);
     return true;
+}
+
+velk::vector<UniformInfo> GlBackend::get_pipeline_uniforms(uint64_t pipeline_key) const
+{
+    auto it = pipelines_.find(pipeline_key);
+    if (it != pipelines_.end()) {
+        return it->second.uniforms;
+    }
+    return {};
 }
 
 void GlBackend::upload_texture(uint64_t texture_key,
@@ -284,15 +325,44 @@ void GlBackend::submit(velk::array_view<const RenderBatch> batches)
         }
 
         glUseProgram(pipeline.program);
-        if (pipeline.proj_uniform >= 0) {
-            glUniformMatrix4fv(pipeline.proj_uniform, 1, GL_FALSE, projection_);
+
+        // Set u_projection and u_atlas from introspected pipeline uniforms
+        for (auto& info : pipeline.uniforms) {
+            if (info.location < 0) continue;
+            if (info.name == "u_projection") {
+                glUniformMatrix4fv(info.location, 1, GL_FALSE, projection_);
+            }
         }
 
-        // Set per-batch element rect uniform (for custom materials)
-        if (batch.has_rect && pipeline.rect_uniform >= 0) {
-            glUniform4f(pipeline.rect_uniform,
-                        batch.rect.x, batch.rect.y,
-                        batch.rect.width, batch.rect.height);
+        // Set per-batch element rect uniform (legacy path for backwards compat)
+        if (batch.has_rect) {
+            for (auto& info : pipeline.uniforms) {
+                if (info.name == "u_rect" && info.location >= 0) {
+                    glUniform4f(info.location,
+                                batch.rect.x, batch.rect.y,
+                                batch.rect.width, batch.rect.height);
+                    break;
+                }
+            }
+        }
+
+        // Set all per-batch material uniforms
+        for (auto& u : batch.uniforms) {
+            if (u.location < 0) {
+                continue;
+            }
+            if (u.typeUid == velk::type_uid<float>()) {
+                glUniform1f(u.location, u.data[0]);
+            } else if (u.typeUid == velk::type_uid<velk::color>()
+                       || u.typeUid == velk::type_uid<velk::vec4>()) {
+                glUniform4f(u.location, u.data[0], u.data[1], u.data[2], u.data[3]);
+            } else if (u.typeUid == velk::type_uid<velk::mat4>()) {
+                glUniformMatrix4fv(u.location, 1, GL_FALSE, u.data);
+            } else if (u.typeUid == velk::type_uid<int32_t>()) {
+                glUniform1i(u.location, static_cast<GLint>(u.data[0]));
+            } else if (u.typeUid == velk::type_uid<velk::vec2>()) {
+                glUniform2f(u.location, u.data[0], u.data[1]);
+            }
         }
 
         // Bind texture if present
@@ -301,8 +371,11 @@ void GlBackend::submit(velk::array_view<const RenderBatch> batches)
             if (tit != textures_.end()) {
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, tit->second);
-                if (pipeline.atlas_uniform >= 0) {
-                    glUniform1i(pipeline.atlas_uniform, 0);
+                for (auto& info : pipeline.uniforms) {
+                    if (info.name == "u_atlas" && info.location >= 0) {
+                        glUniform1i(info.location, 0);
+                        break;
+                    }
                 }
             }
         }

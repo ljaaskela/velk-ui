@@ -20,6 +20,8 @@ add_library(velk_ui SHARED
     src/transform/matrix.h
     src/transform/matrix.cpp
     src/material/shader_material.h
+    src/material/gradient_material.h
+    src/material/gradient_material.cpp
     src/import/align_type_extension.h
     src/import/align_type_extension.cpp
     src/import/dim_type_extension.h
@@ -46,13 +48,16 @@ add_library(velk_ui SHARED
     include/velk-ui/api/trait/fixed_size.h
     include/velk-ui/api/trait/stack.h
     include/velk-ui/api/element.h
+    include/velk-ui/api/material/gradient.h
     include/velk-ui/api/material/shader.h
     include/velk-ui/api/scene.h
     include/velk-ui/api/trait.h
     include/velk-ui/api/visual.h
     include/velk-ui/api/visual/rect.h
     include/velk-ui/api/visual/rounded_rect.h
+    include/velk-ui/interface/intf_gradient.h
     include/velk-ui/interface/intf_material.h
+    include/velk-ui/interface/intf_material_internal.h
     include/velk-ui/interface/intf_trait.h
     include/velk-ui/plugin.h
     include/velk-ui/types.h

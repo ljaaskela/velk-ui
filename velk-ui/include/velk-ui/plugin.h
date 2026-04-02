@@ -48,6 +48,9 @@ namespace Material {
 /** @brief Custom fragment shader material. */
 inline constexpr velk::Uid Shader{"d1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a"};
 
+/** @brief Built-in linear gradient material. */
+inline constexpr velk::Uid Gradient{"f2a3b4c5-d6e7-4f8a-9b0c-1d2e3f4a5b6c"};
+
 } // namespace Material
 
 } // namespace ClassId

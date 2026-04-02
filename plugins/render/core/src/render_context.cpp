@@ -6,6 +6,8 @@
 
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
+#include <velk-ui/interface/intf_material_internal.h>
+#include <velk-ui/plugin.h>
 
 namespace velk_ui {
 
@@ -97,10 +99,37 @@ IRenderer::Ptr RenderContextImpl::create_renderer()
 
     auto* internal = interface_cast<IRendererInternal>(obj);
     if (internal) {
-        internal->set_backend(backend_);
+        internal->set_backend(backend_, this);
     }
 
     return interface_pointer_cast<IRenderer>(obj);
+}
+
+velk::IObject::Ptr RenderContextImpl::create_shader_material(const char* fragment_source,
+                                                              const char* vertex_source)
+{
+    if (!initialized_ || !backend_ || !fragment_source) {
+        return nullptr;
+    }
+
+    uint64_t key = next_pipeline_key_++;
+    PipelineDesc desc{vertex_source ? vertex_source : rect_vertex_src,
+                      fragment_source, VertexFormat::Untextured};
+    if (!backend_->register_pipeline(key, desc)) {
+        return nullptr;
+    }
+
+    auto obj = velk::instance().create<velk::IObject>(ClassId::Material::Shader);
+    if (!obj) {
+        return nullptr;
+    }
+
+    auto* internal = interface_cast<IMaterialInternal>(obj);
+    if (internal) {
+        internal->set_pipeline_handle(key);
+    }
+
+    return obj;
 }
 
 } // namespace velk_ui

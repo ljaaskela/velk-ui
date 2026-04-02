@@ -17,10 +17,13 @@ public:
     bool init(const RenderConfig& config) override;
     ISurface::Ptr create_surface(int width, int height) override;
     IRenderer::Ptr create_renderer() override;
+    velk::IObject::Ptr create_shader_material(const char* fragment_source,
+                                              const char* vertex_source = nullptr) override;
 
 private:
     IRenderBackend::Ptr backend_;
     uint64_t next_surface_id_ = 1;
+    uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
     bool initialized_ = false;
 };
 

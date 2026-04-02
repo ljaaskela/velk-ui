@@ -4,9 +4,11 @@
 #include "intf_renderer_internal.h"
 
 #include <velk/ext/object.h>
+#include <velk/interface/intf_property.h>
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-ui/interface/intf_material.h>
 #include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
 #include <velk-ui/interface/intf_texture_provider.h>
@@ -22,7 +24,8 @@ public:
     VELK_CLASS_UID(ClassId::Renderer, "Renderer");
 
     // IRendererInternal
-    void set_backend(const IRenderBackend::Ptr& backend) override;
+    void set_backend(const IRenderBackend::Ptr& backend,
+                     IRenderContext* ctx) override;
 
     // IRenderer
     void attach(const ISurface::Ptr& surface, const IScene::Ptr& scene) override;
@@ -31,10 +34,19 @@ public:
     void shutdown() override;
 
 private:
+    struct UniformBinding
+    {
+        int location = -1;
+        velk::Uid typeUid;
+        velk::IProperty::Ptr property;
+    };
+
     struct VisualCommands
     {
         velk::vector<DrawCommand> commands;
         uint64_t pipeline_key = 0;
+        IMaterial* material = nullptr;
+        velk::vector<UniformBinding> uniform_bindings;
     };
 
     struct ElementCache
@@ -57,15 +69,21 @@ private:
     void rebuild_batches(const SceneState& state, const SurfaceEntry& entry);
 
     IRenderBackend::Ptr backend_;
+    IRenderContext* render_ctx_ = nullptr;
     velk::vector<SurfaceEntry> surfaces_;
     std::unordered_map<IElement*, ElementCache> element_cache_;
 
     std::unordered_map<uint64_t, size_t> batch_index_;
     velk::vector<RenderBatch> batches_;
 
-    std::unordered_map<uint64_t, uint64_t> material_hash_to_pipeline_;
-    uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
+    // Cached pipeline uniform info (introspected once per pipeline)
+    std::unordered_map<uint64_t, velk::vector<UniformInfo>> pipeline_uniforms_;
+
     uint64_t next_surface_id_ = 1;
+
+    void populate_uniform_bindings(VisualCommands& vc, IMaterial* mat);
+    void fill_batch_uniforms(RenderBatch& batch, const VisualCommands& vc,
+                             float x, float y, float w, float h) const;
 };
 
 } // namespace velk_ui

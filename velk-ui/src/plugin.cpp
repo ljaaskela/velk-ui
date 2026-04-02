@@ -5,6 +5,7 @@
 #include "import/align_type_extension.h"
 #include "import/dim_type_extension.h"
 #include "layout/stack.h"
+#include "material/gradient_material.h"
 #include "material/shader_material.h"
 #include "scene.h"
 #include "transform/matrix.h"
@@ -27,6 +28,7 @@ velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig
     rv &= velk::register_type<RectVisual>(velk);
     rv &= velk::register_type<RoundedRectVisual>(velk);
     rv &= velk::register_type<ShaderMaterial>(velk);
+    rv &= velk::register_type<GradientMaterial>(velk);
     rv &= velk::register_type<Trs>(velk);
     rv &= velk::register_type<Matrix>(velk);
     rv &= velk::register_type<DimTypeExtension>(velk);

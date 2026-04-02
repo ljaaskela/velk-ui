@@ -33,6 +33,21 @@ public:
     {
         return with<IRenderContext>([&](auto& ctx) { return ctx.create_renderer(); });
     }
+
+    /**
+     * @brief Creates a shader material from GLSL source.
+     * @param fragment_source GLSL fragment shader source.
+     * @param vertex_source Optional vertex shader (uses default instanced quad if nullptr).
+     * @return An IObject implementing IMaterial with the pipeline handle set,
+     *         or nullptr on compilation failure.
+     */
+    velk::IObject::Ptr create_shader_material(const char* fragment_source,
+                                              const char* vertex_source = nullptr)
+    {
+        return with<IRenderContext>([&](auto& ctx) {
+            return ctx.create_shader_material(fragment_source, vertex_source);
+        });
+    }
 };
 
 /**
