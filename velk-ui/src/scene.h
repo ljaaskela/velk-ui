@@ -11,13 +11,14 @@
 #include <velk-ui/interface/intf_element.h>
 #include <velk-ui/interface/intf_scene.h>
 #include <velk-ui/interface/intf_scene_observer.h>
+#include <velk-ui/plugin.h>
 
 namespace velk_ui {
 
 class Scene : public velk::ext::Object<Scene, IScene>
 {
 public:
-    VELK_CLASS_UID("c9f5e3a4-0b6d-4f8c-ae7f-3d4e5a6b7c8d", "Scene");
+    VELK_CLASS_UID(ClassId::Scene, "Scene");
 
     Scene();
     ~Scene() override;

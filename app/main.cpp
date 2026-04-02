@@ -3,6 +3,8 @@
 #include <velk/interface/intf_plugin_registry.h>
 
 #include <GLFW/glfw3.h>
+#include <velk-ui/api/input/click.h>
+#include <velk-ui/api/input_dispatcher.h>
 #include <velk-ui/api/material/gradient.h>
 #include <velk-ui/api/material/shader.h>
 #include <velk-ui/api/render_context.h>
@@ -16,6 +18,7 @@ static void glfw_error_callback(int error, const char* description)
 
 static velk_ui::Scene* g_scene = nullptr;
 static velk_ui::ISurface::Ptr g_surface;
+static velk_ui::InputDispatcher* g_input = nullptr;
 
 static void glfw_framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -87,15 +90,63 @@ int main(int argc, char* argv[])
     g_surface = surface;
     glfwSetFramebufferSizeCallback(window, glfw_framebuffer_size_callback);
 
+    // Input dispatcher
+    auto input = velk_ui::create_input_dispatcher(scene);
+    g_input = &input;
+
+    glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
+        if (g_input) {
+            velk_ui::PointerEvent ev;
+            ev.position = {static_cast<float>(x), static_cast<float>(y)};
+            ev.action = velk_ui::PointerAction::Move;
+            g_input->pointer_event(ev);
+        }
+    });
+
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* w, int button, int action, int mods) {
+        if (!g_input) {
+            return;
+        }
+        velk_ui::PointerEvent ev;
+        double mx, my;
+        glfwGetCursorPos(w, &mx, &my);
+        ev.position = {static_cast<float>(mx), static_cast<float>(my)};
+        ev.action = (action == GLFW_PRESS) ? velk_ui::PointerAction::Down : velk_ui::PointerAction::Up;
+        ev.button = (button == GLFW_MOUSE_BUTTON_LEFT)    ? velk_ui::PointerButton::Left
+                    : (button == GLFW_MOUSE_BUTTON_RIGHT) ? velk_ui::PointerButton::Right
+                                                          : velk_ui::PointerButton::Middle;
+        if (mods & GLFW_MOD_SHIFT) ev.modifiers = ev.modifiers | velk_ui::Modifier::Shift;
+        if (mods & GLFW_MOD_CONTROL) ev.modifiers = ev.modifiers | velk_ui::Modifier::Ctrl;
+        if (mods & GLFW_MOD_ALT) ev.modifiers = ev.modifiers | velk_ui::Modifier::Alt;
+        if (mods & GLFW_MOD_SUPER) ev.modifiers = ev.modifiers | velk_ui::Modifier::Super;
+        g_input->pointer_event(ev);
+    });
+
+    glfwSetScrollCallback(window, [](GLFWwindow* w, double xoffset, double yoffset) {
+        if (!g_input) {
+            return;
+        }
+        velk_ui::ScrollEvent ev;
+        double mx, my;
+        glfwGetCursorPos(w, &mx, &my);
+        ev.position = {static_cast<float>(mx), static_cast<float>(my)};
+        ev.delta = {static_cast<float>(xoffset), static_cast<float>(yoffset)};
+        ev.unit = velk_ui::ScrollUnit::Lines;
+        g_input->scroll_event(ev);
+    });
+
     // Add gradient background to the root element
     {
         auto root = scene.root();
         auto bg = velk_ui::visual::create_rect();
         bg.set_color(velk::color::red());
         bg.set_paint(velk_ui::material::create_gradient(
-            velk::color{0.05, 0.07, 0.15, 1.f}, velk::color{0.18, 0.12, 0.28, 1.f}, 90.f));
+            velk::color{0.05f, 0.07f, 0.15f, 1.f}, velk::color{0.18f, 0.12f, 0.28f, 1.f}, 90.f));
 
         root.add_trait(bg);
+        auto click = velk_ui::input::create_click();
+        click.on_click().add_handler([]() { VELK_LOG(E, "Clicked!"); });
+        root.add_trait(click);
     }
 
     // First frame
@@ -142,6 +193,7 @@ int main(int argc, char* argv[])
         glfwSwapBuffers(window);
     }
 
+    g_input = nullptr;
     g_scene = nullptr;
     g_surface = nullptr;
 

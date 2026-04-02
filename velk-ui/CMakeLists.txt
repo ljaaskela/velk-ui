@@ -26,6 +26,25 @@ add_library(velk_ui SHARED
     src/import/align_type_extension.cpp
     src/import/dim_type_extension.h
     src/import/dim_type_extension.cpp
+    src/input/input_dispatcher.h
+    src/input/input_dispatcher.cpp
+    src/input/click.h
+    src/input/click.cpp
+    src/input/hover.h
+    src/input/hover.cpp
+    src/input/drag.h
+    src/input/drag.cpp
+    include/velk-ui/input_types.h
+    include/velk-ui/interface/intf_input_trait.h
+    include/velk-ui/interface/intf_input_dispatcher.h
+    include/velk-ui/ext/input.h
+    include/velk-ui/api/input_dispatcher.h
+    include/velk-ui/api/input/click.h
+    include/velk-ui/api/input/hover.h
+    include/velk-ui/api/input/drag.h
+    include/velk-ui/interface/trait/intf_click.h
+    include/velk-ui/interface/trait/intf_hover.h
+    include/velk-ui/interface/trait/intf_drag.h
     include/velk-ui/interface/intf_element.h
     include/velk-ui/interface/intf_font.h
     include/velk-ui/interface/intf_render_context.h
@@ -71,9 +90,14 @@ target_include_directories(velk_ui
 )
 
 option(VELK_LAYOUT_DEBUG "Enable verbose layout logging" OFF)
+option(VELK_INPUT_DEBUG "Enable verbose input logging" OFF)
 
 target_compile_definitions(velk_ui PRIVATE VELK_EXPORTS)
 
 if(VELK_LAYOUT_DEBUG)
     target_compile_definitions(velk_ui PRIVATE VELK_LAYOUT_DEBUG)
+endif()
+
+if(VELK_INPUT_DEBUG)
+    target_compile_definitions(velk_ui PRIVATE VELK_INPUT_DEBUG)
 endif()

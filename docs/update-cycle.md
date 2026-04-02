@@ -15,16 +15,17 @@ while (running) {
 
 ## Trait phases
 
-Every trait attached to an element belongs to one of four phases. The phases run in order during each frame, forming the element pipeline:
+Every trait attached to an element belongs to one of five phases. See [Traits](traits.md) for the full guide on each category.
 
 | Phase | Interface | Runs during | Purpose |
 |-------|-----------|-------------|---------|
+| **Input** | `IInputTrait` | Input dispatch | Handles pointer, scroll, key events. E.g. Click, Hover, Drag |
 | **Layout** | `ILayoutTrait` | Scene update | Walks children, divides space. E.g. Stack |
 | **Constraint** | `ILayoutTrait` | Scene update | Refines own size. E.g. FixedSize |
 | **Transform** | `ITransformTrait` | Scene update | Modifies the world matrix. E.g. Trs, Matrix |
 | **Visual** | `IVisual` | Renderer | Produces draw commands. E.g. RectVisual, TextVisual |
 
-The first three phases run inside `Scene::update()` via the layout solver. The Visual phase runs inside `renderer->render()` when the renderer queries each element's visuals for draw commands.
+Input runs synchronously in GLFW callbacks before `update()` (see [Input](input.md)). Layout, Constraint, and Transform run inside `Scene::update()` via the layout solver. Visual runs inside `renderer->render()` when the renderer queries each element's visuals for draw commands.
 
 ### Solver pipeline (per element, top-down)
 

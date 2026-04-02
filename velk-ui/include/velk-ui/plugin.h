@@ -8,50 +8,76 @@ namespace velk_ui {
 namespace ClassId {
 
 /** @brief UI element node. Holds position, size, transform, and z-index. */
-inline constexpr velk::Uid Element{"136ea22f-189a-4750-ad12-d4d15bd6b7cf"};
+inline constexpr velk::Uid Element{"074fde67-68e0-43fb-b52d-265665f301ee"};
 
 /** @brief Scene graph. Owns the element hierarchy, runs layout, and pushes changes to the renderer. */
-inline constexpr velk::Uid Scene{"c9f5e3a4-0b6d-4f8c-ae7f-3d4e5a6b7c8d"};
+inline constexpr velk::Uid Scene{"03779f51-3fb0-45d7-9a9e-a25ef0a42dce"};
 
 namespace Constraint {
 
 /** @brief Lays out children along a single axis with optional spacing. */
-inline constexpr velk::Uid Stack{"b8e4d2f3-9a5c-4e7b-8d6f-2c3e4a5b6d7e"};
+inline constexpr velk::Uid Stack{"677eae5c-efde-4130-97f6-5a09e9087629"};
 
 /** @brief Clamps an element to a fixed width and/or height. */
-inline constexpr velk::Uid FixedSize{"a7f3c1d2-8e4b-4f6a-9c5d-1b2e3f4a5b6c"};
+inline constexpr velk::Uid FixedSize{"f237dfd2-1a17-4078-9741-e0a7afd7b6a4"};
 
 } // namespace Constraint
 
 namespace Transform {
 
 /** @brief Decomposed transform: translate, rotate (Z), scale. */
-inline constexpr velk::Uid Trs{"f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c"};
+inline constexpr velk::Uid Trs{"7c167a04-2d3e-41b9-8c42-6fd41be05794"};
 
 /** @brief Raw 4x4 matrix transform. */
-inline constexpr velk::Uid Matrix{"e2b3c4d5-f6a7-4e8b-9c0d-1e2f3a4b5c6d"};
+inline constexpr velk::Uid Matrix{"44c08a4c-83f9-40f8-b900-b00d5a8f3e55"};
 
 } // namespace Transform
 
 namespace Visual {
 
 /** @brief Solid color rectangle filling the element bounds. */
-inline constexpr velk::Uid Rect{"e3a7b1c2-d4f5-4e6a-8b9c-0d1e2f3a4b5c"};
+inline constexpr velk::Uid Rect{"8fc18f28-03e8-4e6e-9fa9-274445d9ef4c"};
 
 /** @brief Rounded rectangle with SDF corners. */
-inline constexpr velk::Uid RoundedRect{"7b2c4d5e-6f8a-4e1b-9c3d-0e5f6a7b8c9d"};
+inline constexpr velk::Uid RoundedRect{"327eb630-63f9-4144-ab05-e97d6099e920"};
 
 } // namespace Visual
 
 namespace Material {
 
 /** @brief Custom fragment shader material. */
-inline constexpr velk::Uid Shader{"d1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a"};
+inline constexpr velk::Uid Shader{"04a29568-7677-42ee-9858-83b87196057f"};
 
 /** @brief Built-in linear gradient material. */
-inline constexpr velk::Uid Gradient{"f2a3b4c5-d6e7-4f8a-9b0c-1d2e3f4a5b6c"};
+inline constexpr velk::Uid Gradient{"9eb060cd-6050-4878-b817-d58571bf3174"};
 
 } // namespace Material
+
+namespace Input {
+
+/** @brief Scene-level input event coordinator. */
+inline constexpr velk::Uid Dispatcher{"4c51eabf-6f7a-455f-b34b-92e9bd3bab57"};
+
+/** @brief Click gesture detection. Fires on_click on pointer down+up. */
+inline constexpr velk::Uid Click{"2906f6c0-055e-4b85-b2d9-2b58c89954a3"};
+
+/** @brief Hover state tracking. Exposes hovered property and on_hover_changed event. */
+inline constexpr velk::Uid Hover{"0cf025ae-8a07-4b76-9559-1b4afb14c1f0"};
+
+/** @brief Drag gesture tracking. Fires on_drag_start, on_drag_move, on_drag_end. */
+inline constexpr velk::Uid Drag{"e83b9c3e-36e5-4a45-b4e0-c72fcb8ed378"};
+
+} // namespace Input
+
+namespace Import {
+
+/** @brief Type extension for dim (px/pct) values in the importer. */
+inline constexpr velk::Uid DimTypeExtension{"a52a1f22-8dd3-46bd-ba6c-07512a226e63"};
+
+/** @brief Type extension for alignment enum values in the importer. */
+inline constexpr velk::Uid AlignTypeExtension{"0fce50cf-be04-430a-a617-5724ada76a30"};
+
+} // namespace Import
 
 } // namespace ClassId
 

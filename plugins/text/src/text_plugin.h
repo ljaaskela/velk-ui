@@ -3,12 +3,14 @@
 
 #include <velk/ext/plugin.h>
 
+#include <velk-ui/plugins/text/plugin.h>
+
 namespace velk_ui {
 
 class TextPlugin final : public velk::ext::Plugin<TextPlugin>
 {
 public:
-    VELK_PLUGIN_UID("a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d");
+    VELK_PLUGIN_UID(PluginId::TextPlugin);
     VELK_PLUGIN_NAME("velk_text");
     VELK_PLUGIN_VERSION(0, 1, 0);
 

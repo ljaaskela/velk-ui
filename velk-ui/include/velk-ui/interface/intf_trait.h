@@ -24,7 +24,8 @@ enum class TraitPhase : uint8_t
     Layout     = 1 << 0, ///< Runs first. May read/write children via hierarchy.
     Constraint = 1 << 1, ///< Runs second. Touches only the element itself.
     Transform  = 1 << 2, ///< Runs third. Modifies the world matrix.
-    Visual     = 1 << 3  ///< Runs last. Produces draw commands for rendering.
+    Visual     = 1 << 3, ///< Runs last. Produces draw commands for rendering.
+    Input      = 1 << 4  ///< Input handling. Does not participate in the layout solver.
 };
 
 inline constexpr TraitPhase operator|(TraitPhase a, TraitPhase b)

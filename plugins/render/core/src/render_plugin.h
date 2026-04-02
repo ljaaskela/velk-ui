@@ -3,12 +3,14 @@
 
 #include <velk/ext/plugin.h>
 
+#include <velk-ui/plugins/render/plugin.h>
+
 namespace velk_ui {
 
 class RenderPlugin final : public velk::ext::Plugin<RenderPlugin>
 {
 public:
-    VELK_PLUGIN_UID("4dc6ab8e-3887-4def-a08e-59259ca39567");
+    VELK_PLUGIN_UID(PluginId::RenderPlugin);
     VELK_PLUGIN_NAME("velk_render");
     VELK_PLUGIN_VERSION(0, 1, 0);
 

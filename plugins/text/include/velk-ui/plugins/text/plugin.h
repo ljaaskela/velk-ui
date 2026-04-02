@@ -8,12 +8,12 @@ namespace velk_ui {
 namespace ClassId {
 
 /** @brief FreeType + HarfBuzz font. Shapes text and rasterizes glyphs. */
-inline constexpr velk::Uid Font{"f4a1b2c3-d5e6-4f78-9a0b-c1d2e3f4a5b6"};
+inline constexpr velk::Uid Font{"b31d28e5-2502-45fe-8b27-3997c882bfde"};
 
 namespace Visual {
 
 /** @brief Shaped text rendered as textured glyph quads from a glyph atlas. */
-inline constexpr velk::Uid Text{"b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"};
+inline constexpr velk::Uid Text{"51366e92-5d79-494b-9f5e-7185f8bc547b"};
 
 } // namespace Visual
 
@@ -21,7 +21,7 @@ inline constexpr velk::Uid Text{"b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"};
 
 namespace PluginId {
 
-inline constexpr velk::Uid TextPlugin{"a8b9c0d1-e2f3-4a5b-6c7d-8e9f0a1b2c3d"};
+inline constexpr velk::Uid TextPlugin{"309d1c43-eeff-4f63-88ef-cd84297ef4c0"};
 
 } // namespace PluginId
 

@@ -2,6 +2,10 @@
 
 #include "constraint/fixed_size.h"
 #include "element.h"
+#include "input/click.h"
+#include "input/drag.h"
+#include "input/hover.h"
+#include "input/input_dispatcher.h"
 #include "import/align_type_extension.h"
 #include "import/dim_type_extension.h"
 #include "layout/stack.h"
@@ -31,6 +35,10 @@ velk::ReturnValue VelkUiPlugin::initialize(velk::IVelk& velk, velk::PluginConfig
     rv &= velk::register_type<GradientMaterial>(velk);
     rv &= velk::register_type<Trs>(velk);
     rv &= velk::register_type<Matrix>(velk);
+    rv &= velk::register_type<impl::InputDispatcher>(velk);
+    rv &= velk::register_type<Click>(velk);
+    rv &= velk::register_type<Hover>(velk);
+    rv &= velk::register_type<Drag>(velk);
     rv &= velk::register_type<DimTypeExtension>(velk);
     rv &= velk::register_type<AlignTypeExtension>(velk);
     rv &= velk::register_type<velk::ext::AnyValue<dim>>(velk);

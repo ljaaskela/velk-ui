@@ -43,7 +43,7 @@ elem.for_each_child<IElement>([](IElement& child) { /* ... */ });
 
 ## Traits
 
-Traits are attachments that give elements behavior. All traits implement `ITrait` and belong to one of four phases (see [Update cycle](update-cycle.md) for the full pipeline). Traits are managed via `add_trait()` / `remove_trait()`:
+Traits are attachments that give elements behavior: layout, appearance, input handling, transforms. An element on its own has only position, size, and z-index; everything else comes from traits.
 
 ```cpp
 elem.add_trait(some_constraint);
@@ -52,71 +52,7 @@ elem.remove_trait(some_visual);
 auto found = elem.find_trait<IFixedSize>();
 ```
 
-### Layout traits
-
-Layout traits implement `ILayoutTrait` and control how elements are sized and positioned. They run during the scene update in two phases:
-
-**Layout phase** (walks children, divides space):
-
-| Class | Interface | Description |
-|-------|-----------|-------------|
-| `Stack` | `IStack` | Arranges children along an axis with spacing |
-
-**Constraint phase** (touches self only, refines size):
-
-| Class | Interface | Description |
-|-------|-----------|-------------|
-| `FixedSize` | `IFixedSize` | Clamps width and/or height to a fixed value |
-
-```cpp
-auto stack = velk_ui::constraint::create_stack();
-stack.set_axis(1);       // vertical
-stack.set_spacing(10.f);
-
-auto fs = velk_ui::constraint::create_fixed_size();
-fs.set_size(velk_ui::dim::px(200.f), velk_ui::dim::px(100.f));
-```
-
-Dimensions can be absolute (`dim::px(100.f)`) or relative to parent (`dim::pct(0.5f)`). Use `dim::none()` to leave an axis unconstrained.
-
-### Transform traits
-
-Transform traits implement `ITransformTrait` and modify the element's world matrix after layout. They run after layout and constraint phases, before children are recursed.
-
-| Class | Interface | Description |
-|-------|-----------|-------------|
-| `Trs` | `ITrs` | Decomposed translate, rotate (Z), scale |
-| `Matrix` | `IMatrix` | Raw 4x4 matrix multiply |
-
-```cpp
-auto trs = velk_ui::transform::create_trs();
-trs.set_rotation(45.f);         // degrees around Z
-trs.set_scale({0.5f, 0.5f});
-elem.add_trait(trs);
-
-auto mtx = velk_ui::transform::create_matrix();
-mtx.set_matrix(velk::mat4::scale({2.f, 2.f, 1.f}));
-elem.add_trait(mtx);
-```
-
-### Visuals
-
-Visuals implement `IVisual` and define how an element appears on screen. They run during rendering when the renderer queries each element for draw commands. An element can have multiple visuals.
-
-| Class | Interface | Description |
-|-------|-----------|-------------|
-| `RectVisual` | `IVisual` | Solid color rectangle filling the element bounds |
-| `TextVisual` | `ITextVisual` | Shaped text rendered as glyph quads |
-
-```cpp
-auto rect = velk_ui::visual::create_rect();
-rect.set_color({0.9f, 0.2f, 0.2f, 1.f});
-
-auto text = velk_ui::visual::create_text();
-text.set_font(font);
-text.set_text("Hello!");
-text.set_color(velk::color::white());
-```
+See [Traits](traits.md) for the full guide: trait phases, built-in traits (layout, transform, visual, input), CRTP bases, and how to write custom traits.
 
 ## Geometry and rendering
 

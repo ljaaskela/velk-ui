@@ -3,12 +3,14 @@
 
 #include <velk/ext/plugin.h>
 
+#include <velk-ui/plugins/gl/plugin.h>
+
 namespace velk_ui {
 
 class GlPlugin final : public velk::ext::Plugin<GlPlugin>
 {
 public:
-    VELK_PLUGIN_UID("e1e9e004-21cd-4cfa-b843-49b0eb358149");
+    VELK_PLUGIN_UID(PluginId::GlPlugin);
     VELK_PLUGIN_NAME("velk-gl");
     VELK_PLUGIN_VERSION(0, 1, 0);
 

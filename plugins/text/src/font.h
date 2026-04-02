@@ -6,6 +6,7 @@
 
 #include <ft2build.h>
 #include <velk-ui/interface/intf_font.h>
+#include <velk-ui/plugins/text/plugin.h>
 #include FT_FREETYPE_H
 
 #include <hb-ft.h>
@@ -16,7 +17,7 @@ namespace velk_ui {
 class Font : public velk::ext::Object<Font, IFont>
 {
 public:
-    VELK_CLASS_UID("f4a1b2c3-d5e6-4f78-9a0b-c1d2e3f4a5b6", "Font");
+    VELK_CLASS_UID(ClassId::Font, "Font");
 
     Font();
     ~Font() override;

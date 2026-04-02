@@ -2,6 +2,7 @@
 #define VELK_UI_GL_BACKEND_H
 
 #include <velk/ext/object.h>
+#include <velk-ui/plugins/gl/plugin.h>
 #include <velk-ui/plugins/render/intf_render_backend.h>
 
 #include <cstdint>
@@ -12,7 +13,7 @@ namespace velk_ui {
 class GlBackend : public velk::ext::Object<GlBackend, IRenderBackend>
 {
 public:
-    VELK_CLASS_UID("2302c979-1531-4d0b-bab6-d1bac99f0a11", "GlBackend");
+    VELK_CLASS_UID(ClassId::GlBackend, "GlBackend");
 
     ~GlBackend() override;
 

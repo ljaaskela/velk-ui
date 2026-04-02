@@ -4,13 +4,15 @@
 #include <velk/ext/core_object.h>
 #include <velk/interface/intf_importer_extension.h>
 
+#include <velk-ui/plugin.h>
+
 namespace velk_ui {
 
 class AlignTypeExtension
     : public velk::ext::ObjectCore<AlignTypeExtension, velk::IImporterTypeExtension>
 {
 public:
-    VELK_CLASS_UID("d7e8f9a0-b1c2-3d4e-5f60-718293a4b5c6", "AlignTypeExtension");
+    VELK_CLASS_UID(ClassId::Import::AlignTypeExtension, "AlignTypeExtension");
 
     velk::array_view<velk::Uid> supported_types() const override;
     velk::IAny::Ptr deserialize(velk::Uid type_uid, const velk::IImportData& data) const override;
