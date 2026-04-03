@@ -2,8 +2,6 @@
 
 UI framework built on the [Velk](https://github.com/ljaaskela/velk) component object model. Declarative scene loading from JSON, programmatic element creation, trait-based composition (constraints, visuals), and a plugin architecture for rendering and text.
 
-![Dashboard](docs/velk-ui-social-preview.png)
-
 ## Pointer-based GPU backend
 
 velk-ui uses a [pointer-based render backend](docs/render-backend-architecture.md) that maps directly to how modern GPUs work, rather than abstracting over graphics API concepts. The entire GPU interface is 15 methods. Shaders access all data through GPU pointers (`buffer_reference`), textures are bindless indices, and geometry is procedurally generated or pulled from buffers by the shader. No vertex input descriptions, no uniform reflection, no descriptor management.
