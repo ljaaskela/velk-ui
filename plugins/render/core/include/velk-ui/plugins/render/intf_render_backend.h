@@ -22,45 +22,45 @@ enum class PixelFormat : uint8_t
 
 struct GpuBufferDesc
 {
-    size_t size = 0;
-    bool cpu_writable = true;  // false = device-local only
+    size_t size{};
+    bool cpu_writable{true}; // false = device-local only
 };
 
 struct TextureDesc
 {
-    int width = 0;
-    int height = 0;
-    PixelFormat format = PixelFormat::RGBA8;
+    int width{};
+    int height{};
+    PixelFormat format{PixelFormat::RGBA8};
 };
 
 struct PipelineDesc
 {
-    const uint32_t* vertex_spirv = nullptr;
-    size_t vertex_spirv_size = 0;
-    const uint32_t* fragment_spirv = nullptr;
-    size_t fragment_spirv_size = 0;
+    const uint32_t* vertex_spirv{};
+    size_t vertex_spirv_size{};
+    const uint32_t* fragment_spirv{};
+    size_t fragment_spirv_size{};
 };
 
 inline constexpr size_t kMaxRootConstantsSize = 128;
 
 struct DrawCall
 {
-    PipelineId pipeline = 0;
-    uint32_t vertex_count = 0;
-    uint32_t instance_count = 1;
+    PipelineId pipeline{};
+    uint32_t vertex_count{};
+    uint32_t instance_count{1};
 
     // Pushed to the shader as push constants / setBytes.
     // Typically an 8-byte GPU address pointing to the draw's data struct,
     // but can hold up to 128 bytes for simple draws that skip the indirection.
     uint8_t root_constants[kMaxRootConstantsSize]{};
-    uint32_t root_constants_size = 0;
+    uint32_t root_constants_size{};
 };
 
 struct SurfaceDesc
 {
-    void* window_handle = nullptr;
-    int width = 0;
-    int height = 0;
+    void* window_handle{};
+    int width{};
+    int height{};
 };
 
 /**
