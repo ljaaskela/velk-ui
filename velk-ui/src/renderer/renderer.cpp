@@ -1,13 +1,15 @@
 #include "renderer.h"
 
+#include "default_ui_shaders.h"
+
 #include <velk/api/any.h>
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
-#include <velk-render/interface/intf_material.h>
-#include <velk-ui/interface/intf_visual.h>
 
 #include <cstring>
+#include <velk-render/interface/intf_material.h>
+#include <velk-ui/interface/intf_visual.h>
 
 #ifdef VELK_RENDER_DEBUG
 #define RENDER_LOG(...) VELK_LOG(I, __VA_ARGS__)
@@ -27,24 +29,65 @@ uint64_t make_batch_key(uint64_t pipeline, uint64_t texture)
 void build_ortho_projection(float* out, float width, float height)
 {
     std::memset(out, 0, 16 * sizeof(float));
-    out[0]  =  2.0f / width;
-    out[5]  =  2.0f / height;
+    out[0] = 2.0f / width;
+    out[5] = 2.0f / height;
     out[10] = -1.0f;
     out[12] = -1.0f;
     out[13] = -1.0f;
-    out[15] =  1.0f;
+    out[15] = 1.0f;
 }
 
 } // namespace
+
+constexpr string_view velk_ui_glsl = R"(
+struct RectInstance {
+    vec2 pos;
+    vec2 size;
+    vec4 color;
+};
+
+struct TextInstance {
+    vec2 pos;
+    vec2 size;
+    vec4 color;
+    vec2 uv_min;
+    vec2 uv_max;
+};
+
+layout(buffer_reference, std430) readonly buffer RectInstances {
+    RectInstance data[];
+};
+
+layout(buffer_reference, std430) readonly buffer TextInstances {
+    TextInstance data[];
+};
+
+const vec2 kQuad[4] = vec2[4](
+    vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1)
+);
+)";
 
 void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx)
 {
     backend_ = backend;
     render_ctx_ = ctx;
 
-    if (!backend_) return;
+    if (!backend_) {
+        return;
+    }
 
     pipeline_map_ = &ctx->pipeline_map();
+
+    // Register velk-ui shader include for UI instance types
+
+    ctx->register_shader_include("velk-ui.glsl", velk_ui_glsl);
+
+    // Compile built-in UI pipelines under well-known keys
+    if (pipeline_map_->find(PipelineKey::Rect) == pipeline_map_->end()) {
+        ctx->compile_pipeline(rect_fragment_src, rect_vertex_src, PipelineKey::Rect);
+        ctx->compile_pipeline(text_fragment_src, text_vertex_src, PipelineKey::Text);
+        ctx->compile_pipeline(rounded_rect_fragment_src, rounded_rect_vertex_src, PipelineKey::RoundedRect);
+    }
 
     frame_buffer_size_ = kInitialFrameBufferSize;
     for (int i = 0; i < 2; ++i) {
@@ -109,10 +152,14 @@ void Renderer::rebuild_commands(IElement* element)
     cache.texture_provider = nullptr;
 
     auto* storage = interface_cast<IObjectStorage>(element);
-    if (!storage) return;
+    if (!storage) {
+        return;
+    }
 
     auto state = read_state<IElement>(element);
-    if (!state) return;
+    if (!state) {
+        return;
+    }
 
     rect local_rect = {0, 0, state->size.width, state->size.height};
 
@@ -152,11 +199,15 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
 
     for (auto* element : state.visual_list) {
         auto it = element_cache_.find(element);
-        if (it == element_cache_.end()) continue;
+        if (it == element_cache_.end()) {
+            continue;
+        }
 
         auto& cache = it->second;
         auto elem_state = read_state<IElement>(element);
-        if (!elem_state) continue;
+        if (!elem_state) {
+            continue;
+        }
 
         float wx = elem_state->world_matrix(0, 3);
         float wy = elem_state->world_matrix(1, 3);
@@ -168,12 +219,11 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
                 uint64_t pipeline = (vc.pipeline_override != 0) ? vc.pipeline_override : de.pipeline_key;
                 uint64_t texture = de.texture_key;
 
-                bool per_element = has_material || (pipeline >= PipelineKey::CustomBase)
-                    || (pipeline == PipelineKey::RoundedRect);
+                bool per_element = has_material || (pipeline >= PipelineKey::CustomBase) ||
+                                   (pipeline == PipelineKey::RoundedRect);
 
-                uint64_t bkey = per_element
-                    ? make_batch_key(pipeline, reinterpret_cast<uintptr_t>(element))
-                    : make_batch_key(pipeline, texture);
+                uint64_t bkey = per_element ? make_batch_key(pipeline, reinterpret_cast<uintptr_t>(element))
+                                            : make_batch_key(pipeline, texture);
 
                 auto bit = batch_index_.find(bkey);
                 size_t batch_idx;
@@ -218,8 +268,11 @@ uint64_t Renderer::write_to_frame_buffer(const void* data, size_t size, size_t a
     write_offset_ = (write_offset_ + alignment - 1) & ~(alignment - 1);
 
     if (write_offset_ + size > frame_buffer_size_) {
-        VELK_LOG(E, "Renderer: frame buffer overflow (%zu + %zu > %zu), will grow next frame",
-                 write_offset_, size, frame_buffer_size_);
+        VELK_LOG(E,
+                 "Renderer: frame buffer overflow (%zu + %zu > %zu), will grow next frame",
+                 write_offset_,
+                 size,
+                 frame_buffer_size_);
         return 0;
     }
 
@@ -238,15 +291,20 @@ uint64_t Renderer::write_to_frame_buffer(const void* data, size_t size, size_t a
 
 void Renderer::ensure_frame_buffer_capacity()
 {
-    if (peak_usage_ <= frame_buffer_size_ * 3 / 4) return;
+    if (peak_usage_ <= frame_buffer_size_ * 3 / 4) {
+        return;
+    }
 
     size_t new_size = frame_buffer_size_;
     while (new_size < peak_usage_ * 2) {
         new_size *= 2;
     }
 
-    VELK_LOG(I, "Renderer: growing frame buffers %zu -> %zu KB (peak usage: %zu KB)",
-             frame_buffer_size_ / 1024, new_size / 1024, peak_usage_ / 1024);
+    VELK_LOG(I,
+             "Renderer: growing frame buffers %zu -> %zu KB (peak usage: %zu KB)",
+             frame_buffer_size_ / 1024,
+             new_size / 1024,
+             peak_usage_ / 1024);
 
     for (int i = 0; i < 2; ++i) {
         backend_->destroy_buffer(frame_buffer_[i]);
@@ -267,9 +325,11 @@ void Renderer::build_draw_calls()
     draw_calls_.clear();
 
     for (auto& batch : batches_) {
-        uint64_t instances_addr = write_to_frame_buffer(
-            batch.instance_data.data(), batch.instance_data.size());
-        if (!instances_addr) continue;
+        uint64_t instances_addr =
+            write_to_frame_buffer(batch.instance_data.data(), batch.instance_data.size());
+        if (!instances_addr) {
+            continue;
+        }
 
         uint32_t texture_id = 0;
         if (batch.texture_key != 0) {
@@ -286,10 +346,18 @@ void Renderer::build_draw_calls()
         header.instance_count = batch.instance_count;
 
         size_t mat_size = batch.material ? batch.material->gpu_data_size() : 0;
+        if (mat_size > 0 && (mat_size % 16) != 0) {
+            VELK_LOG(E,
+                     "Renderer: material gpu_data_size (%zu) is not 16-byte aligned. "
+                     "Use VELK_GPU_STRUCT for your material data.",
+                     mat_size);
+        }
         size_t total_size = sizeof(DrawDataHeader) + mat_size;
 
         write_offset_ = (write_offset_ + 15) & ~size_t(15);
-        if (write_offset_ + total_size > frame_buffer_size_) continue;
+        if (write_offset_ + total_size > frame_buffer_size_) {
+            continue;
+        }
 
         auto* dst = static_cast<uint8_t*>(frame_ptr_[frame_index_]) + write_offset_;
         uint64_t draw_data_addr = frame_gpu_base_[frame_index_] + write_offset_;
@@ -300,11 +368,17 @@ void Renderer::build_draw_calls()
         }
 
         write_offset_ += total_size;
-        if (write_offset_ > peak_usage_) peak_usage_ = write_offset_;
+        if (write_offset_ > peak_usage_) {
+            peak_usage_ = write_offset_;
+        }
 
-        if (!pipeline_map_) continue;
+        if (!pipeline_map_) {
+            continue;
+        }
         auto pit = pipeline_map_->find(batch.pipeline_key);
-        if (pit == pipeline_map_->end()) continue;
+        if (pit == pipeline_map_->end()) {
+            continue;
+        }
 
         DrawCall call{};
         call.pipeline = pit->second;
@@ -319,11 +393,15 @@ void Renderer::build_draw_calls()
 
 void Renderer::render()
 {
-    if (!backend_) return;
+    if (!backend_) {
+        return;
+    }
 
     for (auto& entry : surfaces_) {
         auto* scene = interface_cast<IScene>(entry.scene);
-        if (!scene) continue;
+        if (!scene) {
+            continue;
+        }
 
         auto sstate = read_state<ISurface>(entry.surface);
         if (sstate) {
@@ -342,7 +420,9 @@ void Renderer::render()
 
         for (auto& removed : state.removed_list) {
             auto* elem = interface_cast<IElement>(removed);
-            if (elem) element_cache_.erase(elem);
+            if (elem) {
+                element_cache_.erase(elem);
+            }
         }
 
         for (auto* element : state.redraw_list) {
@@ -371,8 +451,8 @@ void Renderer::render()
                             tit = texture_map_.find(tex_key);
                         }
 
-                        backend_->upload_texture(tit->second, pixels,
-                                                 static_cast<int>(tw), static_cast<int>(th));
+                        backend_->upload_texture(
+                            tit->second, pixels, static_cast<int>(tw), static_cast<int>(th));
                         tp->clear_texture_dirty();
                         textures_uploaded = true;
                     }

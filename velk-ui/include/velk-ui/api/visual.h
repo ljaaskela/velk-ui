@@ -24,6 +24,9 @@ public:
     /** @brief Wraps an existing IObject pointer, rejected if it does not implement IVisual. */
     explicit Visual(IObject::Ptr obj) : Trait(check_object<IVisual>(obj)) {}
 
+    /** @brief Wraps an existing IVisual pointer. */
+    explicit Visual(IVisual::Ptr v) : Trait(as_object(v)) {}
+
     /** @brief Implicit conversion to IVisual::Ptr. */
     operator IVisual::Ptr() const { return as_ptr<IVisual>(); }
 

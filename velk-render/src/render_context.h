@@ -1,12 +1,13 @@
 #ifndef VELK_RENDER_CONTEXT_IMPL_H
 #define VELK_RENDER_CONTEXT_IMPL_H
 
+#include "shader_compiler.h"
+
 #include <velk/ext/object.h>
 
+#include <unordered_map>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/plugin.h>
-
-#include <unordered_map>
 
 namespace velk {
 
@@ -19,17 +20,18 @@ public:
     ISurface::Ptr create_surface(int width, int height) override;
     IObject::Ptr create_shader_material(const char* fragment_source,
                                         const char* vertex_source = nullptr) override;
+    uint64_t compile_pipeline(const char* fragment_source, const char* vertex_source,
+                              uint64_t key = 0) override;
+    void register_shader_include(string_view name, string_view content) override;
 
-    const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const override
-    {
-        return pipeline_map_;
-    }
+    const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const override { return pipeline_map_; }
 
     IRenderBackend::Ptr backend() const override { return backend_; }
 
 private:
     IRenderBackend::Ptr backend_;
     std::unordered_map<uint64_t, PipelineId> pipeline_map_;
+    ShaderIncludeMap shader_includes_;
     uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
     bool initialized_ = false;
 };

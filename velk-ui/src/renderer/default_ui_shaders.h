@@ -3,13 +3,9 @@
 
 namespace velk {
 
-// All shaders use buffer_reference to access data via GPU pointers.
-// A single push constant carries the 8-byte GPU address of the DrawDataHeader.
-// Shaders dereference this to reach globals, instances, and material params.
-// Geometry is procedural: 4 vertices per quad (triangle strip).
-//
-// IMPORTANT: Instance types are plain structs, NOT buffer_reference.
-// Only types that represent actual GPU pointers use buffer_reference.
+// Built-in shaders use:
+//   #include "velk.glsl"    - framework types (Globals, Ptr64)
+//   #include "velk-ui.glsl" - UI instance types (RectInstance, TextInstance, kQuad)
 
 // ============================================================================
 // Rect
@@ -17,23 +13,8 @@ namespace velk {
 
 inline const char* rect_vertex_src = R"(
 #version 450
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference2 : require
-
-layout(buffer_reference, std430) readonly buffer Globals {
-    mat4 projection;
-    vec4 viewport;
-};
-
-struct RectInstance {
-    vec2 pos;
-    vec2 size;
-    vec4 color;
-};
-
-layout(buffer_reference, std430) readonly buffer RectInstances {
-    RectInstance data[];
-};
+#include "velk.glsl"
+#include "velk-ui.glsl"
 
 layout(buffer_reference, std430) readonly buffer DrawData {
     Globals globals;
@@ -43,10 +24,6 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 };
 
 layout(push_constant) uniform PC { DrawData root; };
-
-const vec2 kQuad[4] = vec2[4](
-    vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1)
-);
 
 layout(location = 0) out vec4 v_color;
 
@@ -78,25 +55,8 @@ void main()
 
 inline const char* text_vertex_src = R"(
 #version 450
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference2 : require
-
-layout(buffer_reference, std430) readonly buffer Globals {
-    mat4 projection;
-    vec4 viewport;
-};
-
-struct TextInstance {
-    vec2 pos;
-    vec2 size;
-    vec4 color;
-    vec2 uv_min;
-    vec2 uv_max;
-};
-
-layout(buffer_reference, std430) readonly buffer TextInstances {
-    TextInstance data[];
-};
+#include "velk.glsl"
+#include "velk-ui.glsl"
 
 layout(buffer_reference, std430) readonly buffer DrawData {
     Globals globals;
@@ -106,10 +66,6 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 };
 
 layout(push_constant) uniform PC { DrawData root; };
-
-const vec2 kQuad[4] = vec2[4](
-    vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1)
-);
 
 layout(location = 0) out vec4 v_color;
 layout(location = 1) out vec2 v_uv;
@@ -151,23 +107,8 @@ void main()
 
 inline const char* rounded_rect_vertex_src = R"(
 #version 450
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference2 : require
-
-layout(buffer_reference, std430) readonly buffer Globals {
-    mat4 projection;
-    vec4 viewport;
-};
-
-struct RectInstance {
-    vec2 pos;
-    vec2 size;
-    vec4 color;
-};
-
-layout(buffer_reference, std430) readonly buffer RectInstances {
-    RectInstance data[];
-};
+#include "velk.glsl"
+#include "velk-ui.glsl"
 
 layout(buffer_reference, std430) readonly buffer DrawData {
     Globals globals;
@@ -177,10 +118,6 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 };
 
 layout(push_constant) uniform PC { DrawData root; };
-
-const vec2 kQuad[4] = vec2[4](
-    vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1)
-);
 
 layout(location = 0) out vec4 v_color;
 layout(location = 1) out vec2 v_local_uv;

@@ -19,9 +19,9 @@ add_library(velk_ui SHARED
     src/transform/trs.cpp
     src/transform/matrix.h
     src/transform/matrix.cpp
-    src/material/shader_material.h
     src/material/gradient_material.h
     src/material/gradient_material.cpp
+    src/renderer/default_ui_shaders.h
     src/renderer/renderer.h
     src/renderer/renderer.cpp
     src/import/align_type_extension.h
@@ -67,7 +67,6 @@ add_library(velk_ui SHARED
     include/velk-ui/api/trait/stack.h
     include/velk-ui/api/element.h
     include/velk-ui/api/material/gradient.h
-    include/velk-ui/api/material/shader.h
     include/velk-ui/api/scene.h
     include/velk-ui/api/trait.h
     include/velk-ui/api/visual.h

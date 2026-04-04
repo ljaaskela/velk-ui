@@ -45,9 +45,6 @@ inline constexpr Uid RoundedRect{"327eb630-63f9-4144-ab05-e97d6099e920"};
 
 namespace Material {
 
-/** @brief Custom fragment shader material. */
-inline constexpr Uid Shader{"04a29568-7677-42ee-9858-83b87196057f"};
-
 /** @brief Built-in linear gradient material. */
 inline constexpr Uid Gradient{"9eb060cd-6050-4878-b817-d58571bf3174"};
 

@@ -1,11 +1,12 @@
 #include "render_context.h"
 
-#include "default_shaders.h"
 #include "shader_compiler.h"
+#include "spirv_material_reflect.h"
 #include "surface.h"
 
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
+
 #include <velk-render/interface/intf_material_internal.h>
 #include <velk-render/platform.h>
 
@@ -13,11 +14,11 @@ namespace velk {
 
 namespace {
 
-PipelineId compile_and_register(IRenderBackend& backend,
-                                const char* vert_glsl, const char* frag_glsl)
+PipelineId compile_and_register(IRenderBackend& backend, const char* vert_glsl, const char* frag_glsl,
+                                const ShaderIncludeMap* includes)
 {
-    auto vert_spirv = compile_glsl_to_spirv(vert_glsl, ShaderStage::Vertex);
-    auto frag_spirv = compile_glsl_to_spirv(frag_glsl, ShaderStage::Fragment);
+    auto vert_spirv = compile_glsl_to_spirv(vert_glsl, ShaderStage::Vertex, includes);
+    auto frag_spirv = compile_glsl_to_spirv(frag_glsl, ShaderStage::Fragment, includes);
     if (vert_spirv.empty() || frag_spirv.empty()) {
         VELK_LOG(E, "compile_and_register: SPIR-V compilation failed");
         return 0;
@@ -73,21 +74,6 @@ bool RenderContextImpl::init(const RenderConfig& config)
         return false;
     }
 
-    // Compile and register built-in pipelines
-    auto rect_id = compile_and_register(*backend_, rect_vertex_src, rect_fragment_src);
-    auto text_id = compile_and_register(*backend_, text_vertex_src, text_fragment_src);
-    auto rounded_rect_id = compile_and_register(*backend_, rounded_rect_vertex_src, rounded_rect_fragment_src);
-
-    if (!rect_id || !text_id || !rounded_rect_id) {
-        VELK_LOG(E, "RenderContext::init: failed to compile built-in shaders");
-        backend_ = nullptr;
-        return false;
-    }
-
-    pipeline_map_[PipelineKey::Rect] = rect_id;
-    pipeline_map_[PipelineKey::Text] = text_id;
-    pipeline_map_[PipelineKey::RoundedRect] = rounded_rect_id;
-
     initialized_ = true;
     VELK_LOG(I, "RenderContext initialized (Vulkan, pointer-based)");
     return true;
@@ -97,7 +83,9 @@ ISurface::Ptr RenderContextImpl::create_surface(int width, int height)
 {
     auto obj = instance().create<IObject>(Surface::static_class_id());
     auto surface = interface_pointer_cast<ISurface>(obj);
-    if (!surface) return nullptr;
+    if (!surface) {
+        return nullptr;
+    }
 
     write_state<ISurface>(surface, [&](ISurface::State& s) {
         s.width = width;
@@ -107,24 +95,60 @@ ISurface::Ptr RenderContextImpl::create_surface(int width, int height)
     return surface;
 }
 
-IObject::Ptr RenderContextImpl::create_shader_material(const char* fragment_source,
-                                                        const char* vertex_source)
+uint64_t RenderContextImpl::compile_pipeline(const char* fragment_source, const char* vertex_source,
+                                             uint64_t key)
 {
-    if (!initialized_ || !backend_ || !fragment_source) return nullptr;
+    if (!initialized_ || !backend_ || !fragment_source || !vertex_source) {
+        return 0;
+    }
 
-    const char* vert_src = vertex_source ? vertex_source : rect_vertex_src;
-    PipelineId pid = compile_and_register(*backend_, vert_src, fragment_source);
-    if (!pid) return nullptr;
+    auto* includes = shader_includes_.empty() ? nullptr : &shader_includes_;
+    PipelineId pid = compile_and_register(*backend_, vertex_source, fragment_source, includes);
+    if (!pid) {
+        return 0;
+    }
 
-    uint64_t key = next_pipeline_key_++;
+    if (key == 0) {
+        key = next_pipeline_key_++;
+    }
     pipeline_map_[key] = pid;
+    return key;
+}
+
+void RenderContextImpl::register_shader_include(string_view name, string_view content)
+{
+    shader_includes_[std::string(name.data(), name.size())] = std::string(content.data(), content.size());
+}
+
+IObject::Ptr RenderContextImpl::create_shader_material(const char* fragment_source, const char* vertex_source)
+{
+    if (!vertex_source) {
+        VELK_LOG(E, "create_shader_material: vertex_source is required");
+        return nullptr;
+    }
+    uint64_t key = compile_pipeline(fragment_source, vertex_source);
+    if (!key) {
+        return nullptr;
+    }
 
     auto obj = instance().create<IObject>(ClassId::ShaderMaterial);
-    if (!obj) return nullptr;
+    if (!obj) {
+        return nullptr;
+    }
 
     auto* mat_internal = interface_cast<IMaterialInternal>(obj);
     if (mat_internal) {
         mat_internal->set_pipeline_handle(key);
+    }
+
+    // Reflect material parameters from the vertex shader SPIR-V
+    auto* includes = shader_includes_.empty() ? nullptr : &shader_includes_;
+    auto vert_spirv = compile_glsl_to_spirv(vertex_source, ShaderStage::Vertex, includes);
+    if (!vert_spirv.empty()) {
+        auto params = reflect_material_params(vert_spirv.data(), vert_spirv.size());
+        if (!params.empty() && mat_internal) {
+            mat_internal->setup_inputs(params);
+        }
     }
 
     return obj;

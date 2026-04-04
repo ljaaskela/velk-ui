@@ -2,15 +2,14 @@
 
 #include "constraint/fixed_size.h"
 #include "element.h"
+#include "import/align_type_extension.h"
+#include "import/dim_type_extension.h"
 #include "input/click.h"
 #include "input/drag.h"
 #include "input/hover.h"
 #include "input/input_dispatcher.h"
-#include "import/align_type_extension.h"
-#include "import/dim_type_extension.h"
 #include "layout/stack.h"
 #include "material/gradient_material.h"
-#include "material/shader_material.h"
 #include "renderer/renderer.h"
 #include "scene.h"
 #include "transform/matrix.h"
@@ -32,7 +31,6 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<FixedSize>(velk);
     rv &= register_type<RectVisual>(velk);
     rv &= register_type<RoundedRectVisual>(velk);
-    rv &= register_type<ShaderMaterial>(velk);
     rv &= register_type<GradientMaterial>(velk);
     rv &= register_type<Renderer>(velk);
     rv &= register_type<Trs>(velk);

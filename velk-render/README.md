@@ -14,7 +14,7 @@ See [Render Backend Architecture](docs/render-backend-architecture.md) for the f
 |-----------|-------------|
 | `include/velk-render/` | Public headers: IRenderBackend, IRenderContext, IMaterial, ISurface, GPU data types |
 | `include/velk-render/api/` | Convenience wrappers: RenderContext, create_render_context() |
-| `src/` | Implementation: RenderContext, shader compiler (shaderc), default shaders |
+| `src/` | Implementation: RenderContext, ShaderMaterial, shader compiler (shaderc) |
 | `plugins/vk/` | Vulkan 1.2 backend: BDA, bindless descriptors, VMA, volk |
 
 ## Key interfaces
@@ -30,3 +30,4 @@ See [Render Backend Architecture](docs/render-backend-architecture.md) for the f
 | Document | Description |
 |----------|-------------|
 | [Render Backend Architecture](docs/render-backend-architecture.md) | Design, data flow, shader model, technical details, Vulkan implementation |
+| [Materials](docs/materials.md) | Built-in materials and shader materials with dynamic inputs |

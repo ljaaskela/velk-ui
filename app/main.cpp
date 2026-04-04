@@ -2,18 +2,21 @@
 #include <velk/api/velk.h>
 #include <velk/interface/intf_plugin_registry.h>
 
+// clang-format off
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+// clang-format on
+#include <velk-render/api/material/shader.h>
+#include <velk-render/api/render_context.h>
+#include <velk-render/plugins/vk/plugin.h>
 #include <velk-ui/api/input/click.h>
 #include <velk-ui/api/input_dispatcher.h>
 #include <velk-ui/api/material/gradient.h>
-#include <velk-ui/api/material/shader.h>
-#include <velk-render/api/render_context.h>
 #include <velk-ui/api/renderer.h>
 #include <velk-ui/api/scene.h>
+#include <velk-ui/api/visual.h>
 #include <velk-ui/api/visual/rect.h>
-#include <velk-render/plugins/vk/plugin.h>
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -127,10 +130,18 @@ int main(int argc, char* argv[])
         ev.button = (button == GLFW_MOUSE_BUTTON_LEFT)    ? velk::ui::PointerButton::Left
                     : (button == GLFW_MOUSE_BUTTON_RIGHT) ? velk::ui::PointerButton::Right
                                                           : velk::ui::PointerButton::Middle;
-        if (mods & GLFW_MOD_SHIFT) ev.modifiers = ev.modifiers | velk::ui::Modifier::Shift;
-        if (mods & GLFW_MOD_CONTROL) ev.modifiers = ev.modifiers | velk::ui::Modifier::Ctrl;
-        if (mods & GLFW_MOD_ALT) ev.modifiers = ev.modifiers | velk::ui::Modifier::Alt;
-        if (mods & GLFW_MOD_SUPER) ev.modifiers = ev.modifiers | velk::ui::Modifier::Super;
+        if (mods & GLFW_MOD_SHIFT) {
+            ev.modifiers = ev.modifiers | velk::ui::Modifier::Shift;
+        }
+        if (mods & GLFW_MOD_CONTROL) {
+            ev.modifiers = ev.modifiers | velk::ui::Modifier::Ctrl;
+        }
+        if (mods & GLFW_MOD_ALT) {
+            ev.modifiers = ev.modifiers | velk::ui::Modifier::Alt;
+        }
+        if (mods & GLFW_MOD_SUPER) {
+            ev.modifiers = ev.modifiers | velk::ui::Modifier::Super;
+        }
         g_input->pointer_event(ev);
     });
 
@@ -159,6 +170,84 @@ int main(int argc, char* argv[])
         auto click = velk::ui::input::create_click();
         click.on_click().add_handler([]() { VELK_LOG(E, "Clicked!"); });
         root.add_trait(click);
+    }
+
+    // Custom shader material: checkerboard pattern on the first card
+    {
+        static const char* checker_vert = R"(
+#version 450
+#include "velk.glsl"
+#include "velk-ui.glsl"
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    Globals globals;
+    RectInstances instances;
+    uint texture_id;
+    uint instance_count;
+    uint _pad0;
+    uint _pad1;
+    vec4 color_a;
+    vec4 color_b;
+    float scale;
+};
+
+layout(push_constant) uniform PC { DrawData root; };
+
+layout(location = 0) out vec2 v_local_uv;
+
+void main()
+{
+    vec2 q = kQuad[gl_VertexIndex];
+    RectInstance inst = root.instances.data[gl_InstanceIndex];
+    vec2 world_pos = inst.pos + q * inst.size;
+    gl_Position = root.globals.projection * vec4(world_pos, 0.0, 1.0);
+    v_local_uv = q;
+}
+)";
+
+        static const char* checker_frag = R"(
+#version 450
+#include "velk.glsl"
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    Ptr64 globals;
+    Ptr64 instances;
+    uint texture_id;
+    uint instance_count;
+    uint _pad0;
+    uint _pad1;
+    vec4 color_a;
+    vec4 color_b;
+    float scale;
+};
+
+layout(push_constant) uniform PC { DrawData root; };
+
+layout(location = 0) in vec2 v_local_uv;
+layout(location = 0) out vec4 frag_color;
+
+void main()
+{
+    float s = root.scale;
+    vec2 cell = floor(v_local_uv * s);
+    float checker = mod(cell.x + cell.y, 2.0);
+    frag_color = mix(root.color_a, root.color_b, checker);
+}
+)";
+
+        auto sm = velk::create_shader_material(*render_ctx, checker_frag, checker_vert);
+        if (sm) {
+            sm.set_input<velk::color>("color_a", {0.15f, 0.15f, 0.25f, 0.6f});
+            sm.set_input<velk::color>("color_b", {0.25f, 0.2f, 0.35f, 0.6f});
+            sm.set_input<float>("scale", 8.0f);
+
+            // Apply to the header element as paint
+            auto header = scene.root().child_at(0);
+            // Find first visual from the header
+            auto v = velk::ui::Visual(header.find_attachment<velk::ui::IVisual>());
+            // Apply paint
+            v.set_paint(sm);
+        }
     }
 
     // First frame

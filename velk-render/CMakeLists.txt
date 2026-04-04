@@ -7,13 +7,16 @@ if(NOT SHADERC_LIB)
 endif()
 
 add_library(velk_render SHARED
-    src/default_shaders.h
     src/render_context.h
     src/render_context.cpp
     src/render_plugin.h
     src/render_plugin.cpp
     src/shader_compiler.h
     src/shader_compiler.cpp
+    src/shader_material.h
+    src/shader_material.cpp
+    src/spirv_material_reflect.h
+    src/spirv_material_reflect.cpp
     src/surface.h
     include/velk-render/plugin.h
     include/velk-render/platform.h
@@ -24,9 +27,12 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_surface.h
     include/velk-render/interface/intf_material.h
     include/velk-render/interface/intf_material_internal.h
+    include/velk-render/interface/intf_shader_material.h
+    include/velk-render/ext/material.h
     include/velk-render/interface/intf_texture_provider.h
     include/velk-render/detail/intf_renderer_internal.h
     include/velk-render/api/render_context.h
+    include/velk-render/api/material/shader.h
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})
