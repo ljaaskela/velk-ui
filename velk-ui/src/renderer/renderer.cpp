@@ -165,29 +165,28 @@ void Renderer::rebuild_commands(IElement* element)
 
     for (size_t i = 0; i < storage->attachment_count(); ++i) {
         auto att = storage->get_attachment(i);
-
         auto* visual = interface_cast<IVisual>(att);
         if (visual) {
             VisualCommands vc;
             vc.entries = visual->get_draw_entries(local_rect);
 
             auto vstate = read_state<IVisual>(visual);
-            auto mat_obj = (vstate && vstate->paint) ? vstate->paint.get() : IObject::Ptr{};
-            auto* mat = mat_obj ? interface_cast<IMaterial>(mat_obj) : nullptr;
-            if (mat && render_ctx_) {
-                uint64_t handle = mat->get_pipeline_handle(*render_ctx_);
-                if (handle != 0) {
-                    vc.pipeline_override = handle;
-                    vc.material = mat;
+            if (render_ctx_ && vstate && vstate->paint) {
+                auto mat = vstate->paint.get<IMaterial>();
+                if (mat) {
+                    uint64_t handle = mat->get_pipeline_handle(*render_ctx_);
+                    if (handle) {
+                        vc.pipeline_override = handle;
+                        vc.material = std::move(mat);
+                    }
                 }
             }
 
             cache.visuals.push_back(std::move(vc));
         }
-
-        auto* tp = interface_cast<ITextureProvider>(att);
+        auto tp = interface_pointer_cast<ITextureProvider>(att);
         if (tp) {
-            cache.texture_provider = tp;
+            cache.texture_provider = std::move(tp);
         }
     }
 }
@@ -196,6 +195,10 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
 {
     batches_.clear();
     batch_index_.clear();
+
+    auto resolve_texture = [](const IMaterial::Ptr& material, uint64_t fallback) -> uint64_t {
+        return material ? reinterpret_cast<uintptr_t>(material.get()) : fallback;
+    };
 
     for (auto* element : state.visual_list) {
         auto it = element_cache_.find(element);
@@ -213,17 +216,12 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
         float wy = elem_state->world_matrix(1, 3);
 
         for (auto& vc : cache.visuals) {
-            bool has_material = vc.material != nullptr;
-
             for (auto& de : vc.entries) {
                 uint64_t pipeline = (vc.pipeline_override != 0) ? vc.pipeline_override : de.pipeline_key;
                 uint64_t texture = de.texture_key;
 
-                bool per_element = has_material || (pipeline >= PipelineKey::CustomBase) ||
-                                   (pipeline == PipelineKey::RoundedRect);
-
-                uint64_t bkey = per_element ? make_batch_key(pipeline, reinterpret_cast<uintptr_t>(element))
-                                            : make_batch_key(pipeline, texture);
+                // Batch by material identity: same instance = same params = safe to batch.
+                uint64_t bkey = make_batch_key(pipeline, resolve_texture(vc.material, texture));
 
                 auto bit = batch_index_.find(bkey);
                 size_t batch_idx;
@@ -249,13 +247,6 @@ void Renderer::rebuild_batches(const SceneState& state, const SurfaceEntry& entr
                 float* inst = reinterpret_cast<float*>(batch.instance_data.data() + data_offset);
                 inst[0] += wx;
                 inst[1] += wy;
-
-                if (per_element && !batch.has_rect) {
-                    float x = wx + de.bounds.x;
-                    float y = wy + de.bounds.y;
-                    batch.rect = {x, y, de.bounds.width, de.bounds.height};
-                    batch.has_rect = true;
-                }
 
                 batch.instance_count++;
             }
@@ -433,12 +424,12 @@ void Renderer::render()
         if (has_changes) {
             for (auto& [elem, cache] : element_cache_) {
                 if (cache.texture_provider && cache.texture_provider->is_texture_dirty()) {
-                    auto* tp = cache.texture_provider;
+                    auto& tp = cache.texture_provider;
                     uint32_t tw = tp->get_texture_width();
                     uint32_t th = tp->get_texture_height();
                     const uint8_t* pixels = tp->get_pixels();
                     if (pixels && tw > 0 && th > 0) {
-                        uint64_t tex_key = reinterpret_cast<uint64_t>(tp);
+                        uint64_t tex_key = reinterpret_cast<uint64_t>(tp.get());
 
                         auto tit = texture_map_.find(tex_key);
                         if (tit == texture_map_.end()) {

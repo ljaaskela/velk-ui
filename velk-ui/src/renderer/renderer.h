@@ -7,12 +7,12 @@
 #include <unordered_map>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
+#include <velk-render/interface/intf_material.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/interface/intf_texture_provider.h>
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
-#include <velk-render/interface/intf_material.h>
 #include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
 
@@ -24,8 +24,7 @@ public:
     VELK_CLASS_UID(::velk::ClassId::Renderer, "Renderer");
 
     // IRendererInternal
-    void set_backend(const IRenderBackend::Ptr& backend,
-                     IRenderContext* ctx) override;
+    void set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx) override;
 
     // IRenderer
     void attach(const ISurface::Ptr& surface, const IScene::Ptr& scene) override;
@@ -38,13 +37,13 @@ private:
     {
         vector<DrawEntry> entries;
         uint64_t pipeline_override = 0;
-        IMaterial* material = nullptr;
+        IMaterial::Ptr material;
     };
 
     struct ElementCache
     {
         vector<VisualCommands> visuals;
-        ITextureProvider* texture_provider = nullptr;
+        ITextureProvider::Ptr texture_provider;
     };
 
     struct SurfaceEntry
@@ -64,9 +63,7 @@ private:
         vector<uint8_t> instance_data;
         uint32_t instance_stride = 0;
         uint32_t instance_count = 0;
-        IMaterial* material = nullptr;
-        rect rect{};
-        bool has_rect = false;
+        IMaterial::Ptr material;
     };
 
     void rebuild_commands(IElement* element);
