@@ -156,4 +156,18 @@ IFont::GlyphBitmap Font::rasterize_glyph(uint32_t glyph_id)
     return result;
 }
 
+const IFont::GlyphRect* Font::ensure_glyph(uint32_t glyph_id)
+{
+    return atlas_.ensure_glyph(*this, glyph_id);
+}
+
+uint32_t Font::get_atlas_width() const { return atlas_.get_width(); }
+uint32_t Font::get_atlas_height() const { return atlas_.get_height(); }
+
+const uint8_t* Font::get_pixels() const { return atlas_.get_pixels(); }
+uint32_t Font::get_texture_width() const { return atlas_.get_width(); }
+uint32_t Font::get_texture_height() const { return atlas_.get_height(); }
+bool Font::is_texture_dirty() const { return atlas_.is_dirty(); }
+void Font::clear_texture_dirty() { atlas_.clear_dirty(); }
+
 } // namespace velk::ui

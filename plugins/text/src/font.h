@@ -5,6 +5,7 @@
 #include <velk/vector.h>
 
 #include <ft2build.h>
+#include <velk-render/interface/intf_texture_provider.h>
 #include <velk-ui/interface/intf_font.h>
 #include <velk-ui/plugins/text/plugin.h>
 #include FT_FREETYPE_H
@@ -12,9 +13,11 @@
 #include <hb-ft.h>
 #include <hb.h>
 
+#include "font_atlas.h"
+
 namespace velk::ui {
 
-class Font : public ::velk::ext::Object<Font, IFont>
+class Font : public ::velk::ext::Object<Font, IFont, ITextureProvider>
 {
 public:
     VELK_CLASS_UID(ClassId::Font, "Font");
@@ -29,6 +32,16 @@ public:
     bool set_size(float size_px) override;
     float shape_text(string_view text, vector<IFont::GlyphPosition>& out) override;
     GlyphBitmap rasterize_glyph(uint32_t glyph_id) override;
+    const GlyphRect* ensure_glyph(uint32_t glyph_id) override;
+    uint32_t get_atlas_width() const override;
+    uint32_t get_atlas_height() const override;
+
+    // ITextureProvider
+    const uint8_t* get_pixels() const override;
+    uint32_t get_texture_width() const override;
+    uint32_t get_texture_height() const override;
+    bool is_texture_dirty() const override;
+    void clear_texture_dirty() override;
 
 private:
     vector<uint8_t> font_data_;
@@ -36,6 +49,7 @@ private:
     FT_Face ft_face_ = nullptr;
     hb_font_t* hb_font_ = nullptr;
     hb_buffer_t* hb_buffer_ = nullptr;
+    GlyphAtlas atlas_;
 };
 
 } // namespace velk::ui

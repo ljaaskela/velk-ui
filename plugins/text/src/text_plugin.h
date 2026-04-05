@@ -3,11 +3,12 @@
 
 #include <velk/ext/plugin.h>
 
+#include <velk-ui/plugins/text/intf_text_plugin.h>
 #include <velk-ui/plugins/text/plugin.h>
 
 namespace velk::ui {
 
-class TextPlugin final : public ::velk::ext::Plugin<TextPlugin>
+class TextPlugin final : public ::velk::ext::Plugin<TextPlugin, ITextPlugin>
 {
 public:
     VELK_PLUGIN_UID(PluginId::TextPlugin);
@@ -16,6 +17,12 @@ public:
 
     ReturnValue initialize(IVelk& velk, PluginConfig& config) override;
     ReturnValue shutdown(IVelk& velk) override;
+
+    // ITextPlugin
+    IFont::Ptr default_font() const override;
+
+private:
+    IFont::Ptr default_font_;
 };
 
 } // namespace velk::ui

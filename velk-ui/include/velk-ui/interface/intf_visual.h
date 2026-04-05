@@ -6,6 +6,7 @@
 #include <velk/interface/intf_metadata.h>
 #include <velk/vector.h>
 
+#include <velk-render/interface/intf_texture_provider.h>
 #include <velk-render/render_types.h>
 #include <velk-ui/interface/intf_trait.h>
 
@@ -26,7 +27,11 @@ public:
         (EVT, on_visual_changed)
     )
 
+    /** @brief Returns draw entries for this visual within the given bounds. */
     virtual vector<DrawEntry> get_draw_entries(const rect& bounds) = 0;
+
+    /** @brief Returns the texture provider for this visual, or nullptr if none. */
+    virtual ITextureProvider::Ptr get_texture_provider() const { return nullptr; }
 };
 
 } // namespace velk::ui

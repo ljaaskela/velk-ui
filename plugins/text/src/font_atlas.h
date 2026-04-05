@@ -10,18 +10,14 @@
 
 namespace velk::ui {
 
-struct AtlasRect
-{
-    uint32_t x, y, w, h;
-    float bearing_x, bearing_y;
-};
+using GlyphRect = IFont::GlyphRect;
 
 class GlyphAtlas
 {
 public:
     GlyphAtlas(uint32_t width = 1024, uint32_t height = 1024);
 
-    const AtlasRect* ensure_glyph(IFont& font, uint32_t glyph_id);
+    const GlyphRect* ensure_glyph(IFont& font, uint32_t glyph_id);
 
     const uint8_t* get_pixels() const { return pixels_.data(); }
     uint32_t get_width() const { return width_; }
@@ -35,7 +31,7 @@ private:
     uint32_t width_;
     uint32_t height_;
     vector<uint8_t> pixels_;
-    std::unordered_map<uint32_t, AtlasRect> glyphs_;
+    std::unordered_map<uint32_t, GlyphRect> glyphs_;
     bool dirty_ = false;
 
     // Row-based packer state

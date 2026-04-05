@@ -3,6 +3,7 @@
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
 #include <velk-ui/instance_types.h>
+#include <velk-ui/plugins/text/intf_text_plugin.h>
 
 namespace velk::ui {
 
@@ -27,11 +28,9 @@ void TextVisual::ensure_default_font()
         return;
     }
 
-    auto obj = instance().create<IObject>(ClassId::Font);
-    font_ = interface_pointer_cast<IFont>(obj);
-    if (font_) {
-        font_->init_default();
-        font_->set_size(16.f);
+    auto plugin = get_or_load_plugin<ITextPlugin>(PluginId::TextPlugin);
+    if (plugin) {
+        font_ = plugin->default_font();
     }
 }
 
@@ -60,13 +59,13 @@ void TextVisual::reshape()
     float ascender = font_state ? font_state->ascender : 0.f;
     float line_height = font_state ? font_state->line_height : 0.f;
 
-    float atlas_w = static_cast<float>(atlas_.get_width());
-    float atlas_h = static_cast<float>(atlas_.get_height());
+    float atlas_w = static_cast<float>(font_->get_atlas_width());
+    float atlas_h = static_cast<float>(font_->get_atlas_height());
 
     float cursor_x = 0.f;
 
     for (auto& gp : positions) {
-        const AtlasRect* rect = atlas_.ensure_glyph(*font_, gp.glyph_id);
+        auto* rect = font_->ensure_glyph(gp.glyph_id);
         if (!rect || (rect->w == 0 && rect->h == 0)) {
             cursor_x += gp.advance.x;
             continue;
@@ -126,12 +125,15 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
     default: break;
     }
 
+    // Texture key: font's ITextureProvider address (shared across text visuals using the same font)
+    auto font_tp = interface_pointer_cast<ITextureProvider>(font_);
+    uint64_t tex_key = font_tp ? reinterpret_cast<uint64_t>(font_tp.get()) : 0;
+
     vector<DrawEntry> result;
     result.reserve(cached_entries_.size());
 
     for (auto& entry : cached_entries_) {
         DrawEntry out = entry;
-        // Offset bounds
         out.bounds.x += offset_x;
         out.bounds.y += offset_y;
 
@@ -140,8 +142,7 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
         inst.pos.y += offset_y;
         inst.col = col;
 
-        // Texture key: use this TextureProvider's address as key (matches renderer's upload key)
-        out.texture_key = reinterpret_cast<uint64_t>(static_cast<const ITextureProvider*>(this));
+        out.texture_key = tex_key;
 
         result.push_back(out);
     }
@@ -149,29 +150,9 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
     return result;
 }
 
-const uint8_t* TextVisual::get_pixels() const
+ITextureProvider::Ptr TextVisual::get_texture_provider() const
 {
-    return atlas_.get_pixels();
-}
-
-uint32_t TextVisual::get_texture_width() const
-{
-    return atlas_.get_width();
-}
-
-uint32_t TextVisual::get_texture_height() const
-{
-    return atlas_.get_height();
-}
-
-bool TextVisual::is_texture_dirty() const
-{
-    return atlas_.is_dirty();
-}
-
-void TextVisual::clear_texture_dirty()
-{
-    atlas_.clear_dirty();
+    return interface_pointer_cast<ITextureProvider>(font_);
 }
 
 } // namespace velk::ui

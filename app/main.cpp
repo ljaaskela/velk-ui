@@ -237,7 +237,7 @@ void main()
             sm.set_input<float>("scale", 8.0f);
 
             // Apply to the header element as paint
-            auto header = scene.root().child_at(0);
+            auto header = scene.root().child_at(0).child_at(0);
             // Find first visual from the header
             auto v = velk::ui::Visual(header.find_attachment<velk::ui::IVisual>());
             // Apply paint

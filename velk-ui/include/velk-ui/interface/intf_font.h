@@ -28,6 +28,13 @@ public:
         vec2 bearing; // left and top side bearing (pixels)
     };
 
+    /** @brief Position and metrics of a glyph in the font's atlas. */
+    struct GlyphRect
+    {
+        uint32_t x, y, w, h;
+        float bearing_x, bearing_y;
+    };
+
     VELK_INTERFACE(
         (RPROP, float, ascender, 0.f),
         (RPROP, float, descender, 0.f),
@@ -41,6 +48,19 @@ public:
     virtual bool set_size(float size_px) = 0;
     virtual float shape_text(string_view text, vector<GlyphPosition>& out) = 0;
     virtual GlyphBitmap rasterize_glyph(uint32_t glyph_id) = 0;
+
+    /**
+     * @brief Ensures a glyph is rasterized and placed in the font's atlas.
+     * @param glyph_id Glyph index from shape_text().
+     * @return Pointer to the glyph's atlas rect, or nullptr on failure.
+     */
+    virtual const GlyphRect* ensure_glyph(uint32_t glyph_id) = 0;
+
+    /** @brief Returns the atlas width in pixels. */
+    virtual uint32_t get_atlas_width() const = 0;
+
+    /** @brief Returns the atlas height in pixels. */
+    virtual uint32_t get_atlas_height() const = 0;
 };
 
 } // namespace velk::ui

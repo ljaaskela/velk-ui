@@ -10,7 +10,7 @@ GlyphAtlas::GlyphAtlas(uint32_t width, uint32_t height) : width_(width), height_
     pixels_.resize(width * height, 0);
 }
 
-const AtlasRect* GlyphAtlas::ensure_glyph(IFont& font, uint32_t glyph_id)
+const GlyphRect* GlyphAtlas::ensure_glyph(IFont& font, uint32_t glyph_id)
 {
     auto it = glyphs_.find(glyph_id);
     if (it != glyphs_.end()) {
@@ -20,7 +20,7 @@ const AtlasRect* GlyphAtlas::ensure_glyph(IFont& font, uint32_t glyph_id)
     IFont::GlyphBitmap bmp = font.rasterize_glyph(glyph_id);
     if (!bmp.data || bmp.width == 0 || bmp.height == 0) {
         // Insert a zero-size entry for whitespace glyphs
-        AtlasRect rect{};
+        GlyphRect rect{};
         rect.bearing_x = bmp.bearing.x;
         rect.bearing_y = bmp.bearing.y;
         auto result = glyphs_.emplace(glyph_id, rect);
@@ -48,7 +48,7 @@ const AtlasRect* GlyphAtlas::ensure_glyph(IFont& font, uint32_t glyph_id)
         std::memcpy(&pixels_[dst_offset], bmp.data + row * bmp.width, bmp.width);
     }
 
-    AtlasRect rect;
+    GlyphRect rect;
     rect.x = cursor_x_;
     rect.y = cursor_y_;
     rect.w = bmp.width;
