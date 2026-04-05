@@ -75,7 +75,8 @@ private:
 
     mutable std::shared_mutex state_mutex_;  ///< Protects the lists below.
     vector<IElement*> dirty_elements_;
-    vector<IElement::Ptr> visual_list_;
+    vector<IElement::Ptr> visual_list_;        ///< Pre-order (before children).
+    vector<IElement::Ptr> after_visual_list_;  ///< Post-order (after children).
     vector<IElement*> redraw_list_;
     vector<IElement::Ptr> removed_list_;
 

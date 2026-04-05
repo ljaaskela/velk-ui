@@ -42,7 +42,8 @@ private:
 
     struct ElementCache
     {
-        vector<VisualCommands> visuals;
+        vector<VisualCommands> before_visuals;  ///< VisualPhase::BeforeChildren
+        vector<VisualCommands> after_visuals;   ///< VisualPhase::AfterChildren
         vector<ITextureProvider::Ptr> texture_providers;
     };
 

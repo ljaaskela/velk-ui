@@ -44,6 +44,9 @@ public:
     {
         write_state<IVisual>([&](IVisual::State& s) { set_object_ref(s.paint, material); });
     }
+
+    /** @brief Returns the visual phase. */
+    auto get_visual_phase() const { return read_state_value<IVisual>(&IVisual::State::visual_phase); }
 };
 
 } // namespace velk::ui

@@ -169,6 +169,7 @@ SceneState Scene::consume_state()
 
     SceneState state;
     state.visual_list = visual_list_;
+    state.after_visual_list = after_visual_list_;
     state.redraw_list = std::move(redraw_list_);
     state.removed_list = std::move(removed_list_);
     return state;
@@ -414,6 +415,7 @@ IHierarchy::Node Scene::node_of(const IObject::Ptr& object) const
 void Scene::rebuild_visual_list()
 {
     visual_list_.clear();
+    after_visual_list_.clear();
     if (auto r = root()) {
         collect_visual_list(r);
     }
@@ -423,7 +425,7 @@ void Scene::collect_visual_list(const IObject::Ptr& obj)
 {
     auto elem = interface_pointer_cast<IElement>(obj);
     if (elem) {
-        visual_list_.push_back(elem);
+        visual_list_.push_back(elem);  // pre-order: before children
     }
 
     auto* h = get_hierarchy(logical_);
@@ -442,6 +444,10 @@ void Scene::collect_visual_list(const IObject::Ptr& obj)
 
     for (auto& kid : kids) {
         collect_visual_list(kid);
+    }
+
+    if (elem) {
+        after_visual_list_.push_back(elem);  // post-order: after children
     }
 }
 

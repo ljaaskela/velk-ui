@@ -12,17 +12,20 @@ This maps directly to velk's object model: traits are velk objects attached to a
 
 ## Trait phases
 
-Every trait implements `ITrait` and reports which phase of the element pipeline it participates in via `get_phase()`:
+Every trait implements `ITrait` and reports which phases of the element pipeline it participates in via `get_phase()`. The return value is a bitmask, so a single trait can participate in multiple phases.
 
-| Phase | Interface | Runs during | Purpose |
-|-------|-----------|-------------|---------|
-| **Layout** | `ILayoutTrait` | Scene update | Walks children, divides space |
-| **Constraint** | `ILayoutTrait` | Scene update | Refines own size |
-| **Transform** | `ITransformTrait` | Scene update | Modifies the world matrix |
-| **Visual** | `IVisual` | Renderer | Produces draw commands |
-| **Input** | `IInputTrait` | Input dispatcher | Handles pointer, scroll, key events |
+| Phase | Purpose | Typical interface |
+|-------|---------|-------------------|
+| **Layout** | Walks children, divides space | `ILayoutTrait` |
+| **Constraint** | Refines own size | `ILayoutTrait` |
+| **Transform** | Modifies the world matrix | `ITransformTrait` |
+| **Visual** | Produces draw commands | `IVisual` |
+| **Input** | Handles pointer, scroll, key events | `IInputTrait` |
+| **Render** | Defines how the scene is observed | `ICamera` |
 
-The first three phases run inside the layout solver during `Scene::update()`. Visual runs during `renderer->render()`. Input runs synchronously when the input dispatcher receives platform events, before `update()`. See [Update cycle](update-cycle.md) for the full frame flow.
+The phase determines *when* the trait runs, not *what interface* it must implement. For example, `ILayoutTrait` is used by both Layout and Constraint phases; a Stack trait returns `TraitPhase::Layout` while a FixedSize trait returns `TraitPhase::Constraint`. A trait could return both (`TraitPhase::Layout | TraitPhase::Constraint`) to participate in both phases.
+
+Layout, Constraint, and Transform run inside the layout solver during `Scene::update()`. Visual and Render run during `renderer->render()`. Input runs synchronously when the input dispatcher receives platform events. See [Update cycle](update-cycle.md) for the full frame flow.
 
 ## Attaching traits
 
@@ -45,6 +48,8 @@ auto found = elem.find_trait<IFixedSize>();  // nullptr if not attached
 
 An element can have multiple traits, including multiple traits of the same phase (e.g. a Layout trait and a Constraint trait, or two Visuals).
 
+**Note**: Under the hood traits are just attachments managed through `velk::IObjectStorage` interface. So the low level attachment interfaces work too, Element API wrapper just provides an easier-to-use path.
+
 ## CRTP base classes
 
 Each trait category has a CRTP base in `velk::ui::ext` that provides sensible defaults:
@@ -55,6 +60,7 @@ Each trait category has a CRTP base in `velk::ui::ext` that provides sensible de
 | `ext::Transform<T, ...>` | Transform | No-op transform |
 | `ext::Visual<T, ...>` | Visual | Fires `on_visual_changed` on any property change |
 | `ext::Input<T, ...>` | Input | All handlers return `Ignored` |
+| `ext::Render<T, ...>` | Render | Base for render-phase traits (e.g. Camera) |
 
 Subclass the appropriate base and override only what you need.
 
@@ -114,6 +120,70 @@ text.set_text("Hello!");
 ```
 
 Visuals can optionally reference an `IMaterial` (via the `paint` property) to override the default fill with a custom shader or gradient.
+
+### Visual phase
+
+Each visual has a `visual_phase` property that controls when it draws relative to the element's children:
+
+| Phase | Description |
+|-------|-------------|
+| `BeforeChildren` | Draws before children (default). Use for backgrounds, fills. |
+| `AfterChildren` | Draws after children. Use for borders, overlays, focus rings. |
+
+```cpp
+auto border = velk::ui::visual::create_rect();
+border.set_color({1.f, 1.f, 1.f, 0.3f});
+border.set_visual_phase(VisualPhase::AfterChildren);
+elem.add_trait(border);
+```
+
+In JSON:
+
+```json
+{ "targets": ["panel"], "class": "velk-ui.RectVisual",
+  "properties": { "visual_phase": "after_children", "color": { "r": 1, "g": 1, "b": 1, "a": 0.3 } } }
+```
+
+Multiple visuals on the same element are grouped by phase. All `BeforeChildren` visuals draw in attachment order before any child visuals, then all `AfterChildren` visuals draw in attachment order after all descendants.
+
+## Render traits
+
+Render traits affect how the scene is observed, identified by `TraitPhase::Render`. Currently there is one such trait implemented by `ClassId::Camera` The renderer uses the camera's view-projection matrix to transform the scene for display on a surface.
+
+| Trait | Interface | Description |
+|-------|-----------|-------------|
+| Camera | `ICamera` | Orthographic or perspective projection with zoom and scale |
+
+The camera is attached to an element in the scene hierarchy. The element's world transform provides the camera position. The renderer binds a camera element to a surface via `add_view()`.
+
+```cpp
+auto camera_elem = velk::ui::create_element();
+camera_elem.add_trait(velk::ui::create_camera());
+scene.add(scene.root(), camera_elem);
+
+renderer->add_view(camera_elem, surface);
+```
+
+In JSON, the camera is defined as a trait on an element:
+
+```json
+{ "id": "camera", "class": "velk-ui.Element" }
+```
+
+```json
+{ "targets": ["camera"], "class": "velk-ui.Camera", "properties": { "zoom": 1.0 } }
+```
+
+Camera properties:
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `projection` | `Projection` | `Ortho` | Projection type (`ortho` or `perspective`) |
+| `zoom` | `float` | `1.0` | View zoom (2.0 = zoomed in, 0.5 = zoomed out) |
+| `scale` | `float` | `1.0` | Render resolution relative to surface |
+| `fov` | `float` | `60.0` | Vertical FOV in degrees (perspective only) |
+| `near_clip` | `float` | `0.1` | Near clipping plane |
+| `far_clip` | `float` | `1000.0` | Far clipping plane |
 
 ## Input traits
 

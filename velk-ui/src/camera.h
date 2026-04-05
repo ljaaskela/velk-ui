@@ -4,7 +4,7 @@
 #include <velk-ui/ext/trait.h>
 #include <velk-ui/plugin.h>
 
-namespace velk::ui {
+namespace velk::ui::impl {
 
 /**
  * @brief Default camera trait implementation.
@@ -12,7 +12,7 @@ namespace velk::ui {
  * Supports orthographic and perspective projection. The element's world
  * transform provides the camera position and orientation.
  */
-class CameraImpl : public ext::Camera<CameraImpl>
+class Camera : public ext::Render<Camera, ICamera>
 {
 public:
     VELK_CLASS_UID(ClassId::Render::Camera, "Camera");
@@ -25,6 +25,6 @@ public:
                        vec3& origin, vec3& direction) const override;
 };
 
-} // namespace velk::ui
+} // namespace velk::ui::impl
 
 #endif // VELK_UI_CAMERA_H

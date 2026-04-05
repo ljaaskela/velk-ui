@@ -74,13 +74,13 @@ protected:
 };
 
 /**
- * @brief CRTP base for ICamera implementations.
+ * @brief CRTP base for Render-phase traits (e.g. Camera).
  *
- * @tparam T     The concrete camera class (CRTP parameter).
- * @tparam Extra Additional interfaces.
+ * @tparam T     The concrete class (CRTP parameter).
+ * @tparam Extra Additional interfaces (e.g. ICamera).
  */
 template <class T, class... Extra>
-class Camera : public ::velk::ext::Object<T, ICamera, Extra...>
+class Render : public ::velk::ext::Object<T, Extra...>
 {
 public:
     TraitPhase get_phase() const override { return TraitPhase::Render; }

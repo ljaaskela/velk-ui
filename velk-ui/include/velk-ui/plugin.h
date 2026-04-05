@@ -84,6 +84,9 @@ inline constexpr Uid AlignTypeExtension{"0fce50cf-be04-430a-a617-5724ada76a30"};
 /** @brief Type extension for Projection enum values in the importer. */
 inline constexpr Uid ProjectionTypeExtension{"9dc1211c-70f1-41ea-a19f-099e2e7d66ef"};
 
+/** @brief Type extension for VisualPhase enum values in the importer. */
+inline constexpr Uid VisualPhaseTypeExtension{"8ebb28a3-c32a-4258-b09e-fa2c592d4382"};
+
 } // namespace Import
 
 } // namespace ClassId

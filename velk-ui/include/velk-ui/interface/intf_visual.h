@@ -12,6 +12,17 @@
 
 namespace velk::ui {
 
+/** @brief Controls when a visual draws relative to an element's children. */
+enum class VisualPhase : uint8_t
+{
+    /** @brief Draw the visual before any of the children of the Element the visual is attached to.
+               This is the default and the correct choice for most use cases. */
+    BeforeChildren = 0,
+    /** @brief Draw the visual after drawing the child hierarchy of the Element the Visual is attached to.
+               A typical use case would be a border, overlay, focus indicator. */
+    AfterChildren,
+};
+
 /**
  * @brief Visual representation attached to an element.
  *
@@ -24,6 +35,7 @@ public:
     VELK_INTERFACE(
         (PROP, ::velk::color, color, {}),
         (PROP, ObjectRef, paint, {}),
+        (PROP, VisualPhase, visual_phase, VisualPhase::BeforeChildren),
         (EVT, on_visual_changed)
     )
 

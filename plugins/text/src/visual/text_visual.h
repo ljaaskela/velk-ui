@@ -1,7 +1,7 @@
 #ifndef VELK_UI_TEXT_VISUAL_H
 #define VELK_UI_TEXT_VISUAL_H
 
-#include <velk-ui/ext/visual.h>
+#include <velk-ui/ext/trait.h>
 #include <velk-ui/interface/intf_font.h>
 #include <velk-ui/plugins/text/intf_text_visual.h>
 #include <velk-ui/plugins/text/plugin.h>

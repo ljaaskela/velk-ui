@@ -142,7 +142,8 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const ISurface::
 void Renderer::rebuild_commands(IElement* element)
 {
     auto& cache = element_cache_[element];
-    cache.visuals.clear();
+    cache.before_visuals.clear();
+    cache.after_visuals.clear();
     cache.texture_providers.clear();
 
     auto* storage = interface_cast<IObjectStorage>(element);
@@ -187,7 +188,13 @@ void Renderer::rebuild_commands(IElement* element)
             cache.texture_providers.push_back(std::move(tp));
         }
 
-        cache.visuals.push_back(std::move(vc));
+        // Sort into before/after based on visual phase
+        VisualPhase phase = vstate ? vstate->visual_phase : VisualPhase::BeforeChildren;
+        if (phase == VisualPhase::AfterChildren) {
+            cache.after_visuals.push_back(std::move(vc));
+        } else {
+            cache.before_visuals.push_back(std::move(vc));
+        }
     }
 }
 
@@ -199,78 +206,86 @@ void Renderer::rebuild_batches(const SceneState& state, const ViewEntry& entry)
         return material ? reinterpret_cast<uintptr_t>(material.get()) : fallback;
     };
 
-    // Multi-pass batching: emit visual[0] from all elements in depth-first order,
-    // then visual[1], etc. This groups same-pipeline draws together for batching.
+    // Multi-pass batching over a visual list. Emits visual[0] from all elements,
+    // then visual[1], etc. Consecutive entries with the same batch key are merged.
     //
-    // Correctness:
-    //   All of a parent's visuals draw before any child's visuals (depth-first).
-    //   Siblings don't overlap (layout guarantees it), so their order is free.
-    //   Within each pass, depth-first order is preserved, so parent before child holds.
-    //
-    // Within each pass, consecutive entries with the same batch key are merged.
-
-    size_t max_visuals = 0;
-    for (auto& element : state.visual_list) {
-        auto it = element_cache_.find(element.get());
-        if (it != element_cache_.end()) {
-            max_visuals = std::max(max_visuals, it->second.visuals.size());
-        }
-    }
+    // Called twice: once for before-children visuals (pre-order list),
+    // once for after-children visuals (post-order list).
 
     uint64_t last_bkey = 0;
 
-    for (size_t pass = 0; pass < max_visuals; ++pass) {
-        for (auto& element : state.visual_list) {
-            auto* elem = element.get();
-            auto it = element_cache_.find(elem);
-            if (it == element_cache_.end()) {
-                continue;
-            }
+    auto get_visuals = [](const ElementCache& cache, VisualPhase phase) -> const vector<VisualCommands>& {
+        return phase == VisualPhase::AfterChildren ? cache.after_visuals : cache.before_visuals;
+    };
 
-            auto& cache = it->second;
-            if (pass >= cache.visuals.size()) {
-                continue;
-            }
-
-            auto elem_state = read_state<IElement>(elem);
-            if (!elem_state) {
-                continue;
-            }
-
-            float wx = elem_state->world_matrix(0, 3);
-            float wy = elem_state->world_matrix(1, 3);
-
-            auto& vc = cache.visuals[pass];
-            for (auto& de : vc.entries) {
-                uint64_t pipeline = (vc.pipeline_override != 0) ? vc.pipeline_override : de.pipeline_key;
-                uint64_t texture = de.texture_key;
-
-                uint64_t bkey = make_batch_key(pipeline, resolve_texture(vc.material, texture));
-
-                if (batches_.empty() || bkey != last_bkey) {
-                    Batch batch;
-                    batch.pipeline_key = pipeline;
-                    batch.texture_key = texture;
-                    batch.instance_stride = de.instance_size;
-                    batch.material = vc.material;
-                    batches_.push_back(std::move(batch));
-                    last_bkey = bkey;
-                }
-
-                auto& batch = batches_.back();
-
-                auto data_offset = batch.instance_data.size();
-                batch.instance_data.resize(data_offset + de.instance_size);
-                std::memcpy(batch.instance_data.data() + data_offset, de.instance_data, de.instance_size);
-
-                float* inst = reinterpret_cast<float*>(batch.instance_data.data() + data_offset);
-                inst[0] += wx;
-                inst[1] += wy;
-
-                batch.instance_count++;
+    auto emit_visuals = [&](const vector<IElement::Ptr>& elements, VisualPhase phase) {
+        size_t max_visuals = 0;
+        for (auto& element : elements) {
+            auto it = element_cache_.find(element.get());
+            if (it != element_cache_.end()) {
+                max_visuals = std::max(max_visuals, get_visuals(it->second, phase).size());
             }
         }
-    }
+
+        for (size_t pass = 0; pass < max_visuals; ++pass) {
+            for (auto& element : elements) {
+                auto* elem = element.get();
+                auto it = element_cache_.find(elem);
+                if (it == element_cache_.end()) {
+                    continue;
+                }
+
+                auto& visuals = get_visuals(it->second, phase);
+                if (pass >= visuals.size()) {
+                    continue;
+                }
+
+                auto elem_state = read_state<IElement>(elem);
+                if (!elem_state) {
+                    continue;
+                }
+
+                float wx = elem_state->world_matrix(0, 3);
+                float wy = elem_state->world_matrix(1, 3);
+
+                auto& vc = visuals[pass];
+                for (auto& de : vc.entries) {
+                    uint64_t pipeline = (vc.pipeline_override != 0) ? vc.pipeline_override : de.pipeline_key;
+                    uint64_t texture = de.texture_key;
+
+                    uint64_t bkey = make_batch_key(pipeline, resolve_texture(vc.material, texture));
+
+                    if (batches_.empty() || bkey != last_bkey) {
+                        Batch batch;
+                        batch.pipeline_key = pipeline;
+                        batch.texture_key = texture;
+                        batch.instance_stride = de.instance_size;
+                        batch.material = vc.material;
+                        batches_.push_back(std::move(batch));
+                        last_bkey = bkey;
+                    }
+
+                    auto& batch = batches_.back();
+
+                    auto data_offset = batch.instance_data.size();
+                    batch.instance_data.resize(data_offset + de.instance_size);
+                    std::memcpy(batch.instance_data.data() + data_offset, de.instance_data, de.instance_size);
+
+                    float* inst = reinterpret_cast<float*>(batch.instance_data.data() + data_offset);
+                    inst[0] += wx;
+                    inst[1] += wy;
+
+                    batch.instance_count++;
+                }
+            }
+        }
+    };
+
+    // Before-children visuals in pre-order (depth-first)
+    emit_visuals(state.visual_list, VisualPhase::BeforeChildren);
+
+    // After-children visuals in post-order
+    emit_visuals(state.after_visual_list, VisualPhase::AfterChildren);
 }
 
 uint64_t Renderer::write_to_frame_buffer(const void* data, size_t size, size_t alignment)

@@ -1,7 +1,7 @@
 #ifndef VELK_UI_RECT_VISUAL_H
 #define VELK_UI_RECT_VISUAL_H
 
-#include <velk-ui/ext/visual.h>
+#include <velk-ui/ext/trait.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {

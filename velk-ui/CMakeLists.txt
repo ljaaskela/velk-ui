@@ -32,6 +32,8 @@ add_library(velk_ui SHARED
     src/import/dim_type_extension.cpp
     src/import/projection_type_extension.h
     src/import/projection_type_extension.cpp
+    src/import/visual_phase_type_extension.h
+    src/import/visual_phase_type_extension.cpp
     src/input/input_dispatcher.h
     src/input/input_dispatcher.cpp
     src/input/click.h
@@ -67,7 +69,6 @@ add_library(velk_ui SHARED
     include/velk-ui/api/trait/matrix.h
     include/velk-ui/interface/intf_visual.h
     include/velk-ui/ext/trait.h
-    include/velk-ui/ext/visual.h
     include/velk-ui/api/trait/fixed_size.h
     include/velk-ui/api/trait/stack.h
     include/velk-ui/api/element.h
@@ -75,7 +76,6 @@ add_library(velk_ui SHARED
     include/velk-ui/api/scene.h
     include/velk-ui/api/camera.h
     include/velk-ui/api/trait.h
-    include/velk-ui/api/visual.h
     include/velk-ui/api/visual/visual.h
     include/velk-ui/api/visual/rect.h
     include/velk-ui/api/visual/rounded_rect.h

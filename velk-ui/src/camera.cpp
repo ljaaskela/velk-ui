@@ -4,9 +4,9 @@
 
 #include <cmath>
 
-namespace velk::ui {
+namespace velk::ui::impl {
 
-mat4 CameraImpl::get_view_projection(const IElement& element,
+mat4 Camera::get_view_projection(const IElement& element,
                                      float width, float height) const
 {
     auto state = read_state<ICamera>(this);
@@ -56,7 +56,7 @@ mat4 CameraImpl::get_view_projection(const IElement& element,
     return proj * view;
 }
 
-void CameraImpl::screen_to_ray(const IElement& element, vec2 screen_pos,
+void Camera::screen_to_ray(const IElement& element, vec2 screen_pos,
                                 float width, float height,
                                 vec3& origin, vec3& direction) const
 {
@@ -90,4 +90,4 @@ void CameraImpl::screen_to_ray(const IElement& element, vec2 screen_pos,
     }
 }
 
-} // namespace velk::ui
+} // namespace velk::ui::impl

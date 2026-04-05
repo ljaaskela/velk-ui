@@ -22,8 +22,10 @@ namespace velk::ui {
  */
 struct SceneState
 {
-    /** @brief Full z-sorted draw order. */
+    /** @brief Pre-order (depth-first) element list for BeforeChildren visuals. */
     vector<IElement::Ptr> visual_list;
+    /** @brief Post-order element list for AfterChildren visuals. */
+    vector<IElement::Ptr> after_visual_list;
     /** @brief Elements whose visual state has changed since the last update. Elements on this list are
      *         guaranteed to be either on visual_list or removed_list. */
     vector<IElement*> redraw_list;
