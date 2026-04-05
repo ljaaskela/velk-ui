@@ -82,14 +82,16 @@ size_t GradientMaterial::gpu_data_size() const
     return gradient_params_size;
 }
 
-void GradientMaterial::write_gpu_data(void* out, size_t size) const
+ReturnValue GradientMaterial::write_gpu_data(void* out, size_t size) const
 {
-    if (auto state = read_state<IGradient>(this); state && size == gradient_params_size) {
-        auto& p = *static_cast<GradientParams*>(out);
-        p.start_color = state->start_color;
-        p.end_color = state->end_color;
-        p.angle = state->angle;
+    if (auto state = read_state<IGradient>(this)) {
+        return set_material<GradientParams>(out, size, [&](auto& p) {
+            p.start_color = state->start_color;
+            p.end_color = state->end_color;
+            p.angle = state->angle;
+        });
     }
+    return ReturnValue::Fail;
 }
 
 } // namespace velk::ui

@@ -30,8 +30,8 @@ public:
     /** @brief Returns the size in bytes of this material's GPU data (after DrawDataHeader). */
     virtual size_t gpu_data_size() const = 0;
 
-    /** @brief Writes material GPU data into @p out. Called with exactly gpu_data_size() bytes. */
-    virtual void write_gpu_data(void* out, size_t size) const = 0;
+    /** @brief Writes material GPU data into @p out. Returns Fail on error. */
+    virtual ReturnValue write_gpu_data(void* out, size_t size) const = 0;
 };
 
 } // namespace velk

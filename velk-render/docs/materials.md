@@ -26,9 +26,21 @@ Other modules can register their own includes (e.g. a 3D module could register `
 
 A shader typically needs to declare its `DrawData` struct (header + material fields) and `main()`. Common types come from includes.
 
+## Default shaders
+
+The UI renderer registers default vertex and fragment shaders via `IRenderContext`. These are used when a material or `compile_pipeline` call omits a shader:
+
+**Default vertex shader** outputs:
+- `location 0`: `v_color` (vec4) from the instance color
+- `location 1`: `v_local_uv` (vec2) as the 0..1 quad coordinate
+
+**Default fragment shader**: passes through `v_color` as a solid fill.
+
+Most materials only need to provide a fragment shader. The default vertex shader handles quad positioning, color, and UV passthrough.
+
 ## Application-defined materials (ext::Material)
 
-Use `ext::Material<T>` to write both the shader and the material class. Define the GPU data struct, implement `gpu_data_size()` and `write_gpu_data()`, and the framework passes the data straight to the shader. This should be the default option for any shader code.
+Use `ext::Material<T>` when you control the shader and data layout directly. Define the GPU data struct, implement `gpu_data_size()` and `write_gpu_data()`, and the framework passes the data straight to the shader. This should be the default option for any shader code.
 
 ### C++ side
 
@@ -50,53 +62,42 @@ public:
 
     uint64_t get_pipeline_handle(IRenderContext& ctx) override
     {
-        return ensure_pipeline(ctx, my_frag_src, my_vert_src);
+        // Only the fragment shader is needed; the default vertex shader is used.
+        return ensure_pipeline(ctx, my_frag_src);
     }
 
     size_t gpu_data_size() const override { return sizeof(MyParams); }
 
-    void write_gpu_data(void* out, size_t) const override
+    void write_gpu_data(void* out, size_t size) const override
     {
-        auto state = read_state<IMyProps>(this);
-        if (!state) { return; }
-        auto& p = *static_cast<MyParams*>(out);
-        p = {};
-        p.color[0] = state->color.r;
-        // ...
-        p.intensity = state->intensity;
+        if (auto state = read_state<IMyProps>(this)) {
+            set_material<MyParams>(out, size, [&](auto& p) {
+                p.color[0] = state->color.r;
+                // ...
+                p.intensity = state->intensity;
+            });
+        }
     }
 };
 ```
 
-The `ext::Material` base provides `ensure_pipeline()` which lazily compiles the shader on first use and caches the pipeline handle.
+The `ext::Material` base provides `ensure_pipeline()` which lazily compiles the shader on first use and caches the pipeline handle. When called with only a fragment source, the registered default vertex shader is used.
+
+To provide a custom vertex shader (e.g. for non-standard instance layouts), pass both sources:
+
+```cpp
+return ensure_pipeline(ctx, my_frag_src, my_vert_src);
+```
+
+Or pass pre-compiled `IShader::Ptr` handles:
+
+```cpp
+return ensure_pipeline(ctx, my_compiled_frag, my_compiled_vert);
+```
 
 ### Shader side
 
-```glsl
-// my_material_vert.glsl
-#version 450
-#include "velk.glsl"
-
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
-    // Material data starts here (offset 32), matching MyParams
-    vec4 color;
-    float intensity;
-};
-
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) out vec2 v_local_uv;
-
-void main()
-{
-    vec2 q = velk_unit_quad(gl_VertexIndex);
-    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec2 world_pos = inst.pos + q * inst.size;
-    gl_Position = root.global_data.projection * vec4(world_pos, 0.0, 1.0);
-    v_local_uv = q;
-}
-```
+A material only needs a fragment shader. The default vertex shader provides `v_color` at location 0 and `v_local_uv` at location 1:
 
 ```glsl
 // my_material_frag.glsl
@@ -111,7 +112,7 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 
 layout(push_constant) uniform PC { DrawData root; };
 
-layout(location = 0) in vec2 v_local_uv;
+layout(location = 1) in vec2 v_local_uv;
 layout(location = 0) out vec4 frag_color;
 
 void main()
@@ -143,7 +144,7 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 
 layout(push_constant) uniform PC { DrawData root; };
 
-layout(location = 0) in vec2 v_uv;
+layout(location = 1) in vec2 v_uv;
 layout(location = 0) out vec4 frag_color;
 
 void main()
@@ -152,16 +153,16 @@ void main()
 }
 )";
 
-// Create and configure
-auto sm = velk::create_shader_material(ctx, my_frag, my_vert);
+// Create and configure (vertex shader is optional, uses default)
+auto sm = velk::create_shader_material(ctx, my_frag);
 sm.input<velk::color>("tint").set_value({1, 0.5f, 0, 1});
 sm.input<float>("speed").set_value(10.f);
 ```
 
 ### How it works
 
-1. `create_shader_material` compiles the GLSL to SPIR-V and creates a pipeline
-2. The SPIR-V is reflected to find fields in the `DrawData` struct after the standard 6 header fields (32 bytes)
+1. `create_shader_material` compiles the GLSL to `IShader` handles via `compile_shader()` and links them into a pipeline via `create_pipeline()`. If no vertex source is given, the registered default vertex shader is used
+2. The vertex shader SPIR-V is reflected to find fields in the `DrawData` struct after the standard 6 header fields (32 bytes)
 3. For each discovered field, a dynamic property is created on the material's inputs object
 4. `input<T>("name")` returns a typed `Property<T>` accessor for the named parameter
 

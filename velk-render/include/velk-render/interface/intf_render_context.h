@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <velk-render/interface/intf_material.h>
 #include <velk-render/interface/intf_render_backend.h>
+#include <velk-render/interface/intf_shader.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/render_types.h>
 
@@ -37,14 +38,32 @@ public:
     virtual IMaterial::Ptr create_shader_material(string_view fragment_source,
                                                   string_view vertex_source = {}) = 0;
 
+    /** @brief Compiles GLSL source to a reusable shader handle. */
+    virtual IShader::Ptr compile_shader(string_view source, ShaderStage stage) = 0;
+
     /**
-     * @brief Compiles GLSL shaders and registers the pipeline.
+     * @brief Creates a pipeline from compiled shaders.
      *
+     * If vertex or fragment is nullptr, the registered default is used.
      * If @p key is 0, a new key is auto-assigned. Otherwise the given key is used.
      * Returns the pipeline key, or 0 on failure.
      */
+    virtual uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
+                                     uint64_t key = 0) = 0;
+
+    /**
+     * @brief Convenience: compiles GLSL shaders and creates the pipeline in one call.
+     *
+     * Empty sources are substituted with the registered defaults.
+     */
     virtual uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
                                       uint64_t key = 0) = 0;
+
+    /** @brief Registers a default vertex shader used when create_pipeline receives nullptr. */
+    virtual void set_default_vertex_shader(const IShader::Ptr& shader) = 0;
+
+    /** @brief Registers a default fragment shader used when create_pipeline receives nullptr. */
+    virtual void set_default_fragment_shader(const IShader::Ptr& shader) = 0;
 
     /** @brief Returns the mapping from pipeline keys to backend PipelineId handles. */
     virtual const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const = 0;

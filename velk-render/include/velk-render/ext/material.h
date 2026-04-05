@@ -35,15 +35,41 @@ public:
     void set_pipeline_handle(uint64_t handle) override { handle_ = handle; }
 
 protected:
+    /// Compile from source on first call, cache the pipeline handle.
     uint64_t ensure_pipeline(IRenderContext& ctx, string_view fragment_source, string_view vertex_source = {})
     {
-        if (has_pipeline_handle()) {
-            return handle_;
+        if (!has_pipeline_handle()) {
+            handle_ = ctx.compile_pipeline(fragment_source, vertex_source);
         }
-        handle_ = ctx.compile_pipeline(fragment_source, vertex_source);
         return handle_;
     }
+
+    /// Create from pre-compiled shaders. Nullptr uses the registered default.
+    uint64_t ensure_pipeline(IRenderContext& ctx, const IShader::Ptr& fragment,
+                             const IShader::Ptr& vertex = {})
+    {
+        if (!has_pipeline_handle()) {
+            handle_ = ctx.create_pipeline(vertex, fragment);
+        }
+        return handle_;
+    }
+
+    /// Returns true if pipeline handle has already been created
     bool has_pipeline_handle() const { return handle_ != 0; }
+
+    /// Writes a typed material params struct into the GPU data buffer.
+    /// Zero-initializes the struct, then calls the provided function to fill it.
+    template <typename Params, typename Fn>
+    static ReturnValue set_material(void* out, size_t size, Fn&& fn)
+    {
+        if (size != sizeof(Params)) {
+            return ReturnValue::Fail;
+        }
+        auto& p = *static_cast<Params*>(out);
+        p = {};
+        fn(p);
+        return ReturnValue::Success;
+    }
 
 private:
     uint64_t handle_{};

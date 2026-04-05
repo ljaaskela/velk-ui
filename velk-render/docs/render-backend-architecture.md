@@ -66,13 +66,19 @@ This is the single mechanism for getting all data to the GPU: uniforms, instance
 
 The texture id (or index) can be used in any shader and any draw call. The backend manages the descriptor array internally.
 
-**Pipelines** compile shaders:
-* `create_pipeline`: Creates a pipeline, shader bytecode and a topology (triangle strip or triangle list) in, opaque handle out.
+**Pipelines** link shaders:
+* `create_pipeline`: Creates a pipeline from compiled shader bytecode and a topology (triangle strip or triangle list). Returns an opaque handle.
 * `destroy_pipeline`: Destroy a pipeline
 
 The shader itself defines what data it reads and how (as everything is available through the memory buffers), so the pipeline doesn't need to describe vertex layouts, uniform bindings, or resource layouts.
 
-Passing shaders as source is also supported, backend compiles the shaders during pipeline creation in this case.
+Above the backend, `IRenderContext` provides a higher-level API that separates shader compilation from pipeline creation:
+
+* `compile_shader(source, stage)`: Compiles GLSL source to an `IShader::Ptr` handle that owns the compiled bytecode
+* `create_pipeline(vertex, fragment)`: Links two compiled shaders into a pipeline. Passing nullptr for either shader substitutes the registered default
+* `compile_pipeline(frag_source, vert_source)`: Convenience that compiles and links in one call
+
+The UI renderer registers default vertex and fragment shaders during setup. This means materials typically only need to provide a fragment shader.
 
 **Frame** drives presentation:
 * `begin_frame`: To acquire a swapchain image.

@@ -156,6 +156,51 @@ void main()
 }
 )";
 
+// ============================================================================
+// Default material shaders
+// ============================================================================
+
+// Default vertex shader for materials. Outputs:
+//   location 0: v_color    (vec4)
+//   location 1: v_local_uv (vec2)
+[[maybe_unused]] constexpr string_view material_vertex_src = R"(
+#version 450
+#include "velk.glsl"
+#include "velk-ui.glsl"
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    VELK_DRAW_DATA(RectInstanceData)
+};
+
+layout(push_constant) uniform PC { DrawData root; };
+
+layout(location = 0) out vec4 v_color;
+layout(location = 1) out vec2 v_local_uv;
+
+void main()
+{
+    vec2 q = velk_unit_quad(gl_VertexIndex);
+    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
+    vec2 world_pos = inst.pos + q * inst.size;
+    gl_Position = root.global_data.projection * vec4(world_pos, 0.0, 1.0);
+    v_color = inst.color;
+    v_local_uv = q;
+}
+)";
+
+// Default fragment shader: solid color passthrough.
+[[maybe_unused]] constexpr string_view material_fragment_src = R"(
+#version 450
+
+layout(location = 0) in vec4 v_color;
+layout(location = 0) out vec4 frag_color;
+
+void main()
+{
+    frag_color = v_color;
+}
+)";
+
 } // namespace velk
 
 #endif // VELK_RENDER_DEFAULT_SHADERS_H

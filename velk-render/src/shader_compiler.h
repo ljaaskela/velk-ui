@@ -4,16 +4,12 @@
 #include <velk/string.h>
 #include <velk/vector.h>
 
+#include <velk-render/interface/intf_shader.h>
+
 #include <cstdint>
 #include <unordered_map>
 
 namespace velk {
-
-enum class ShaderStage : uint8_t
-{
-    Vertex,
-    Fragment,
-};
 
 /// Registry of virtual shader include files (name -> content).
 using ShaderIncludeMap = std::unordered_map<string, string>;

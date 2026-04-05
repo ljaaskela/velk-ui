@@ -78,6 +78,10 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
 
     ctx->register_shader_include("velk-ui.glsl", velk_ui_glsl);
 
+    // Register default material shaders
+    ctx->set_default_vertex_shader(ctx->compile_shader(material_vertex_src, ShaderStage::Vertex));
+    ctx->set_default_fragment_shader(ctx->compile_shader(material_fragment_src, ShaderStage::Fragment));
+
     // Compile built-in UI pipelines under well-known keys
     if (pipeline_map_->find(PipelineKey::Rect) == pipeline_map_->end()) {
         ctx->compile_pipeline(rect_fragment_src, rect_vertex_src, PipelineKey::Rect);
@@ -351,7 +355,10 @@ void Renderer::build_draw_calls()
 
         std::memcpy(dst, &header, sizeof(header));
         if (mat_size > 0) {
-            batch.material->write_gpu_data(dst + sizeof(DrawDataHeader), mat_size);
+            if (failed(batch.material->write_gpu_data(dst + sizeof(DrawDataHeader), mat_size))) {
+                VELK_LOG(E, "Renderer: material write_gpu_data failed");
+                continue;
+            }
         }
 
         write_offset_ += total_size;

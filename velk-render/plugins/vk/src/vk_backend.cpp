@@ -988,8 +988,8 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
     // Shader modules
     VkShaderModuleCreateInfo vert_ci{};
     vert_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    vert_ci.codeSize = desc.vertex_spirv_size;
-    vert_ci.pCode = desc.vertex_spirv;
+    vert_ci.codeSize = desc.get_vertex_size();
+    vert_ci.pCode = desc.get_vertex_data().begin();
 
     VkShaderModule vert_module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(device_, &vert_ci, nullptr, &vert_module) != VK_SUCCESS) {
@@ -999,8 +999,8 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
 
     VkShaderModuleCreateInfo frag_ci{};
     frag_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    frag_ci.codeSize = desc.fragment_spirv_size;
-    frag_ci.pCode = desc.fragment_spirv;
+    frag_ci.codeSize = desc.get_fragment_size();
+    frag_ci.pCode = desc.get_fragment_data().begin();
 
     VkShaderModule frag_module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(device_, &frag_ci, nullptr, &frag_module) != VK_SUCCESS) {

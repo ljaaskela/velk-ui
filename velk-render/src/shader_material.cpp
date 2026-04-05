@@ -49,19 +49,19 @@ size_t ShaderMaterial::gpu_data_size() const
     return gpu_data_size_;
 }
 
-void ShaderMaterial::write_gpu_data(void* out, size_t size) const
+ReturnValue ShaderMaterial::write_gpu_data(void* out, size_t size) const
 {
-    if (params_.empty() || !out) {
-        return;
+    if (params_.empty() || !out || size < gpu_data_size_) {
+        return ReturnValue::Fail;
     }
     std::memset(out, 0, size);
     auto state = read_state<IShaderMaterial>(this);
     if (!(state && state->inputs)) {
-        return;
+        return ReturnValue::Fail;
     }
     auto* meta = interface_cast<IMetadata>(state->inputs.get());
     if (!meta) {
-        return;
+        return ReturnValue::Fail;
     }
     auto* dst = static_cast<uint8_t*>(out);
     for (auto& p : params_) {
@@ -73,6 +73,7 @@ void ShaderMaterial::write_gpu_data(void* out, size_t size) const
             }
         }
     }
+    return ReturnValue::Success;
 }
 
 } // namespace velk::impl

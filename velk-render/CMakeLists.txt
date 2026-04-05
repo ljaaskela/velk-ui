@@ -11,6 +11,7 @@ add_library(velk_render SHARED
     src/render_context.cpp
     src/render_plugin.h
     src/render_plugin.cpp
+    src/shader.h
     src/shader_compiler.h
     src/shader_compiler.cpp
     src/shader_material.h
@@ -27,6 +28,7 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_surface.h
     include/velk-render/interface/intf_material.h
     include/velk-render/interface/intf_material_internal.h
+    include/velk-render/interface/intf_shader.h
     include/velk-render/interface/intf_shader_material.h
     include/velk-render/ext/material.h
     include/velk-render/interface/intf_texture_provider.h

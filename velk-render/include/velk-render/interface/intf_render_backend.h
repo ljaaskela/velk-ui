@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <velk-render/interface/intf_shader.h>
 
 namespace velk {
 
@@ -49,11 +50,24 @@ enum class Topology : uint8_t
 /// Describes a graphics pipeline to create.
 struct PipelineDesc
 {
-    const uint32_t* vertex_spirv{};             ///< Vertex shader SPIR-V bytecode.
-    size_t vertex_spirv_size{};                 ///< Size in bytes.
-    const uint32_t* fragment_spirv{};           ///< Fragment shader SPIR-V bytecode.
-    size_t fragment_spirv_size{};               ///< Size in bytes.
+    IShader::Ptr vertex;                        ///< Vertex shader
+    IShader::Ptr fragment;                      ///< Fragment shader
     Topology topology{Topology::TriangleStrip}; ///< Primitive assembly mode.
+
+    /// @brief Returns the size of vertex shader bytecode
+    inline size_t get_vertex_size() const { return vertex ? vertex->get_data_size() : 0; }
+    /// @brief Returns the size of fragment shader bytecode
+    inline size_t get_fragment_size() const { return fragment ? fragment->get_data_size() : 0; }
+    /// @brief Returns the vertex shader bytecode
+    inline array_view<const uint32_t> get_vertex_data() const
+    {
+        return vertex ? vertex->get_data() : array_view<const uint32_t>{};
+    }
+    /// @brief Returns the fragment shader bytecode
+    inline array_view<const uint32_t> get_fragment_data() const
+    {
+        return fragment ? fragment->get_data() : array_view<const uint32_t>{};
+    }
 };
 
 /// Maximum push constant size in bytes (Vulkan guaranteed minimum).

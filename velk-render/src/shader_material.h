@@ -18,7 +18,7 @@ public:
 
     uint64_t get_pipeline_handle(IRenderContext&) override { return pipeline_handle_; }
     size_t gpu_data_size() const override;
-    void write_gpu_data(void* out, size_t size) const override;
+    ReturnValue write_gpu_data(void* out, size_t size) const override;
 
     void set_pipeline_handle(uint64_t handle) override { pipeline_handle_ = handle; }
     ReturnValue setup_inputs(const vector<ShaderParam>& params) override;

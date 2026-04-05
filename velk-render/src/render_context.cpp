@@ -1,5 +1,6 @@
 #include "render_context.h"
 
+#include "shader.h"
 #include "shader_compiler.h"
 #include "spirv_material_reflect.h"
 #include "surface.h"
@@ -11,29 +12,6 @@
 #include <velk-render/platform.h>
 
 namespace velk {
-
-namespace {
-
-PipelineId compile_and_register(IRenderBackend& backend, string_view vert_glsl, string_view frag_glsl,
-                                const ShaderIncludeMap* includes)
-{
-    auto vert_spirv = compile_glsl_to_spirv(vert_glsl, ShaderStage::Vertex, includes);
-    auto frag_spirv = compile_glsl_to_spirv(frag_glsl, ShaderStage::Fragment, includes);
-    if (vert_spirv.empty() || frag_spirv.empty()) {
-        VELK_LOG(E, "compile_and_register: SPIR-V compilation failed");
-        return 0;
-    }
-
-    PipelineDesc desc;
-    desc.vertex_spirv = vert_spirv.data();
-    desc.vertex_spirv_size = vert_spirv.size() * sizeof(uint32_t);
-    desc.fragment_spirv = frag_spirv.data();
-    desc.fragment_spirv_size = frag_spirv.size() * sizeof(uint32_t);
-
-    return backend.create_pipeline(desc);
-}
-
-} // namespace
 
 bool RenderContextImpl::init(const RenderConfig& config)
 {
@@ -95,15 +73,56 @@ ISurface::Ptr RenderContextImpl::create_surface(int width, int height)
     return surface;
 }
 
-uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string_view vertex_source,
-                                             uint64_t key)
+IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage stage)
 {
-    if (!initialized_ || !backend_ || fragment_source.empty() || vertex_source.empty()) {
-        return 0;
+    if (!initialized_ || source.empty()) {
+        return nullptr;
     }
 
     auto* includes = shader_includes_.empty() ? nullptr : &shader_includes_;
-    PipelineId pid = compile_and_register(*backend_, vertex_source, fragment_source, includes);
+    auto spirv = compile_glsl_to_spirv(source, stage, includes);
+    if (spirv.empty()) {
+        return nullptr;
+    }
+
+    auto shader = instance().create<IShader>(Shader::static_class_id());
+    if (!shader) {
+        return nullptr;
+    }
+    shader->init(std::move(spirv));
+    return shader;
+}
+
+uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
+                                            uint64_t key)
+{
+    if (!initialized_ || !backend_) {
+        return 0;
+    }
+
+    const auto& vert_shader = vertex ? vertex : default_vertex_shader_;
+    const auto& frag_shader = fragment ? fragment : default_fragment_shader_;
+    if (!vert_shader || !frag_shader) {
+        VELK_LOG(E, "create_pipeline: missing vertex or fragment shader");
+        return 0;
+    }
+
+    auto vert_data = vert_shader->get_data();
+    auto frag_data = frag_shader->get_data();
+    if (vert_data.empty() || frag_data.empty()) {
+        VELK_LOG(E, "create_pipeline: empty shader bytecode");
+        return 0;
+    }
+
+    PipelineDesc desc;
+    /*desc.vertex_spirv = vert_data.begin();
+    desc.vertex_spirv_size = vert_data.size() * sizeof(uint32_t);
+    desc.fragment_spirv = frag_data.begin();
+    desc.fragment_spirv_size = frag_data.size() * sizeof(uint32_t);*/
+    desc.vertex = vert_shader;
+    desc.fragment = frag_shader;
+
+    PipelineId pid = backend_->create_pipeline(desc);
     if (!pid) {
         return 0;
     }
@@ -115,6 +134,24 @@ uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string
     return key;
 }
 
+uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string_view vertex_source,
+                                             uint64_t key)
+{
+    auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
+    auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
+    return create_pipeline(vert, frag, key);
+}
+
+void RenderContextImpl::set_default_vertex_shader(const IShader::Ptr& shader)
+{
+    default_vertex_shader_ = shader;
+}
+
+void RenderContextImpl::set_default_fragment_shader(const IShader::Ptr& shader)
+{
+    default_fragment_shader_ = shader;
+}
+
 void RenderContextImpl::register_shader_include(string_view name, string_view content)
 {
     shader_includes_[name] = content;
@@ -123,11 +160,10 @@ void RenderContextImpl::register_shader_include(string_view name, string_view co
 IMaterial::Ptr RenderContextImpl::create_shader_material(string_view fragment_source,
                                                          string_view vertex_source)
 {
-    if (vertex_source.empty()) {
-        VELK_LOG(E, "create_shader_material: vertex_source is required");
-        return nullptr;
-    }
-    uint64_t key = compile_pipeline(fragment_source, vertex_source);
+    auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
+    auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
+
+    uint64_t key = create_pipeline(vert, frag);
     if (!key) {
         return nullptr;
     }
@@ -140,12 +176,14 @@ IMaterial::Ptr RenderContextImpl::create_shader_material(string_view fragment_so
     mat->set_pipeline_handle(key);
 
     // Reflect material parameters from the vertex shader SPIR-V
-    auto* includes = shader_includes_.empty() ? nullptr : &shader_includes_;
-    auto vert_spirv = compile_glsl_to_spirv(vertex_source, ShaderStage::Vertex, includes);
-    if (!vert_spirv.empty()) {
-        auto params = reflect_material_params(vert_spirv.data(), vert_spirv.size());
-        if (!params.empty()) {
-            mat->setup_inputs(params);
+    const auto& vert_shader = vert ? vert : default_vertex_shader_;
+    if (vert_shader) {
+        auto vert_data = vert_shader->get_data();
+        if (!vert_data.empty()) {
+            auto params = reflect_material_params(vert_data.begin(), vert_data.size());
+            if (!params.empty()) {
+                mat->setup_inputs(params);
+            }
         }
     }
 

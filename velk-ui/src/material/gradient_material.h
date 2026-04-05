@@ -22,7 +22,7 @@ public:
 
     uint64_t get_pipeline_handle(IRenderContext& ctx) override;
     size_t gpu_data_size() const override;
-    void write_gpu_data(void* out, size_t size) const override;
+    ReturnValue write_gpu_data(void* out, size_t size) const override;
 };
 
 } // namespace velk::ui
