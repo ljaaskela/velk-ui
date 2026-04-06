@@ -2,6 +2,69 @@
 
 This document covers how frames are prepared, submitted, and presented. For the GPU data model and backend architecture, see [Render Backend Architecture](render-backend-architecture.md). For the full frame loop including scene updates, see [Update Cycle](../../velk-ui/docs/update-cycle.md).
 
+## Views: renderer, surfaces, and cameras
+
+The renderer draws scenes onto surfaces through **views**. A view is a pairing of a camera element and a surface:
+
+```cpp
+auto renderer = velk::ui::create_renderer(*render_ctx);
+renderer->add_view(camera_element, surface);
+```
+
+**Surfaces** (`ISurface`) represent render targets. A surface maps to a backend swapchain with a `surface_id`. It has width and height properties but no knowledge of scenes or cameras. Surfaces are created via `IRenderContext::create_surface()`.
+
+**Camera elements** are regular scene elements with an `ICamera` trait attached. The camera provides the view-projection matrix for rendering. The camera's element also provides the scene: `camera_element->get_scene()` is how the renderer finds which scene to draw.
+
+**Scenes** own the element hierarchy, layout solver, and dirty tracking. They are passive during rendering: the renderer pulls state via `scene->consume_state()`.
+
+### One scene, multiple surfaces
+
+A scene can be rendered to multiple surfaces by adding multiple views with cameras from the same scene:
+
+```cpp
+renderer->add_view(main_camera, monitor_surface);
+renderer->add_view(main_camera, projector_surface);
+```
+
+Each surface gets its own swapchain and presentation timing. The scene is consumed once per prepare; both surfaces share the same draw commands (rebuild happens once) but get separate GPU submissions.
+
+### One surface, multiple cameras
+
+Multiple cameras can render to the same surface (e.g. a split-screen or picture-in-picture setup):
+
+```cpp
+renderer->add_view(camera_left, surface);
+renderer->add_view(camera_right, surface);
+```
+
+Each camera provides a different view-projection matrix. The renderer processes them sequentially within a single frame, each producing its own set of draw calls for the same surface.
+
+### Multiple scenes
+
+Cameras from different scenes can coexist in the same renderer:
+
+```cpp
+renderer->add_view(game_camera, main_surface);     // game scene
+renderer->add_view(hud_camera, main_surface);       // HUD scene (overlay)
+renderer->add_view(minimap_camera, minimap_surface); // minimap scene
+```
+
+Each camera's `get_scene()` returns its own scene. The renderer consumes state from each scene independently.
+
+### Relationship diagram
+
+```
+IRenderer
+ ├── View: camera_a + surface_1  ──► Scene A (via camera_a->get_scene())
+ ├── View: camera_b + surface_1  ──► Scene B (via camera_b->get_scene())
+ └── View: camera_c + surface_2  ──► Scene A (via camera_c->get_scene())
+
+Surface 1 ──► Backend swapchain (surface_id=1)
+Surface 2 ──► Backend swapchain (surface_id=2)
+```
+
+Views are registered with `add_view()` and removed with `remove_view()`. The `FrameDesc` passed to `prepare()` can filter which surfaces and cameras to include in a given frame (see [Selective rendering](#framedesc-selective-rendering) below).
+
 ## prepare / present split
 
 Rendering is split into two phases:
