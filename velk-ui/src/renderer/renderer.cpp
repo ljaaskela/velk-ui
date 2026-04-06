@@ -480,20 +480,26 @@ Frame Renderer::prepare(const FrameDesc& desc)
     }
     VELK_PERF_SCOPE("renderer.prepare");
 
-    // Claim a frame slot
+    // Claim a frame slot that is not ready (awaiting prepare) and whose GPU buffer
+    // is safe to reuse (enough frames have elapsed since it was last presented).
     FrameSlot* slot = nullptr;
     {
+        auto is_slot_free = [&](const FrameSlot& s) {
+            return !s.ready && (s.presented_at == 0 ||
+                                present_counter_ - s.presented_at >= kGpuLatencyFrames);
+        };
+
         std::unique_lock<std::mutex> lock(slot_mutex_);
         slot_cv_.wait(lock, [&] {
             for (auto& s : frame_slots_) {
-                if (!s.ready) {
+                if (is_slot_free(s)) {
                     return true;
                 }
             }
             return false;
         });
         for (auto& s : frame_slots_) {
-            if (!s.ready) {
+            if (is_slot_free(s)) {
                 slot = &s;
                 break;
             }
@@ -709,9 +715,11 @@ void Renderer::present(Frame frame)
                 ++it;
             }
         }
-        // If all submits were removed, recycle the slot
+        // If all submits were removed, mark slot as not ready but preserve presented_at
+        // so the buffer isn't reused before the GPU is done with it
         if (s.surface_submits.empty()) {
             s.ready = false;
+            s.presented_at = present_counter_ + 1;
         }
     }
 
@@ -741,7 +749,9 @@ void Renderer::present(Frame frame)
         VELK_PERF_SCOPE("renderer.end_frame");
         backend_->end_frame();
     }
+    present_counter_++;
     target->ready = false;
+    target->presented_at = present_counter_;
     target->surface_submits.clear();
 
     slot_cv_.notify_one();

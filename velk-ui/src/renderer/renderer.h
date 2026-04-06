@@ -88,7 +88,8 @@ private:
     {
         uint64_t id = 0;
         vector<SurfaceSubmit> surface_submits;
-        bool ready = false;
+        bool ready = false;         ///< Prepared and waiting for present.
+        uint64_t presented_at = 0;  ///< Frame counter when this slot was presented (0 = free).
 
         GpuBuffer frame_buffer{};
         void* frame_ptr = nullptr;
@@ -127,9 +128,11 @@ private:
     vector<Batch> batches_;
     vector<DrawCall> draw_calls_;
 
-    static constexpr uint32_t kDefaultMaxFramesInFlight = 3;
+    static constexpr uint64_t kGpuLatencyFrames = 3;  ///< Frames to wait before reusing a slot's GPU buffer.
+    static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;
     vector<FrameSlot> frame_slots_{kDefaultMaxFramesInFlight};
     uint64_t next_frame_id_ = 1;
+    uint64_t present_counter_ = 0;
     std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
 };
