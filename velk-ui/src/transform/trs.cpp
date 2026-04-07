@@ -5,8 +5,6 @@
 
 namespace velk::ui {
 
-static constexpr float deg_to_rad(float deg) { return deg * 3.14159265358979323846f / 180.f; }
-
 void Trs::transform(IElement& element)
 {
     auto state = read_state<ITrs>(this);
@@ -15,7 +13,15 @@ void Trs::transform(IElement& element)
     }
 
     mat4 t = mat4::translate(state->translate);
-    mat4 r = mat4::rotate_z(deg_to_rad(state->rotation));
+    const vec3& rot = state->rotation;
+    mat4 r;
+    if (rot.x == 0.f && rot.y == 0.f) {
+        r = mat4::rotate_z(deg_to_rad(rot.z));
+    } else {
+        r = mat4::rotate_x(deg_to_rad(rot.x))
+          * mat4::rotate_y(deg_to_rad(rot.y))
+          * mat4::rotate_z(deg_to_rad(rot.z));
+    }
     mat4 s = mat4::scale({state->scale.x, state->scale.y, 1.f});
     mat4 trs = t * r * s;
 

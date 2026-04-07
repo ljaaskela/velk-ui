@@ -3,8 +3,6 @@
 #include <velk/api/state.h>
 #include <velk-ui/interface/intf_element.h>
 
-#include <cmath>
-
 namespace velk::ui {
 
 void LookAt::transform(IElement& element)
@@ -25,46 +23,54 @@ void LookAt::transform(IElement& element)
         return;
     }
 
+    vec3 eye_in{
+        elem_state->world_matrix(0, 3),
+        elem_state->world_matrix(1, 3),
+        elem_state->world_matrix(2, 3)
+    };
+    CacheKey key{
+        target_obj.get(),
+        {target_state->world_matrix(0, 3), target_state->world_matrix(1, 3), target_state->world_matrix(2, 3)},
+        target_state->size,
+        state->target_offset,
+        eye_in
+    };
+    if (!cache_.changed(key)) {
+        return;
+    }
+
     // Target position (center of target element + offset)
-    float tx = target_state->world_matrix(0, 3) + target_state->size.width * 0.5f + state->target_offset.x;
-    float ty = target_state->world_matrix(1, 3) + target_state->size.height * 0.5f + state->target_offset.y;
-    float tz = state->target_offset.z;
+    vec3 target{
+        target_state->world_matrix(0, 3) + target_state->size.width * 0.5f + state->target_offset.x,
+        target_state->world_matrix(1, 3) + target_state->size.height * 0.5f + state->target_offset.y,
+        state->target_offset.z
+    };
 
     // Eye position from current world matrix
-    float ex = elem_state->world_matrix(0, 3);
-    float ey = elem_state->world_matrix(1, 3);
-    float ez = elem_state->world_matrix(2, 3);
+    const vec3& eye = eye_in;
 
     // Forward = normalize(target - eye)
-    float fx = tx - ex, fy = ty - ey, fz = tz - ez;
-    float fl = std::sqrt(fx * fx + fy * fy + fz * fz);
-    if (fl < 1e-6f) {
+    vec3 fwd = target - eye;
+    if (vec3::is_zero(fwd)) {
         return;
     }
-    fx /= fl; fy /= fl; fz /= fl;
+    fwd = vec3::normalize(fwd);
 
-    // Up = (0, 1, 0)
-    // Right = normalize(forward x up)
-    float rx = fy * 0.f - fz * 1.f;
-    float ry = fz * 0.f - fx * 0.f;
-    float rz = fx * 1.f - fy * 0.f;
-    float rl = std::sqrt(rx * rx + ry * ry + rz * rz);
-    if (rl < 1e-6f) {
+    // Right = normalize(forward x up), up = (0, 1, 0)
+    vec3 right = vec3::cross(fwd, vec3::unit_y());
+    if (vec3::is_zero(right)) {
         return;
     }
-    rx /= rl; ry /= rl; rz /= rl;
+    right = vec3::normalize(right);
 
     // Recompute up = right x forward
-    float ux = ry * fz - rz * fy;
-    float uy = rz * fx - rx * fz;
-    float uz = rx * fy - ry * fx;
+    vec3 up = vec3::cross(right, fwd);
 
-    // Write world matrix: columns are right, up, -forward, position
+    // Write world matrix: columns are right, up, -forward (position unchanged)
     write_state<IElement>(&element, [&](IElement::State& es) {
-        es.world_matrix(0, 0) = rx;  es.world_matrix(1, 0) = ry;  es.world_matrix(2, 0) = rz;
-        es.world_matrix(0, 1) = ux;  es.world_matrix(1, 1) = uy;  es.world_matrix(2, 1) = uz;
-        es.world_matrix(0, 2) = -fx; es.world_matrix(1, 2) = -fy; es.world_matrix(2, 2) = -fz;
-        // Position unchanged
+        es.world_matrix.set_col(0, right);
+        es.world_matrix.set_col(1, up);
+        es.world_matrix.set_col(2, -fwd);
     });
 }
 
