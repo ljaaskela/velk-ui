@@ -82,10 +82,7 @@ uint32_t FontBuffers::find_glyph(uint32_t freetype_glyph_id) const
 
 const GlyphRecord* FontBuffers::glyph_record(uint32_t internal_index) const
 {
-    if (internal_index >= glyphs_.size()) {
-        return nullptr;
-    }
-    return &glyphs_[internal_index];
+    return internal_index < glyphs_.size() ? &glyphs_[internal_index] : nullptr;
 }
 
 void FontBuffers::clear()

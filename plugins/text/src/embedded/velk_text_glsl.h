@@ -1,6 +1,8 @@
 #ifndef VELK_UI_TEXT_VELK_TEXT_GLSL_H
 #define VELK_UI_TEXT_VELK_TEXT_GLSL_H
 
+#include <velk/string_view.h>
+
 namespace velk::ui::embedded {
 
 // =====================================================================
@@ -43,7 +45,7 @@ namespace velk::ui::embedded {
 //     by max y. Vertical ray cast toward +y, count crossings of x = sample.x.
 // =====================================================================
 
-inline constexpr char velk_text_glsl[] = R"(
+[[maybe_unused]] constexpr string_view velk_text_glsl = R"(
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 

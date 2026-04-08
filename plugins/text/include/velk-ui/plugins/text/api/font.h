@@ -5,6 +5,7 @@
 #include <velk/api/state.h>
 
 #include <velk-ui/interface/intf_font.h>
+#include <velk-ui/plugins/text/intf_text_plugin.h>
 #include <velk-ui/plugins/text/plugin.h>
 
 namespace velk::ui {
@@ -52,6 +53,12 @@ public:
 inline Font create_font()
 {
     return Font(instance().create<IObject>(ClassId::Font));
+}
+
+inline Font get_default_font()
+{
+    auto plugin = get_or_load_plugin<ITextPlugin>(PluginId::TextPlugin);
+    return Font(plugin ? plugin->get_default_font() : nullptr);
 }
 
 } // namespace velk::ui

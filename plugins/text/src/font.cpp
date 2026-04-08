@@ -1,12 +1,13 @@
 #include "font.h"
 
 #include "embedded/inter_regular.h"
+#include "font_gpu_buffer.h"
 
 #include <velk/api/state.h>
 
 #include <cstring>
 
-namespace velk::ui {
+namespace velk::ui::impl {
 
 Font::Font() = default;
 
@@ -32,9 +33,19 @@ Font::~Font()
 
 void Font::init_buffers()
 {
-    curve_buffer_ = FontGpuBuffer::make(&font_buffers_, FontGpuBuffer::Role::Curves);
-    band_buffer_  = FontGpuBuffer::make(&font_buffers_, FontGpuBuffer::Role::Bands);
-    glyph_buffer_ = FontGpuBuffer::make(&font_buffers_, FontGpuBuffer::Role::Glyphs);
+    auto& instance = ::velk::instance();
+    curve_buffer_ = instance.create<IBuffer>(ClassId::FontGpuBuffer);
+    band_buffer_ = instance.create<IBuffer>(ClassId::FontGpuBuffer);
+    glyph_buffer_ = instance.create<IBuffer>(ClassId::FontGpuBuffer);
+    if (auto i = interface_cast<IFontGpuBufferInternal>(curve_buffer_)) {
+        i->init(&font_buffers_, FontGpuBufferRole::Curves);
+    }
+    if (auto i = interface_cast<IFontGpuBufferInternal>(band_buffer_)) {
+        i->init(&font_buffers_, FontGpuBufferRole::Bands);
+    }
+    if (auto i = interface_cast<IFontGpuBufferInternal>(glyph_buffer_)) {
+        i->init(&font_buffers_, FontGpuBufferRole::Glyphs);
+    }
 }
 
 bool Font::init_from_memory(const uint8_t* data, uint32_t size)
@@ -81,8 +92,8 @@ bool Font::init_from_memory(const uint8_t* data, uint32_t size)
     // for the lifetime of the font; the visual scales them per-call.
     if (auto writer = write_state<IFont>(this)) {
         writer->units_per_em = static_cast<float>(upem);
-        writer->ascender    = static_cast<float>(ft_face_->ascender);
-        writer->descender   = static_cast<float>(ft_face_->descender);
+        writer->ascender = static_cast<float>(ft_face_->ascender);
+        writer->descender = static_cast<float>(ft_face_->descender);
         writer->line_height = static_cast<float>(ft_face_->height);
     }
 
@@ -157,4 +168,4 @@ IFont::GlyphInfo Font::ensure_glyph(uint32_t glyph_id)
     return info;
 }
 
-} // namespace velk::ui
+} // namespace velk::ui::impl

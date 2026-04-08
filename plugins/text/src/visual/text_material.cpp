@@ -97,7 +97,7 @@ VELK_GPU_STRUCT TextMaterialData
     uint64_t bands_address;
     uint64_t glyphs_address;
 };
-// static_assert(sizeof(TextMaterialData) == 24, "TextMaterialData must be 24 bytes");
+static_assert(sizeof(TextMaterialData) == 32, "TextMaterialData must be 32 bytes");
 
 } // namespace
 
@@ -113,7 +113,10 @@ uint64_t TextMaterial::get_pipeline_handle(IRenderContext& ctx)
     if (!has_pipeline_handle()) {
         // Register the slug coverage GLSL include before compiling so the
         // fragment shader's #include "velk_text.glsl" resolves. Idempotent.
-        ctx.register_shader_include("velk_text.glsl", string_view(embedded::velk_text_glsl));
+
+        // TODO: A proper place for this would be some kind of plugin init but we'd need IRenderContext for
+        // that.
+        ctx.register_shader_include("velk_text.glsl", embedded::velk_text_glsl);
     }
     return ensure_pipeline(ctx, text_fragment_src, text_vertex_src);
 }
@@ -125,15 +128,14 @@ size_t TextMaterial::gpu_data_size() const
 
 ReturnValue TextMaterial::write_gpu_data(void* out, size_t size) const
 {
-    if (size != sizeof(TextMaterialData)) {
-        return ReturnValue::Fail;
+    if (size == sizeof(TextMaterialData)) {
+        auto& p = *static_cast<TextMaterialData*>(out);
+        p.curves_address = get_gpu_address(curves_);
+        p.bands_address = get_gpu_address(bands_);
+        p.glyphs_address = get_gpu_address(glyphs_);
+        return ReturnValue::Success;
     }
-    TextMaterialData data{};
-    data.curves_address = curves_ ? curves_->get_gpu_address() : 0;
-    data.bands_address  = bands_  ? bands_->get_gpu_address()  : 0;
-    data.glyphs_address = glyphs_ ? glyphs_->get_gpu_address() : 0;
-    std::memcpy(out, &data, sizeof(data));
-    return ReturnValue::Success;
+    return ReturnValue::Fail;
 }
 
 } // namespace velk::ui

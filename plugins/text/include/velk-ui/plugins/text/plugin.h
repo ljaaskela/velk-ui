@@ -10,6 +10,9 @@ namespace ClassId {
 /** @brief FreeType + HarfBuzz font. Shapes text and rasterizes glyphs. */
 inline constexpr Uid Font{"b31d28e5-2502-45fe-8b27-3997c882bfde"};
 
+/** @brief IBuffer implementation for Font data. */
+inline constexpr Uid FontGpuBuffer{"5367eff6-de78-4b76-8371-45562df5ba5c"};
+
 namespace Visual {
 
 /** @brief Shaped text rendered as textured glyph quads from a glyph atlas. */

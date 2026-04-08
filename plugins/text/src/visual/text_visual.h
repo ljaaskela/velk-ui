@@ -2,9 +2,11 @@
 #define VELK_UI_TEXT_VISUAL_H
 
 #include <velk/api/object.h>
+
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-ui/ext/trait.h>
 #include <velk-ui/interface/intf_font.h>
+#include <velk-ui/plugins/text/api/font.h>
 #include <velk-ui/plugins/text/intf_text_visual.h>
 #include <velk-ui/plugins/text/plugin.h>
 
@@ -37,7 +39,7 @@ private:
     void ensure_default_font();
     void rebind_font_material();
 
-    IFont::Ptr font_;
+    Font font_;
     IObject::Ptr text_material_; ///< TextMaterial bound to font_'s buffers; set as paint.
     vector<DrawEntry> cached_entries_;
     float text_width_{};

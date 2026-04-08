@@ -14,7 +14,7 @@ namespace velk::ui {
 
 void TextVisual::set_font(const IFont::Ptr& font)
 {
-    font_ = font;
+    font_ = Font(font);
     rebind_font_material();
     reshape();
     invoke_visual_changed();
@@ -33,17 +33,16 @@ void TextVisual::ensure_default_font()
     if (font_) {
         return;
     }
-
-    auto plugin = get_or_load_plugin<ITextPlugin>(PluginId::TextPlugin);
-    if (plugin) {
-        font_ = plugin->default_font();
+    font_ = get_default_font();
+    if (font_) {
         rebind_font_material();
     }
 }
 
 void TextVisual::rebind_font_material()
 {
-    if (!font_) {
+    auto font = font_.as_ptr<IFont>();
+    if (!font) {
         return;
     }
 
@@ -55,10 +54,7 @@ void TextVisual::rebind_font_material()
     }
     if (text_material_) {
         auto* tm = static_cast<TextMaterial*>(static_cast<void*>(text_material_.get()));
-        tm->set_font_buffers(
-            font_->get_curve_buffer(),
-            font_->get_band_buffer(),
-            font_->get_glyph_buffer());
+        tm->set_font_buffers(font->get_curve_buffer(), font->get_band_buffer(), font->get_glyph_buffer());
 
         // Wire the material as the visual's paint so the renderer picks
         // up its pipeline at draw time.
@@ -76,7 +72,8 @@ void TextVisual::reshape()
     text_height_ = 0.f;
 
     ensure_default_font();
-    if (!font_) {
+    auto font = font_.as_ptr<IFont>();
+    if (!font) {
         return;
     }
 
@@ -88,9 +85,9 @@ void TextVisual::reshape()
     string_view text(state->text.data(), state->text.size());
 
     vector<IFont::GlyphPosition> positions;
-    font_->shape_text(text, positions);
+    font->shape_text(text, positions);
 
-    auto font_state = read_state<IFont>(font_);
+    auto font_state = read_state<IFont>(font);
     float ascender_units    = font_state ? font_state->ascender    : 0.f;
     float line_height_units = font_state ? font_state->line_height : 0.f;
     float upem              = font_state ? font_state->units_per_em : 0.f;
@@ -107,7 +104,7 @@ void TextVisual::reshape()
     float cursor_x = 0.f;
 
     for (auto& gp : positions) {
-        IFont::GlyphInfo info = font_->ensure_glyph(gp.glyph_id);
+        IFont::GlyphInfo info = font->ensure_glyph(gp.glyph_id);
         if (info.empty) {
             cursor_x += gp.advance.x * scale;
             continue;
@@ -189,13 +186,20 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
 
 vector<IBuffer::Ptr> TextVisual::get_gpu_resources() const
 {
-    if (!font_) {
+    auto font = font_.as_ptr<IFont>();
+    if (!font) {
         return {};
     }
     vector<IBuffer::Ptr> out;
-    if (auto b = font_->get_curve_buffer()) out.push_back(std::move(b));
-    if (auto b = font_->get_band_buffer())  out.push_back(std::move(b));
-    if (auto b = font_->get_glyph_buffer()) out.push_back(std::move(b));
+    if (auto b = font->get_curve_buffer()) {
+        out.push_back(std::move(b));
+    }
+    if (auto b = font->get_band_buffer()) {
+        out.push_back(std::move(b));
+    }
+    if (auto b = font->get_glyph_buffer()) {
+        out.push_back(std::move(b));
+    }
     return out;
 }
 

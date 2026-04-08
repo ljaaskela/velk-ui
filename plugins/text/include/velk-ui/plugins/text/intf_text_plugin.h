@@ -17,7 +17,7 @@ class ITextPlugin : public Interface<ITextPlugin>
 {
 public:
     /** @brief Returns the shared default font (Inter Regular, 16px). */
-    virtual IFont::Ptr default_font() const = 0;
+    virtual IFont::Ptr get_default_font() const = 0;
 };
 
 } // namespace velk::ui

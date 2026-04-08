@@ -2,7 +2,6 @@
 #define VELK_UI_TEXT_FONT_H
 
 #include "font_buffers.h"
-#include "font_gpu_buffer.h"
 
 #include <velk/ext/object.h>
 #include <velk/vector.h>
@@ -15,7 +14,7 @@
 #include <hb-ft.h>
 #include <hb.h>
 
-namespace velk::ui {
+namespace velk::ui::impl {
 
 /**
  * @brief Font implementation: FreeType outline source + HarfBuzz shaper +
@@ -64,6 +63,6 @@ private:
     IBuffer::Ptr glyph_buffer_;
 };
 
-} // namespace velk::ui
+} // namespace velk::ui::impl
 
 #endif // VELK_UI_TEXT_FONT_H

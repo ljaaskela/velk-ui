@@ -19,7 +19,7 @@ public:
     ReturnValue shutdown(IVelk& velk) override;
 
     // ITextPlugin
-    IFont::Ptr default_font() const override;
+    IFont::Ptr get_default_font() const override;
 
 private:
     IFont::Ptr default_font_;

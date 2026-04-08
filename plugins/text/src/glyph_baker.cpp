@@ -1,6 +1,5 @@
 #include "glyph_baker.h"
 
-#include <algorithm>
 #include <cstring>
 
 namespace velk::ui {

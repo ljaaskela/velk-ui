@@ -11,6 +11,19 @@
 
 namespace velk::ui {
 
+enum class FontGpuBufferRole
+{
+    Curves,
+    Bands,
+    Glyphs,
+};
+
+class IFontGpuBufferInternal : public Interface<IFontGpuBufferInternal>
+{
+public:
+    virtual void init(FontBuffers* fb, FontGpuBufferRole role) = 0;
+};
+
 /**
  * @brief IBuffer wrapper around one section of a `FontBuffers` (curves,
  *        bands, or glyph table).
@@ -28,90 +41,26 @@ namespace velk::ui {
  * each (re)allocation, then read by `TextMaterial::write_gpu_data` to emit
  * the buffer references the shader binds via `buffer_reference`.
  */
-class FontGpuBuffer : public ::velk::ext::GpuResource<FontGpuBuffer, ::velk::IBuffer>
+class FontGpuBuffer : public ::velk::ext::GpuResource<FontGpuBuffer, IBuffer, IFontGpuBufferInternal>
 {
 public:
-    enum class Role
-    {
-        Curves,
-        Bands,
-        Glyphs,
-    };
-
-    VELK_CLASS_UID("e0d0f4f6-0c4b-4a8b-b7e4-7e2d6e1a0001", "FontGpuBuffer");
-
+    VELK_CLASS_UID(::velk::ui::ClassId::FontGpuBuffer, "FontGpuBuffer");
     FontGpuBuffer() = default;
-    // Destructor is provided by ext::GpuResource (it notifies observers).
 
-    /// Creates a wrapper attached to a FontBuffers section and returns it
-    /// as an IBuffer::Ptr. Lifetime of `fb` must outlive the returned ptr.
-    static ::velk::IBuffer::Ptr make(FontBuffers* fb, Role role);
-
-    /// Bind the wrapper to a FontBuffers section. Called by `make`.
-    void init(FontBuffers* fb, Role role)
-    {
-        fb_ = fb;
-        role_ = role;
-    }
+    // IFontGpuBufferInternal
+    void init(FontBuffers* fb, FontGpuBufferRole role) override;
 
     // IBuffer
-    size_t get_size() const override
-    {
-        if (!fb_) {
-            return 0;
-        }
-        switch (role_) {
-        case Role::Curves: return fb_->curves_bytes();
-        case Role::Bands:  return fb_->bands_bytes();
-        case Role::Glyphs: return fb_->glyphs_bytes();
-        }
-        return 0;
-    }
-
-    const uint8_t* get_data() const override
-    {
-        if (!fb_) {
-            return nullptr;
-        }
-        switch (role_) {
-        case Role::Curves: return reinterpret_cast<const uint8_t*>(fb_->curves());
-        case Role::Bands:  return reinterpret_cast<const uint8_t*>(fb_->bands());
-        case Role::Glyphs: return reinterpret_cast<const uint8_t*>(fb_->glyphs());
-        }
-        return nullptr;
-    }
-
-    bool is_dirty() const override
-    {
-        if (!fb_) {
-            return false;
-        }
-        switch (role_) {
-        case Role::Curves: return fb_->curves_dirty();
-        case Role::Bands:  return fb_->bands_dirty();
-        case Role::Glyphs: return fb_->glyphs_dirty();
-        }
-        return false;
-    }
-
-    void clear_dirty() override
-    {
-        if (!fb_) {
-            return;
-        }
-        switch (role_) {
-        case Role::Curves: fb_->clear_curves_dirty(); return;
-        case Role::Bands:  fb_->clear_bands_dirty();  return;
-        case Role::Glyphs: fb_->clear_glyphs_dirty(); return;
-        }
-    }
-
+    size_t get_size() const override;
+    const uint8_t* get_data() const override;
+    bool is_dirty() const override;
+    void clear_dirty() override;
     uint64_t get_gpu_address() const override { return gpu_addr_; }
     void set_gpu_address(uint64_t addr) override { gpu_addr_ = addr; }
 
 private:
     FontBuffers* fb_ = nullptr;
-    Role role_ = Role::Curves;
+    FontGpuBufferRole role_ = FontGpuBufferRole::Curves;
     uint64_t gpu_addr_ = 0;
 };
 

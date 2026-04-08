@@ -1,21 +1,73 @@
 #include "font_gpu_buffer.h"
 
-#include <velk/ext/core_object.h>
-
 namespace velk::ui {
 
-::velk::IBuffer::Ptr FontGpuBuffer::make(FontBuffers* fb, Role role)
+void FontGpuBuffer::init(FontBuffers* fb, FontGpuBufferRole role)
 {
-    // make_object<T> stores the raw T* via void* indirection (see
-    // velk/ext/core_object.h), so the IObject* in the resulting Ptr already
-    // points to the start of the FontGpuBuffer object. Round-trip through
-    // void* mirrors that pattern and avoids any compiler-applied offset
-    // adjustments that a direct static_cast<IObject*>->FontGpuBuffer* would
-    // introduce on a different layout.
-    auto raw = ::velk::ext::make_object<FontGpuBuffer>();
-    auto* fgb = static_cast<FontGpuBuffer*>(static_cast<void*>(raw.get()));
-    fgb->init(fb, role);
-    return interface_pointer_cast<::velk::IBuffer>(raw);
+    fb_ = fb;
+    role_ = role;
+}
+
+size_t FontGpuBuffer::get_size() const
+{
+    if (fb_) {
+        switch (role_) {
+        case FontGpuBufferRole::Curves:
+            return fb_->curves_bytes();
+        case FontGpuBufferRole::Bands:
+            return fb_->bands_bytes();
+        case FontGpuBufferRole::Glyphs:
+            return fb_->glyphs_bytes();
+        }
+    }
+    return 0;
+}
+
+const uint8_t* FontGpuBuffer::get_data() const
+{
+    if (fb_) {
+        switch (role_) {
+        case FontGpuBufferRole::Curves:
+            return reinterpret_cast<const uint8_t*>(fb_->curves());
+        case FontGpuBufferRole::Bands:
+            return reinterpret_cast<const uint8_t*>(fb_->bands());
+        case FontGpuBufferRole::Glyphs:
+            return reinterpret_cast<const uint8_t*>(fb_->glyphs());
+        }
+    }
+    return nullptr;
+}
+
+bool FontGpuBuffer::is_dirty() const
+{
+    if (fb_) {
+        switch (role_) {
+        case FontGpuBufferRole::Curves:
+            return fb_->curves_dirty();
+        case FontGpuBufferRole::Bands:
+            return fb_->bands_dirty();
+        case FontGpuBufferRole::Glyphs:
+            return fb_->glyphs_dirty();
+        }
+    }
+    return false;
+}
+
+void FontGpuBuffer::clear_dirty()
+{
+    if (fb_) {
+        switch (role_) {
+        case FontGpuBufferRole::Curves:
+            fb_->clear_curves_dirty();
+            break;
+        case FontGpuBufferRole::Bands:
+            fb_->clear_bands_dirty();
+            break;
+        case FontGpuBufferRole::Glyphs:
+            fb_->clear_glyphs_dirty();
+            break;
+        }
+    }
 }
 
 } // namespace velk::ui

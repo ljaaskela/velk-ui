@@ -93,6 +93,14 @@ public:
     virtual void set_gpu_address(uint64_t /*addr*/) {}
 };
 
+/**
+ * @brief Helper for getting the gpu address of a buffer.
+ */
+inline uint64_t get_gpu_address(const IBuffer::Ptr& buffer)
+{
+    return buffer ? buffer->get_gpu_address() : 0;
+}
+
 } // namespace velk
 
 #endif // VELK_RENDER_INTF_BUFFER_H
