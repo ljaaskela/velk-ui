@@ -84,9 +84,9 @@ Practical consequences:
 ```mermaid
 flowchart TD
     A["FreeType outline<br/><i>FT_LOAD_NO_SCALE</i>"]
-    B["<b>GlyphBaker</b><br/>quadratic Bezier extraction<br/>bbox normalization to [0, 1]²<br/>8×8 band assignment, sorted by max orthogonal coord"]
-    C["<b>FontBuffers</b> (CPU side)<br/>three flat append-only buffers: curves, bands, glyph table<br/>per-section dirty flags"]
-    D["<b>FontGpuBuffer</b> (one per section, implements IBuffer)<br/>observable GPU resource: dirty / upload / regrow / deferred-destroy"]
+    B["<b>GlyphBaker</b><br/>quadratic Bezier extraction<br>bbox normalization to [0, 1]²<br>8×8 band assignment, sorted by max orthogonal coord"]
+    C["<b>FontBuffers</b> (CPU side)<br/>three flat append-only buffers:<br>curves, bands, glyph table<br>per-section dirty flags"]
+    D["<b>FontGpuBuffer</b><br>(one per section, implements IBuffer)<br/>observable GPU resource: dirty / upload / regrow / deferred-destroy"]
     E["<b>Renderer upload path</b><br/>backend create_buffer + map + memcpy, per section<br/>publishes GPU virtual address back to IBuffer via set_gpu_address"]
     F["<b>TextMaterial</b><br/>fragment+vertex pipeline, lazy-compiled with velk_text.glsl include<br/>write_gpu_data emits the three buffer GPU addresses per draw"]
     G["<b>Slug fragment shader</b><br/>reads glyph record, walks h+v band curves<br/>computes analytic coverage"]
@@ -94,7 +94,12 @@ flowchart TD
     A --> B --> C --> D --> E --> F --> G
 ```
 
-Glyph baking is **lazy and append-only**: the first time a glyph_id is referenced, the font extracts its outline, packs the curves and bands, and appends the data to the GPU buffers. Subsequent references return the cached entry.
+Glyph baking is **lazy and append-only**: The first time a glyph_id is referenced, the font
+  * extracts its outline
+  * packs the curves and bands and 
+  * appends the data to the GPU buffers.
+
+Subsequent references return the cached entry.
 
 ### GPU data layout
 
@@ -119,7 +124,7 @@ The baker normalizes curves to `[0, 1]^2` over the bbox in **FreeType's Y-up con
 
 ## JSON declaration
 
-A `TextVisual` is just another attachment in a scene file:
+A `TextVisual` trait can be added as an attachment to one or more `Element` to render text:
 
 ```json
 {
@@ -151,7 +156,7 @@ The tool also exercises `FontBuffers` end-to-end (bake, upload-size report, idem
 
 ## Future improvements
 
-  * CFF / OTF (cubic outlines), only TTF supported currently
+  * Only TTF is supported currently, to be added: CFF / OTF (cubic outlines)
   * Even-odd fill rule (Lengyel's `SLUG_EVENODD`)
   * Optical weight boost (Lengyel's `SLUG_WEIGHT`)
   * Subpixel hinting / LCD AA
