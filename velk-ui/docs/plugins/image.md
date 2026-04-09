@@ -1,8 +1,13 @@
 # Image plugin
 
-The image plugin (`velk_image`) decodes raster images (png, jpg, bmp, tga, gif, hdr, psd) into GPU textures and exposes them as `IImage` resources via the resource store. It also provides `ImageMaterial` for sampling textures in custom visuals and `ImageVisual` as a one-line "draw an image at this URI" convenience.
+The image plugin (`velk_image`) decodes raster images and HDR environment maps into GPU textures. It provides two resource decoders:
 
-Image decoding is done with [stb_image](https://github.com/nothings/stb) (single-header, public domain), vendored under the plugin.
+  * **`image:`** decodes png/jpg/bmp/tga/gif/hdr/psd into `IImage` / `ITexture` (RGBA8).
+  * **`env:`** decodes equirectangular HDR images into `IEnvironment` / `ITexture` (RGBA16F) for skybox rendering.
+
+It also provides `ImageMaterial` for sampling textures in custom visuals, `ImageVisual` as a one-line "draw an image at this URI" convenience, and `EnvMaterial` for equirectangular skybox rendering.
+
+Image and environment decoding are done with [stb_image](https://github.com/nothings/stb) (single-header, public domain), vendored under the plugin.
 
 ## Contents
 
@@ -14,12 +19,19 @@ Image decoding is done with [stb_image](https://github.com/nothings/stb) (single
 - [Drawing an image](#drawing-an-image)
   - [ImageVisual](#imagevisual)
   - [ImageMaterial](#imagematerial)
-- [JSON declaration](#json-declaration)
+  - [JSON declaration](#json-declaration)
+- [Environment maps](#environment-maps)
+  - [Loading an environment](#loading-an-environment)
+  - [Binding to a camera](#binding-to-a-camera)
+  - [JSON declaration](#json-declaration-1)
+  - [Supported formats](#supported-formats)
 - [Lifetime and the renderer](#lifetime-and-the-renderer)
 - [Reference](#reference)
   - [IImage](#iimage)
   - [Image](#image)
   - [ImageDecoder](#imagedecoder)
+  - [IEnvironment](#ienvironment)
+  - [EnvDecoder](#envdecoder)
 
 ## Usage
 
@@ -120,7 +132,7 @@ rect_visual.set_paint(mat);
 
 The material samples the bound texture at the quad UV and multiplies by `tint`. Default tint is white (no recoloring). `material::create_image()` also has a no-arg form (texture set later via `set_texture`) and an `ITexture::Ptr` overload for non-image textures.
 
-## JSON declaration
+### JSON declaration
 
 The image plugin works with the importer's resource and visual blocks. Two patterns:
 
@@ -153,6 +165,65 @@ The image plugin works with the importer's resource and visual blocks. Two patte
 ```
 
 The importer recognizes resource entries without a `class` field and routes them through the resource store. The returned `IResource` is registered under `resource:logo` and can be referenced later via `{ "ref": "resources.logo" }`. The `persistent` flag is applied to the loaded image.
+
+## Environment maps
+
+The image plugin also handles equirectangular HDR environment maps for skybox rendering. Environments are loaded via the `env:` decoder and bound to cameras via an `ObjectRef` property.
+
+### Loading an environment
+
+```cpp
+#include <velk-ui/plugins/image/api/environment.h>
+
+auto env = velk::ui::load_environment("env:app://hdri/sky.hdr");
+env.set_intensity(1.2f);
+env.set_rotation(45.f);
+```
+
+The `env:` decoder uses `stbi_loadf` to load the image as 32-bit float data, converts to RGBA16F (half-float) for GPU efficiency, and wraps the result in an `IEnvironment` that also implements `ITexture`. The resource store caches the result.
+
+### Binding to a camera
+
+The camera's `environment` property is an `ObjectRef` pointing at an `IEnvironment`. Multiple cameras can share one environment, or each can have its own.
+
+```cpp
+write_state<ICamera>(camera, [&](auto& s) {
+    set_object_ref(s.environment, env);
+});
+```
+
+When the renderer encounters a camera with an environment, it renders a fullscreen skybox quad behind the scene geometry. The environment's equirectangular texture is sampled using the view direction reconstructed from the inverse view-projection matrix (provided by `FrameGlobals`).
+
+### JSON declaration
+
+Environments go in the importer's `"resources"` section and are referenced by the camera via `ObjectRef`:
+
+```json
+{
+  "resources": [
+    { "id": "sky", "uri": "env:app://hdri/sky.hdr", "persistent": true }
+  ],
+  "attachments": [
+    { "targets": ["camera_3d"], "class": "velk-ui.Camera",
+      "properties": {
+        "projection": 1,
+        "environment": { "ref": "resources.sky" }
+      }
+    }
+  ]
+}
+```
+
+### Supported formats
+
+The `env:` decoder supports any format stb_image can load as float:
+
+| Format | Extension | Notes |
+|---|---|---|
+| Radiance HDR | `.hdr` | Native HDR format, the standard for environment maps. |
+| PNG, JPEG, BMP, TGA, GIF, PSD | various | Loaded as LDR and promoted to float internally. |
+
+OpenEXR (`.exr`) is **not supported** (stb_image doesn't handle it). Use `.hdr` from sources like [Poly Haven](https://polyhaven.com/hdris).
 
 ## Lifetime and the renderer
 
@@ -187,5 +258,26 @@ The concrete class produced by `ImageDecoder`. Implements both `IImage` and `ITe
 ### ImageDecoder
 
 `IResourceDecoder` registered as `"image"`. Casts the inner `IResource` to `IFile`, reads bytes, calls `stbi_load_from_memory` (forced to RGBA8), constructs an `Image` with format `RGBA8_SRGB`, returns it. On partial failure (header parsed, decode failed) returns a non-null `Image` with `Failed` status. On total reject (`inner` is not an `IFile`) returns `nullptr`.
+
+Registered with the resource store automatically in `ImagePlugin::initialize()`.
+
+### IEnvironment
+
+Header: `velk-ui/include/velk-ui/interface/intf_environment.h`
+
+Inherits `IResource`. Properties:
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `intensity` | float | 1.0 | Exposure multiplier. |
+| `rotation` | float | 0.0 | Y-axis rotation in degrees. |
+
+| Method | Description |
+|---|---|
+| `get_material()` | Returns the environment's owned `IMaterial` (skybox shader + per-draw GPU data). |
+
+### EnvDecoder
+
+`IResourceDecoder` registered as `"env"`. Casts the inner `IResource` to `IFile`, reads bytes, calls `stbi_loadf_from_memory` (forced to RGBA float), converts to RGBA16F half-float, constructs an `Environment`, returns it. Handles the same file formats as the image decoder but always produces float output.
 
 Registered with the resource store automatically in `ImagePlugin::initialize()`.

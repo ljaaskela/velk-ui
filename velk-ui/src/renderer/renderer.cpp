@@ -735,7 +735,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
             // batches are rebuilt (on scene changes); on static frames
             // the env batch from the previous rebuild is still there.
             if (camera) {
-                prepend_environment_batch(camera);
+                prepend_environment_batch(*camera);
             }
             entry.batches_dirty = false;
         }

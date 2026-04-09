@@ -1,10 +1,10 @@
 # Text plugin
 
-The text plugin (`velk_text`) renders text using **analytic Bezier glyph coverage**, adapted from Eric Lengyel's public-domain [Slug](https://github.com/EricLengyel/Slug) reference shaders. There is no glyph atlas. Glyph outlines are extracted once with FreeType, packed into GPU-resident curve and band buffers, and shaded per-pixel by a fragment shader that computes exact analytic coverage of every Bezier inside the sample's footprint.
+The text plugin (`velk_text`) brings font loading and text rendering support into velk-ui.
 
 ## Contents
 
-- [Why this matters](#why-this-matters)
+- [Approach](#approach)
 - [Usage](#usage)
 - [JSON declaration](#json-declaration)
 - [Drawing text](#drawing-text)
@@ -14,23 +14,23 @@ The text plugin (`velk_text`) renders text using **analytic Bezier glyph coverag
   - [Pipeline](#pipeline)
   - [GPU data layout](#gpu-data-layout)
   - [Coordinate convention](#coordinate-convention)
-- [Validation tool](#validation-tool)
-- [Open items](#open-items)
+- [Future improvements](#future-improvements)
 - [Reference](#reference)
   - [IFont](#ifont)
   - [ITextVisual](#itextvisual)
   - [ITextPlugin](#itextplugin)
 
+## Approach
 
-## Why this matters
+The text plugin (`velk_text`) renders text using **analytic Bezier glyph coverage**, adapted from Eric Lengyel's public-domain [Slug](https://github.com/EricLengyel/Slug) reference shaders (see `/velk-ui/plugins/text/src/embedded/velk_text_glsl.h` for the GLSL source). 
 
-The standard way to render text on a GPU is to rasterize each glyph at a target size into an atlas texture and sample it at draw time. That gives sharp text at the bake size and progressively worse text everywhere else: zoom in and you see filtered pixels, zoom out and you see aliasing or need mipmaps. Atlases also tie the font to a specific pixel size: the same font at three different sizes is three different bakes.
+Instead of a traditional glyph atlas, glyphs are extracted once with FreeType, packed into GPU-resident curve and band buffers, and shaded per-pixel by a fragment shader that computes exact analytic coverage of every Bezier inside the sample's footprint. 
 
-Analytic Bezier coverage avoids all of this. The shader knows the exact mathematical outline of every glyph at any zoom level. There is no bake resolution to choose, no mip selection, no atlas packing, no resampling, and no LOD logic. The same font instance can render at any pixel size without re-baking, with sub-pixel anti-aliasing computed from the curve geometry directly.
+The same font instance can render at any pixel size without re-baking, with sub-pixel anti-aliasing computed from the curve geometry directly, as shown in the following screen capture:
 
-The trade-off is shader cost: every text pixel runs an inside-test that walks a small list of Bezier curves and computes a polynomial root. The band acceleration structure keeps that list short (typically 6 to 16 curves per pixel for typical Latin glyphs), so cost stays bounded and predictable. For UI text quantities the total cost is well within budget.
+![Text preview](./text.png)
 
-The same coverage function is callable from both fragment shaders (for the rasterization path) and any-hit shaders (for ray-traced rendering), so the analytic representation also serves the future RT direction without a parallel codepath.
+The trade-off is shader cost: every text pixel runs an inside-test that walks a small list of Bezier curves and computes a polynomial root. The band acceleration structure keeps that list short (typically 6 to 16 curves per pixel for typical Latin glyphs), so cost stays bounded and predictable for UI text quantities.
 
 ## Usage
 
@@ -143,16 +143,6 @@ For printable ASCII rendered with Inter, the entire per-font upload is about 92 
 ### Coordinate convention
 
 The baker normalizes curves to `[0, 1]^2` over the bbox in **FreeType's Y-up convention** (descender at y = 0, ascender at y = 1). The vertex shader flips quad uv to match: `v_uv = vec2(q.x, 1.0 - q.y)`. The fragment shader and `velk_text_coverage` operate in this Y-up glyph normalized space.
-
-## Validation tool
-
-`glyph_dump` is a separate executable target in `plugins/text/CMakeLists.txt`. It bakes the printable ASCII range from the embedded Inter font and prints per-glyph and per-band statistics. Useful when changing the baker, validating a new font, or revisiting the band count tuning question.
-
-```
-./bin/Release/glyph_dump.exe
-```
-
-The tool also exercises `FontBuffers` end-to-end (bake, upload-size report, idempotent re-bake check) so it doubles as a regression smoke test for the CPU side of the pipeline.
 
 ## Future improvements
 
