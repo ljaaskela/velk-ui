@@ -34,9 +34,9 @@ Traits are managed via `add_trait()` / `remove_trait()` on the Element wrapper:
 ```cpp
 auto elem = velk::ui::create_element();
 
-auto stack = velk::ui::constraint::create_stack();
-auto rect = velk::ui::visual::create_rect();
-auto click = velk::ui::input::create_click();
+auto stack = velk::ui::trait::layout::create_stack();
+auto rect = velk::ui::trait::visual::create_rect();
+auto click = velk::ui::trait::input::create_click();
 
 elem.add_trait(stack);
 elem.add_trait(rect);
@@ -74,11 +74,11 @@ Layout traits implement `ILayoutTrait` and control how elements are sized and po
 | FixedSize | `IFixedSize` | Constraint | Clamps width and/or height to a fixed value |
 
 ```cpp
-auto stack = velk::ui::constraint::create_stack();
+auto stack = velk::ui::trait::layout::create_stack();
 stack.set_axis(1);       // vertical
 stack.set_spacing(10.f);
 
-auto fs = velk::ui::constraint::create_fixed_size();
+auto fs = velk::ui::trait::layout::create_fixed_size();
 fs.set_size(velk::ui::dim::px(200.f), velk::ui::dim::px(100.f));
 ```
 
@@ -96,7 +96,7 @@ Transform traits implement `ITransformTrait` and modify the element's world matr
 | Orbit | `IOrbit` | Positions and orients the element on a sphere around a target |
 
 ```cpp
-auto trs = velk::ui::transform::create_trs();
+auto trs = velk::ui::trait::transform::create_trs();
 trs.set_rotation(45.f);         // degrees around Z
 trs.set_scale({0.5f, 0.5f});
 elem.add_trait(trs);
@@ -105,7 +105,7 @@ elem.add_trait(trs);
 LookAt and Orbit are particularly useful for cameras. Orbit positions the element at a given distance, yaw (horizontal angle), and pitch (vertical angle) from the target element's center, and orients it to face the target:
 
 ```cpp
-auto orbit = velk::ui::transform::create_orbit();
+auto orbit = velk::ui::trait::transform::create_orbit();
 orbit.set_target(scene.root());
 orbit.set_distance(1200.f);
 orbit.set_yaw(30.f);    // degrees
@@ -133,10 +133,10 @@ Visuals implement `IVisual` and define how an element appears on screen. The ren
 | TextVisual | `ITextVisual` | Shaped text rendered as glyph quads (text plugin) |
 
 ```cpp
-auto rect = velk::ui::visual::create_rect();
+auto rect = velk::ui::trait::visual::create_rect();
 rect.set_color({0.9f, 0.2f, 0.2f, 1.f});
 
-auto text = velk::ui::visual::create_text();
+auto text = velk::ui::trait::visual::create_text();
 text.set_font(font);
 text.set_text("Hello!");
 ```
@@ -153,7 +153,7 @@ Each visual has a `visual_phase` property that controls when it draws relative t
 | `AfterChildren` | Draws after children. Use for borders, overlays, focus rings. |
 
 ```cpp
-auto border = velk::ui::visual::create_rect();
+auto border = velk::ui::trait::visual::create_rect();
 border.set_color({1.f, 1.f, 1.f, 0.3f});
 border.set_visual_phase(VisualPhase::AfterChildren);
 elem.add_trait(border);
@@ -180,7 +180,7 @@ The camera is attached to an element in the scene hierarchy. The element's world
 
 ```cpp
 auto camera_elem = velk::ui::create_element();
-camera_elem.add_trait(velk::ui::create_camera());
+camera_elem.add_trait(velk::ui::trait::render::create_camera());
 scene.add(scene.root(), camera_elem);
 
 renderer->add_view(camera_elem, surface);
@@ -218,11 +218,11 @@ Input traits implement `IInputTrait` and handle pointer, scroll, and keyboard ev
 | Drag | `IDrag` | Tracks drag gestures with start/move/end events |
 
 ```cpp
-auto click = velk::ui::input::create_click();
+auto click = velk::ui::trait::input::create_click();
 click.on_click().add_handler([]() { /* clicked */ });
 elem.add_trait(click);
 
-auto hover = velk::ui::input::create_hover();
+auto hover = velk::ui::trait::input::create_hover();
 hover.on_hover_changed().add_handler([&]() {
     bool over = hover.is_hovered();
 });
@@ -257,3 +257,54 @@ public:
     }
 };
 ```
+
+## Built-in trait classes
+
+ClassIds for the traits velk-ui ships out of the box, organized by phase. Input traits are documented separately in [Input](input.md).
+
+### Constraint phase
+
+Constraints refine an element's size during layout solving. Multiple can be attached to the same element.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Constraint::Stack` | `ILayoutTrait` | Lays out children along a single axis with optional spacing. Properties: `axis`, `spacing`, `h_align`, `v_align`. |
+| `velk::ui::ClassId::Constraint::FixedSize` | `ILayoutTrait` | Clamps an element to a fixed `width` and/or `height`. Either dimension can be left unset to inherit from a parent layout. |
+
+### Transform phase
+
+Transforms run after layout has assigned the base world matrix. Each transform trait modifies the element's `world_matrix` in place.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Transform::Trs` | `ITransformTrait` | Decomposed translate / rotate (Z) / scale. Convenient for animation. |
+| `velk::ui::ClassId::Transform::Matrix` | `ITransformTrait` | Raw 4×4 matrix transform. Use when the decomposed form isn't enough. |
+| `velk::ui::ClassId::Transform::LookAt` | `ITransformTrait` | Orients the element to face a target element. |
+| `velk::ui::ClassId::Transform::Orbit` | `ITransformTrait` | Positions and orients the element on a sphere around a target. Properties: `target`, `distance`, `yaw`, `pitch`. Used for orbit cameras. |
+
+### Visual phase
+
+Visuals produce draw entries. The renderer queries each element's visuals during `prepare()`.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Visual::Rect` | `IVisual` | Solid color rectangle filling the element bounds. |
+| `velk::ui::ClassId::Visual::RoundedRect` | `IVisual` | Rounded rectangle with SDF corners. Properties: `corner_radius`. |
+
+Plugin-provided visuals: `velk::ui::ClassId::Visual::Text` (text plugin), `velk::ui::ClassId::Visual::Image` (image plugin) — see the plugin docs.
+
+### Material classes
+
+Materials are referenced by visuals via their `paint` property. The default visual fill is the visual's `color`, but assigning a material overrides it with custom shading.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Material::Gradient` | `IMaterial` | Built-in linear gradient material. Properties: `start_color`, `end_color`, `angle`. |
+
+Plugin-provided materials: `velk::ui::ClassId::Material::Image`, `velk::ui::ClassId::Material::Environment` (image plugin), `velk::ui::ClassId::TextMaterial` (text plugin). For arbitrary GLSL, use `velk::ClassId::ShaderMaterial` from velk-render — see [Materials](../render/materials.md).
+
+### Camera
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Render::Camera` | `ICamera` | Camera trait. Defines projection (ortho or perspective), zoom, scale, fov, near/far clip, and the optional environment. Attached to a camera element that the renderer references via `add_view()`. |

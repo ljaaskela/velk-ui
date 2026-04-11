@@ -13,7 +13,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around IClick.
  *
- *   auto click = input::create_click();
+ *   auto click = trait::input::create_click();
  *   element.add_trait(click);
  *   click.on_click().add_handler([](auto) { ... });
  */
@@ -36,7 +36,7 @@ public:
     }
 };
 
-namespace input {
+namespace trait::input {
 
 /** @brief Creates a new Click input trait. */
 inline Click create_click()
@@ -44,7 +44,7 @@ inline Click create_click()
     return Click(instance().create<IClick>(ClassId::Input::Click));
 }
 
-} // namespace input
+} // namespace trait::input
 
 } // namespace velk::ui
 

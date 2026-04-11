@@ -13,7 +13,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around IDrag.
  *
- *   auto drag = input::create_drag();
+ *   auto drag = trait::input::create_drag();
  *   element.add_trait(drag);
  *   drag.on_drag_start().add_handler([](auto) { ... });
  */
@@ -48,7 +48,7 @@ public:
     }
 };
 
-namespace input {
+namespace trait::input {
 
 /** @brief Creates a new Drag input trait. */
 inline Drag create_drag()
@@ -56,7 +56,7 @@ inline Drag create_drag()
     return Drag(instance().create<IDrag>(ClassId::Input::Drag));
 }
 
-} // namespace input
+} // namespace trait::input
 
 } // namespace velk::ui
 

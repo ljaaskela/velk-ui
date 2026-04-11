@@ -212,3 +212,19 @@ Material-specific fields follow at offset 32. The `gpu_data_size()` / `write_gpu
 | `mat4` | `mat4` | 64 |
 | `int` | `int32_t` | 4 |
 | `uint` | `uint32_t` | 4 |
+
+## Classes
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ClassId::ShaderMaterial` | `IMaterial` | Compiled GLSL shader material with reflected inputs. Construct via `velk::create_shader_material(ctx, frag_src, vert_src)`. |
+| `velk::ClassId::Shader` | `IShader` | Compiled SPIR-V module produced by `IRenderContext::compile_shader()`. Used as a building block for custom pipelines. |
+
+Plugin-provided materials live alongside their plugins:
+
+| ClassId | Plugin | Description |
+|---|---|---|
+| `velk::ui::ClassId::Material::Gradient` | velk-ui | Linear gradient between two colors. |
+| `velk::ui::ClassId::Material::Image` | velk_image | Texture sampler with tint. |
+| `velk::ui::ClassId::Material::Environment` | velk_image | Skybox material for `IEnvironment`. |
+| `velk::ui::ClassId::TextMaterial` | velk_text | Analytic Bezier glyph coverage shader. |

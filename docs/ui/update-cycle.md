@@ -1,32 +1,6 @@
 # Update cycle
 
-velk-ui's frame loop is driven by `velk::instance().update()`, which triggers the scene's layout solver, followed by the renderer which pulls changes and draws.
-
-## Frame loop
-
-The simplest frame loop calls `render()`, which synchronously prepares and presents all registered views:
-
-```cpp
-while (running) {
-    glfwPollEvents();
-    velk::instance().update();  // drives scene update via plugin post_update
-    renderer->render();         // prepare + present all views
-}
-```
-
-For more control, the rendering can be split into two phases:
-
-```cpp
-while (running) {
-    glfwPollEvents();
-    velk::instance().update();
-
-    Frame frame = renderer->prepare();  // build draw commands (CPU work)
-    renderer->present(frame);           // submit to GPU (blocks on vsync)
-}
-```
-
-This split enables threaded rendering, where the main thread can begin preparing the next frame while the render thread presents the current one. See [Rendering](../../velk-render/docs/rendering.md) for details.
+This document is the **internal reference** for what happens inside `velk::instance().update()` when the scene tick runs: dirty flag accumulation, the layout solver, trait phases, and how the renderer pulls scene state during `prepare()`. For the user-level frame loop (poll/update/present), see [runtime.md](../runtime/runtime.md).
 
 ## Trait phases
 
@@ -40,7 +14,7 @@ Every trait attached to an element belongs to one of five phases. See [Traits](t
 | **Transform** | `ITransformTrait` | Scene update | Modifies the world matrix. E.g. Trs, Matrix |
 | **Visual** | `IVisual` | Renderer | Produces draw commands. E.g. RectVisual, TextVisual |
 
-Input runs synchronously in GLFW callbacks before `update()` (see [Input](input.md)). Layout, Constraint, and Transform run inside `Scene::update()` via the layout solver. Visual runs inside `renderer->prepare()` when the renderer queries each element's visuals for draw commands.
+Input runs synchronously when the platform delivers events (typically via the runtime's window dispatcher — see [Input](input.md)). Layout, Constraint, and Transform run inside `Scene::update()` via the layout solver. Visual runs inside `renderer->prepare()` when the renderer queries each element's visuals for draw commands.
 
 ### Solver pipeline (per element, top-down)
 
@@ -182,21 +156,7 @@ Layout bounds are set explicitly on the scene, decoupled from any renderer or su
 scene.set_geometry(velk::aabb::from_size({800.f, 600.f}));
 ```
 
-To handle window resize, update both the scene geometry and the surface dimensions:
-
-```cpp
-static void on_resize(GLFWwindow* window, int width, int height)
-{
-    scene->set_geometry(velk::aabb::from_size({
-        static_cast<float>(width), static_cast<float>(height)}));
-    velk::write_state<velk::ISurface>(surface, [&](velk::ISurface::State& s) {
-        s.width = width;
-        s.height = height;
-    });
-}
-```
-
-The scene will re-solve layout on the next `update()`. The renderer detects the surface dimension change during `prepare()` and rebuilds batches.
+When using the runtime, `app.add_view(window, camera)` sets the scene geometry from the window size and listens for `on_resize` to keep them synchronized — you don't have to do this yourself. If you're driving rendering manually (no runtime), update both the scene geometry and the ISurface dimensions when the window resizes; the renderer detects the surface dimension change during `prepare()` and rebuilds batches, and the scene re-solves layout on the next `update()`.
 
 ## Deferred updates
 

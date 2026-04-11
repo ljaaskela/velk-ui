@@ -23,11 +23,12 @@ Declarative scene loading from JSON, programmatic element creation, trait-based 
 
 ## Documentation
 
+User-facing documentation lives at [`../docs/`](../docs/) at the repo root. The UI-specific topics:
+
 | Document | Description |
 |----------|-------------|
-| [Getting started](docs/getting-started.md) | Scene loading, programmatic API, and the two ways to build UI |
-| [Scene](docs/scene.md) | Scene hierarchy, elements, geometry, JSON format |
-| [Traits](docs/traits.md) | Trait system: phases, layout, transform, visual, and input traits |
-| [Input](docs/input.md) | Input dispatcher, hit testing, event dispatch, built-in input traits |
-| [Update cycle](docs/update-cycle.md) | Frame loop, dirty flags, layout solving, and rendering |
-| [Performance](docs/performance.md) | Design choices: single element type, flat hierarchy, traits, batched updates |
+| [Scene](../docs/ui/scene.md) | Scene hierarchy, elements, geometry, JSON format |
+| [Traits](../docs/ui/traits.md) | Trait system: phases, layout, transform, visual, and input traits |
+| [Input](../docs/ui/input.md) | Input dispatcher, hit testing, event dispatch, built-in input traits |
+| [Update cycle](../docs/ui/update-cycle.md) | Internal scene update tick: dirty flags, layout solver, trait phases |
+| [Performance](../docs/ui/performance.md) | Design choices: single element type, flat hierarchy, traits, batched updates |

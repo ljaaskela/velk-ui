@@ -9,39 +9,15 @@ It also provides `ImageMaterial` for sampling textures in custom visuals, `Image
 
 Image and environment decoding are done with [stb_image](https://github.com/nothings/stb) (single-header, public domain), vendored under the plugin.
 
-## Contents
-
-- [Usage](#usage)
-- [Loading an image](#loading-an-image)
-  - [URIs and decoders](#uris-and-decoders)
-  - [Persistence](#persistence)
-  - [Failed loads](#failed-loads)
-- [Drawing an image](#drawing-an-image)
-  - [ImageVisual](#imagevisual)
-  - [ImageMaterial](#imagematerial)
-  - [JSON declaration](#json-declaration)
-- [Environment maps](#environment-maps)
-  - [Loading an environment](#loading-an-environment)
-  - [Binding to a camera](#binding-to-a-camera)
-  - [JSON declaration](#json-declaration-1)
-  - [Supported formats](#supported-formats)
-- [Lifetime and the renderer](#lifetime-and-the-renderer)
-- [Reference](#reference)
-  - [IImage](#iimage)
-  - [Image](#image)
-  - [ImageDecoder](#imagedecoder)
-  - [IEnvironment](#ienvironment)
-  - [EnvDecoder](#envdecoder)
-
 ## Usage
 
-Load the plugin like any other:
+The plugin is loaded automatically by `velk::create_app()`. Its `initialize()` registers the four classes (`Image`, `ImageDecoder`, `ImageMaterial`, `ImageVisual`) plus the `Environment` and `EnvDecoder` types, and registers `ImageDecoder` and `EnvDecoder` with the resource store under the names `"image"` and `"env"`. After init, any code can fetch images by URI.
+
+If you're not using the runtime, load it manually:
 
 ```cpp
 velk::instance().plugin_registry().load_plugin_from_path("velk_image.dll");
 ```
-
-The plugin's `initialize()` registers the four classes (`Image`, `ImageDecoder`, `ImageMaterial`, `ImageVisual`) and registers `ImageDecoder` with the resource store under the name `"image"`. After load, any code can fetch images by URI.
 
 ## Loading an image
 
@@ -102,7 +78,7 @@ The shortcut. Set a URI, get an image on screen:
 ```cpp
 #include <velk-ui/plugins/image/api/image_visual.h>
 
-auto img = velk::ui::visual::create_image("image:app://images/logo.png");
+auto img = velk::ui::trait::visual::create_image("image:app://images/logo.png");
 img.set_tint(velk::color::white());
 element.add_attachment(img);
 ```
@@ -237,47 +213,18 @@ This means:
 
 For the underlying `IGpuResource` / `IGpuResourceObserver` mechanism, see the renderer documentation.
 
-## Reference
+## Classes
 
-### IImage
+Public ClassIds for the plugin's main types. Construct via `instance().create<I>(ClassId::...)` or use the header-only API wrappers in `velk-ui/plugins/image/api/`. See doxygen for full interface signatures.
 
-Header: `velk-render/interface/intf_image.h`
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Image` | `IImage`, `ITexture`, `IResource` | Decoded raster image. After upload the CPU pixel buffer is freed and the GPU handle is the only remaining surface. Inherits `IResource` for URI / persistence. |
+| `velk::ui::ClassId::Environment` | `IEnvironment`, `ITexture`, `IResource` | HDR equirectangular environment map (RGBA16F). Properties: `intensity`, `rotation`. Owns its skybox material. |
+| `velk::ui::ClassId::Visual::Image` | `IVisual` | Convenience visual that loads an image by URI and binds it as a textured quad. Properties: `uri`, `tint`. |
+| `velk::ui::ClassId::Material::Image` | `IMaterial` | Samples any `ITexture` (image, glyph atlas, render target) and multiplies by a tint. Used by `Visual::Image` internally; can be used directly with custom visuals. |
+| `velk::ui::ClassId::Material::Environment` | `IMaterial` | Skybox material. Renders an `IEnvironment` as a fullscreen quad behind scene geometry. Owned by each `Environment`. |
+| `velk::ui::ClassId::ImageDecoder` | `IResourceDecoder` | Decodes raster bytes into `Image`. Registered with the resource store under `"image"` so URIs of the form `image:<inner_uri>` route through it. |
+| `velk::ui::ClassId::EnvDecoder` | `IResourceDecoder` | Decodes HDR bytes into `Environment`. Registered as `"env"` so URIs of the form `env:<inner_uri>` route through it. |
 
-| Method | Description |
-|---|---|
-| `status()` | Returns `Unloaded`, `Loading`, `Loaded`, or `Failed`. Sync v1 only ever returns the last two. |
-
-Inherits `IResource`, so it also exposes `uri()`, `exists()`, `size()`, `is_persistent()`, `set_persistent()`.
-
-### Image
-
-The concrete class produced by `ImageDecoder`. Implements both `IImage` and `ITexture`. After the renderer uploads it, the CPU pixel buffer is freed (`get_pixels()` returns `nullptr`); the GPU handle is the only remaining surface for binding.
-
-`ClassId::Image` (UID-based; use the constant from `velk-ui/plugins/image/plugin.h`).
-
-### ImageDecoder
-
-`IResourceDecoder` registered as `"image"`. Casts the inner `IResource` to `IFile`, reads bytes, calls `stbi_load_from_memory` (forced to RGBA8), constructs an `Image` with format `RGBA8_SRGB`, returns it. On partial failure (header parsed, decode failed) returns a non-null `Image` with `Failed` status. On total reject (`inner` is not an `IFile`) returns `nullptr`.
-
-Registered with the resource store automatically in `ImagePlugin::initialize()`.
-
-### IEnvironment
-
-Header: `velk-ui/include/velk-ui/interface/intf_environment.h`
-
-Inherits `IResource`. Properties:
-
-| Property | Type | Default | Description |
-|---|---|---|---|
-| `intensity` | float | 1.0 | Exposure multiplier. |
-| `rotation` | float | 0.0 | Y-axis rotation in degrees. |
-
-| Method | Description |
-|---|---|
-| `get_material()` | Returns the environment's owned `IMaterial` (skybox shader + per-draw GPU data). |
-
-### EnvDecoder
-
-`IResourceDecoder` registered as `"env"`. Casts the inner `IResource` to `IFile`, reads bytes, calls `stbi_loadf_from_memory` (forced to RGBA float), converts to RGBA16F half-float, constructs an `Environment`, returns it. Handles the same file formats as the image decoder but always produces float output.
-
-Registered with the resource store automatically in `ImagePlugin::initialize()`.
+The plugin's `PluginId::ImagePlugin` is loaded automatically by `velk::create_app()` and registers all of the above classes plus the two decoders.

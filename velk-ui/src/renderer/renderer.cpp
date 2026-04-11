@@ -123,6 +123,8 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const ISurface::Ptr
             SurfaceDesc desc{};
             desc.width = state->width;
             desc.height = state->height;
+            desc.update_rate = state->update_rate;
+            desc.target_fps = state->target_fps;
             sid = backend_->create_surface(desc);
         }
     }
@@ -214,9 +216,10 @@ void Renderer::rebuild_commands(IElement* element)
     }
 }
 
-void Renderer::rebuild_batches(const SceneState& state, const ViewEntry& entry)
+void Renderer::rebuild_batches(const SceneState& state, ViewEntry& entry)
 {
     VELK_PERF_SCOPE("renderer.rebuild_batches");
+    auto& batches_ = entry.batches;
     batches_.clear();
 
     auto resolve_texture = [](const IMaterial::Ptr& material, uint64_t fallback) -> uint64_t {
@@ -383,11 +386,11 @@ void Renderer::init_slot_buffers(FrameSlot& slot)
     slot.buffer_size = frame_buffer_size_;
 }
 
-void Renderer::build_draw_calls()
+void Renderer::build_draw_calls(const ViewEntry& entry)
 {
     VELK_PERF_SCOPE("renderer.build_draw_calls");
 
-    for (auto& batch : batches_) {
+    for (auto& batch : entry.batches) {
 
         // Write instance data into the staging buffer
         uint64_t instances_addr =
@@ -735,7 +738,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
             // batches are rebuilt (on scene changes); on static frames
             // the env batch from the previous rebuild is still there.
             if (camera) {
-                prepend_environment_batch(*camera);
+                prepend_environment_batch(*camera, entry);
             }
             entry.batches_dirty = false;
         }
@@ -771,7 +774,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
         }
 
         draw_calls_.clear();
-        build_draw_calls();
+        build_draw_calls(entry);
 
         // Capture draw calls for this surface into the frame slot
         SurfaceSubmit submit;
@@ -1005,12 +1008,11 @@ void Renderer::shutdown()
 
     views_.clear();
     element_cache_.clear();
-    batches_.clear();
     draw_calls_.clear();
     pipeline_map_ = nullptr;
 }
 
-void Renderer::prepend_environment_batch(ICamera& camera)
+void Renderer::prepend_environment_batch(ICamera& camera, ViewEntry& entry)
 {
     if (!backend_) {
         return;
@@ -1077,7 +1079,7 @@ void Renderer::prepend_environment_batch(ICamera& camera)
     env_batch.instance_data.resize(4, 0); // dummy, shader ignores it
     env_batch.material = std::move(material);
 
-    batches_.insert(batches_.begin(), std::move(env_batch));
+    entry.batches.insert(entry.batches.begin(), std::move(env_batch));
 }
 
 } // namespace velk::ui

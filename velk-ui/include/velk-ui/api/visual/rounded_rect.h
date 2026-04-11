@@ -11,7 +11,7 @@ namespace velk::ui {
  *
  * Inherits color and paint accessors from Visual.
  *
- *   auto rect = visual::create_rounded_rect();
+ *   auto rect = trait::visual::create_rounded_rect();
  *   rect.set_color({0.2f, 0.6f, 0.9f, 1.f});
  */
 class RoundedRectVisual : public Visual
@@ -22,7 +22,7 @@ public:
     explicit RoundedRectVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
 };
 
-namespace visual {
+namespace trait::visual {
 
 /** @brief Creates a new RoundedRectVisual. */
 inline RoundedRectVisual create_rounded_rect()
@@ -30,7 +30,7 @@ inline RoundedRectVisual create_rounded_rect()
     return RoundedRectVisual(instance().create<IObject>(ClassId::Visual::RoundedRect));
 }
 
-} // namespace visual
+} // namespace trait::visual
 
 } // namespace velk::ui
 

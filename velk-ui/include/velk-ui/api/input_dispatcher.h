@@ -1,6 +1,7 @@
 #ifndef VELK_UI_API_INPUT_DISPATCHER_H
 #define VELK_UI_API_INPUT_DISPATCHER_H
 
+#include <velk/api/event.h>
 #include <velk/api/object.h>
 
 #include <velk-ui/api/element.h>
@@ -68,6 +69,18 @@ public:
     void set_focus(const IElement::Ptr& element)
     {
         with<IInputDispatcher>([&](auto& d) { d.set_focus(element); });
+    }
+
+    /** @brief Raw pointer event, fires before hit-testing and dispatch. */
+    Event on_pointer_event() const
+    {
+        return with<IInputDispatcher>([](auto& d) { return d.on_pointer_event(); });
+    }
+
+    /** @brief Raw scroll event, fires before hit-testing and dispatch. */
+    Event on_scroll_event() const
+    {
+        return with<IInputDispatcher>([](auto& d) { return d.on_scroll_event(); });
     }
 };
 

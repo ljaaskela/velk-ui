@@ -35,6 +35,8 @@ public:
     void notify_dirty(IElement& element, DirtyFlags flags) override;
     vector<IElement::Ptr> ray_cast(vec3 origin, vec3 direction,
                                    size_t max_count = 0) const override;
+    vector<IElement::Ptr> find_elements(const ElementQuery& query,
+                                        size_t max_count = 0) const override;
 
     // IHierarchy forwarding
     ReturnValue set_root(const IObject::Ptr& root) override;

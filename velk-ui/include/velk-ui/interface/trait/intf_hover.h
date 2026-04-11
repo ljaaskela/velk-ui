@@ -15,8 +15,8 @@ class IHover : public Interface<IHover>
 {
 public:
     VELK_INTERFACE(
-        (RPROP, bool, hovered, false), ///< True while the pointer is over this element.
-        (EVT, on_hover_changed)        ///< Fired when hovered transitions between true and false.
+        (RPROP, bool, hovered, false),                ///< True while the pointer is over this element.
+        (EVT, on_hover_changed, (bool, hovered))      ///< Fired when hovered transitions; carries the new state.
     )
 };
 

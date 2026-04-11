@@ -56,6 +56,11 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<::velk::ext::AnyValue<VAlign>>(velk);
     rv &= register_type<::velk::ext::AnyValue<Projection>>(velk);
     rv &= register_type<::velk::ext::AnyValue<VisualPhase>>(velk);
+
+    rv &= register_type<::velk::ext::AnyValue<PointerEvent>>(velk);
+    rv &= register_type<::velk::ext::AnyValue<ScrollEvent>>(velk);
+    rv &= register_type<::velk::ext::AnyValue<KeyEvent>>(velk);
+    rv &= register_type<::velk::ext::AnyValue<DragEvent>>(velk);
     return rv;
 }
 

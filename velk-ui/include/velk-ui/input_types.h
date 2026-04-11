@@ -95,6 +95,28 @@ struct ScrollEvent
     Modifier modifiers{};
 };
 
+/**
+ * @brief Drag gesture event.
+ *
+ * Carries the gesture's spatial state. Delivered to drag event handlers
+ * (on_drag_start, on_drag_move, on_drag_end). All positions are element-local.
+ *
+ * - on_drag_start: position = start_position, delta = {0,0}, total_delta = {0,0}
+ * - on_drag_move:  position = current, delta = movement since last move,
+ *                  total_delta = movement since start
+ * - on_drag_end:   position = release point, delta = last move,
+ *                  total_delta = full drag distance
+ */
+struct DragEvent
+{
+    vec2 start_position{}; ///< Where the drag began (element-local).
+    vec2 position{};       ///< Current pointer position (element-local).
+    vec2 delta{};          ///< Movement since the previous on_drag_move.
+    vec2 total_delta{};    ///< Movement since on_drag_start.
+    PointerButton button{};
+    Modifier modifiers{};
+};
+
 /** @brief Key action type. */
 enum class KeyAction : uint8_t
 {

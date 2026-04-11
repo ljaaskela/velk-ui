@@ -12,7 +12,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around IMatrix.
  *
- *   auto mtx = transform::create_matrix();
+ *   auto mtx = trait::transform::create_matrix();
  *   mtx.set_matrix(mat4::scale({2.f, 2.f, 1.f}));
  *   elem.add_trait(mtx);
  */
@@ -29,7 +29,7 @@ public:
     void set_matrix(const mat4& v) { write_state_value<IMatrix>(&IMatrix::State::matrix, v); }
 };
 
-namespace transform {
+namespace trait::transform {
 
 /** @brief Creates a new Matrix transform trait. */
 inline Matrix create_matrix()
@@ -37,7 +37,7 @@ inline Matrix create_matrix()
     return Matrix(instance().create<IMatrix>(ClassId::Transform::Matrix));
 }
 
-} // namespace transform
+} // namespace trait::transform
 
 } // namespace velk::ui
 

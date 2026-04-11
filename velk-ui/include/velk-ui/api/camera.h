@@ -37,11 +37,15 @@ public:
     void set_fov(float v) { write_state_value<ICamera>(&ICamera::State::fov, v); }
 };
 
+namespace trait::render {
+
 /** @brief Creates a new Camera trait with default orthographic projection. */
 inline Camera create_camera()
 {
     return Camera(instance().create<ICamera>(ClassId::Render::Camera));
 }
+
+} // namespace trait::render
 
 } // namespace velk::ui
 

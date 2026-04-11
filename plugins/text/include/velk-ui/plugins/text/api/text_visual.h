@@ -15,7 +15,7 @@ namespace velk::ui {
  *
  * Inherits color and paint accessors from Visual.
  *
- *   auto tv = visual::create_text();
+ *   auto tv = trait::visual::create_text();
  *   tv.set_font(font);
  *   tv.set_text("Hello!");
  *   tv.set_color(color::white());
@@ -60,7 +60,7 @@ public:
     auto get_font_size() const { return read_state_value<ITextVisual>(&ITextVisual::State::font_size); }
 };
 
-namespace visual {
+namespace trait::visual {
 
 /** @brief Creates a new TextVisual. */
 inline TextVisual create_text()
@@ -68,7 +68,7 @@ inline TextVisual create_text()
     return TextVisual(instance().create<IObject>(ClassId::Visual::Text));
 }
 
-} // namespace visual
+} // namespace trait::visual
 
 } // namespace velk::ui
 

@@ -70,6 +70,16 @@ private:
         vector<IBuffer::WeakPtr> gpu_resources;
     };
 
+    struct Batch
+    {
+        uint64_t pipeline_key = 0;
+        uint64_t texture_key = 0;
+        vector<uint8_t> instance_data;
+        uint32_t instance_stride = 0;
+        uint32_t instance_count = 0;
+        IMaterial::Ptr material;
+    };
+
     struct ViewEntry
     {
         IElement::Ptr camera_element;
@@ -79,16 +89,7 @@ private:
         bool batches_dirty = true;
         int cached_width = 0;
         int cached_height = 0;
-    };
-
-    struct Batch
-    {
-        uint64_t pipeline_key = 0;
-        uint64_t texture_key = 0;
-        vector<uint8_t> instance_data;
-        uint32_t instance_stride = 0;
-        uint32_t instance_count = 0;
-        IMaterial::Ptr material;
+        vector<Batch> batches;  ///< Cached batches for this view; rebuilt when dirty.
     };
 
     /** @brief Per-surface data captured by prepare() for present(). */
@@ -114,9 +115,9 @@ private:
     };
 
     void rebuild_commands(IElement* element);
-    void rebuild_batches(const SceneState& state, const ViewEntry& entry);
-    void build_draw_calls();
-    void prepend_environment_batch(ICamera& camera);
+    void rebuild_batches(const SceneState& state, ViewEntry& entry);
+    void build_draw_calls(const ViewEntry& entry);
+    void prepend_environment_batch(ICamera& camera, ViewEntry& entry);
 
     uint64_t write_to_frame_buffer(const void* data, size_t size, size_t alignment = 16);
 
@@ -179,7 +180,6 @@ private:
 
     void drain_deferred_destroy();
 
-    vector<Batch> batches_;
     vector<DrawCall> draw_calls_;
     /// Environment textures we've observed (not tracked via element_cache_).
     /// Unregistered in shutdown() to prevent the GpuResource dtor from

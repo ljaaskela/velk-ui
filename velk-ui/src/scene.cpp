@@ -231,6 +231,58 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
     return hits;
 }
 
+vector<IElement::Ptr> Scene::find_elements(const ElementQuery& query, size_t max_count) const
+{
+    auto root = logical_.root();
+    if (!root) {
+        return {};
+    }
+
+    // Walk the hierarchy depth-first, pre-order.
+    vector<IElement::Ptr> matches;
+    vector<IObject::Ptr> stack;
+    stack.push_back(root);
+
+    while (!stack.empty()) {
+        auto obj = std::move(stack.back());
+        stack.pop_back();
+
+        if (auto elem = interface_pointer_cast<IElement>(obj)) {
+            // Check that every requested trait is present.
+            bool match = true;
+            if (!query.traits.empty()) {
+                auto* storage = interface_cast<IObjectStorage>(elem);
+                if (!storage) {
+                    match = false;
+                } else {
+                    for (auto trait_uid : query.traits) {
+                        if (!storage->find_attachment(AttachmentQuery{trait_uid})) {
+                            match = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match) {
+                matches.push_back(elem);
+                if (max_count > 0 && matches.size() >= max_count) {
+                    return matches;
+                }
+            }
+        }
+
+        // Push children in reverse so we visit them in order.
+        if (auto children = logical_.children_of(obj); !children.empty()) {
+            stack.reserve(stack.size() + children.size());
+            for (size_t i = children.size(); i > 0; --i) {
+                stack.push_back(children[i - 1]);
+            }
+        }
+    }
+
+    return matches;
+}
+
 void Scene::ensure_hierarchy()
 {
     if (!initialized_) {
@@ -241,29 +293,21 @@ void Scene::ensure_hierarchy()
 
 void Scene::attach_element(const IObject::Ptr& obj)
 {
-    auto* observer = interface_cast<ISceneObserver>(obj);
-    if (observer) {
+    if (auto* observer = interface_cast<ISceneObserver>(obj)) {
         observer->on_attached(*this);
     }
-
-    {
-        std::unique_lock lock(state_mutex_);
-        set_dirty(DirtyFlags::DrawOrder);
-    }
+    std::unique_lock lock(state_mutex_);
+    set_dirty(DirtyFlags::DrawOrder);
 }
 
 void Scene::detach_element(const IObject::Ptr& obj)
 {
-    auto* observer = interface_cast<ISceneObserver>(obj);
-    if (observer) {
+    if (auto* observer = interface_cast<ISceneObserver>(obj)) {
         observer->on_detached(*this);
     }
-
-    {
-        std::unique_lock lock(state_mutex_);
-        removed_list_.push_back(interface_pointer_cast<IElement>(obj));
-        set_dirty(DirtyFlags::DrawOrder);
-    }
+    std::unique_lock lock(state_mutex_);
+    removed_list_.push_back(interface_pointer_cast<IElement>(obj));
+    set_dirty(DirtyFlags::DrawOrder);
 }
 
 void Scene::detach_subtree(const IObject::Ptr& obj)
@@ -358,8 +402,7 @@ ReturnValue Scene::replace(const IObject::Ptr& old_child, const IObject::Ptr& ne
 
 void Scene::clear()
 {
-    auto r = root();
-    if (r) {
+    if (auto r = root()) {
         detach_subtree(r);
     }
     logical_.clear();

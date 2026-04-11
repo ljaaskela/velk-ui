@@ -87,6 +87,47 @@ public:
     {
         return Element(Hierarchy::child_at(object, index));
     }
+
+    /**
+     * @brief Returns elements that have attachments implementing every requested trait interface.
+     *
+     * Pre-order depth-first traversal. Empty pack matches all elements.
+     *
+     *   auto cameras = scene.find_elements<ICamera>();
+     *   auto orbit_cameras = scene.find_elements<ICamera, IOrbit>();
+     *
+     * @tparam Traits Interface types the element's attachments must implement (AND).
+     * @param max_count Maximum number of matches to return (0 = unlimited).
+     */
+    template <class... Traits>
+    vector<Element> find_elements(size_t max_count = 0) const
+    {
+        ElementQuery query;
+        if constexpr (sizeof...(Traits) > 0) {
+            query.traits = {Traits::UID...};
+        }
+        auto raw = with<IScene>([&](auto& s) { return s.find_elements(query, max_count); });
+        vector<Element> out;
+        out.reserve(raw.size());
+        for (auto& e : raw) {
+            out.emplace_back(std::move(e));
+        }
+        return out;
+    }
+
+    /**
+     * @brief Returns the first element matching the trait query, or an empty Element.
+     *
+     *   if (auto cam = scene.find_first<ICamera>()) {
+     *       app.add_view(window, cam);
+     *   }
+     */
+    template <class... Traits>
+    Element find_first() const
+    {
+        auto results = find_elements<Traits...>(1);
+        return results.empty() ? Element{} : std::move(results.front());
+    }
 };
 
 /**
