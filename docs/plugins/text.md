@@ -1,24 +1,6 @@
 # Text plugin
 
-The text plugin (`velk_text`) brings font loading and text rendering support into velk-ui.
-
-## Contents
-
-- [Approach](#approach)
-- [Usage](#usage)
-- [JSON declaration](#json-declaration)
-- [Drawing text](#drawing-text)
-  - [TextVisual](#textvisual)
-  - [Font size](#font-size)
-- [How it works](#how-it-works)
-  - [Pipeline](#pipeline)
-  - [GPU data layout](#gpu-data-layout)
-  - [Coordinate convention](#coordinate-convention)
-- [Future improvements](#future-improvements)
-- [Reference](#reference)
-  - [IFont](#ifont)
-  - [ITextVisual](#itextvisual)
-  - [ITextPlugin](#itextplugin)
+The text plugin (`velk_text`) brings font loading and text rendering support into velk-ui. Loaded automatically by the runtime — no manual setup needed.
 
 ## Approach
 
@@ -34,13 +16,13 @@ The trade-off is shader cost: every text pixel runs an inside-test that walks a 
 
 ## Usage
 
-Load the plugin like any other:
+The plugin is loaded automatically by `velk::create_app()`. Its `initialize()` registers `Font`, `FontGpuBuffer`, `TextMaterial`, and `TextVisual`, and creates a shared default font (embedded Inter Regular) accessible via `ITextPlugin::default_font()` or the convenience helper `velk::ui::get_default_font()`.
+
+If you're not using the runtime, load it manually:
 
 ```cpp
 velk::instance().plugin_registry().load_plugin_from_path("velk_text.dll");
 ```
-
-The plugin's `initialize()` registers `Font`, `FontGpuBuffer`, `TextMaterial`, and `TextVisual`, and creates a shared default font (embedded Inter Regular) accessible via `ITextPlugin::default_font()`.
 
 ## Drawing text
 
@@ -55,7 +37,7 @@ Attach a `TextVisual` to any element. By default the visual uses the shared defa
 using namespace velk::ui;
 
 auto element = create_element();
-auto text    = visual::create_text();
+auto text    = trait::visual::create_text();
 
 text.set_text("Hello, Velk");
 text.set_font_size(24.f);
@@ -154,89 +136,15 @@ The baker normalizes curves to `[0, 1]^2` over the bbox in **FreeType's Y-up con
   * Multi-font batching: visuals sharing a font already share a draw call (the Font owns one `TextMaterial` and visuals consume it), but mixing *different* fonts in one draw call is not supported.
   * Any-hit shader path for ray tracing
 
-## Reference
+## Classes
 
-### IFont
+Public ClassIds for the plugin's main types. Construct via `instance().create<I>(ClassId::...)` or use the header-only API wrappers in `velk-ui/plugins/text/api/`. See doxygen for full interface signatures.
 
-Defined in `velk-ui/include/velk-ui/interface/intf_font.h`.
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Font` | `IFont` | FreeType + HarfBuzz font instance. Shapes text and lazy-bakes glyphs into GPU curve / band / glyph buffers. Properties (in font units): `ascender`, `descender`, `line_height`, `units_per_em`. |
+| `velk::ui::ClassId::Visual::Text` | `ITextVisual`, `IVisual` | Text visual trait. Properties: `text`, `font_size`, `h_align`, `v_align`; `color` from `IVisual`. Attaches to any element. |
+| `velk::ui::ClassId::TextMaterial` | `IMaterial` | Material that runs the analytic-coverage fragment shader. Owned by each `Font` and shared by all `TextVisual`s using that font (so they batch into one draw call). Not normally constructed by user code. |
+| `velk::ui::ClassId::FontGpuBuffer` | `IBuffer` | Internal GPU resource backing the font's curve / band / glyph data. Not normally touched by user code. |
 
-```cpp
-class IFont : public Interface<IFont>
-{
-public:
-    struct GlyphPosition  // in font units (visual scales to pixels)
-    {
-        uint32_t glyph_id;
-        vec2 offset;
-        vec2 advance;
-    };
-
-    struct GlyphInfo
-    {
-        uint32_t internal_index;  // index into the GPU glyph table
-        vec2 bbox_min;            // font units
-        vec2 bbox_max;
-        bool empty;               // true for whitespace etc
-    };
-
-    VELK_INTERFACE(
-        (RPROP, float, ascender,     0.f),  // font units
-        (RPROP, float, descender,    0.f),  // font units
-        (RPROP, float, line_height,  0.f),  // font units
-        (RPROP, float, units_per_em, 0.f)
-    )
-
-    virtual bool init_default() = 0;
-    virtual float shape_text(string_view text, vector<GlyphPosition>& out) = 0;
-    virtual GlyphInfo ensure_glyph(uint32_t glyph_id) = 0;
-
-    virtual IBuffer::Ptr   get_curve_buffer() const = 0;
-    virtual IBuffer::Ptr   get_band_buffer()  const = 0;
-    virtual IBuffer::Ptr   get_glyph_buffer() const = 0;
-    virtual IMaterial::Ptr get_material()     const = 0;
-};
-```
-
-Notably absent: `set_size`, `size_px`, `get_pixels`, `get_atlas_*`. The font has no notion of pixel size and no glyph atlas. Pixel size is a property of the consuming visual.
-
-`get_material()` returns the single `TextMaterial` instance the font owns, bound to its three GPU buffers. Every `TextVisual` using this font consumes the same material instance, which is what lets the renderer batch them into a single draw call.
-
-### ITextVisual
-
-Defined in `velk-ui/plugins/text/include/velk-ui/plugins/text/intf_text_visual.h`.
-
-```cpp
-class ITextVisual : public Interface<ITextVisual>
-{
-public:
-    VELK_INTERFACE(
-        (PROP, string,     text,      {}),
-        (PROP, float,      font_size, 16.f),
-        (PROP, ui::HAlign, h_align,   ui::HAlign::Left),
-        (PROP, ui::VAlign, v_align,   ui::VAlign::Top)
-    )
-
-    virtual void set_font(const IFont::Ptr& font) = 0;
-};
-```
-
-`color` is inherited from `IVisual`. The visual uses the shared default font unless `set_font` is called explicitly.
-
-### ITextPlugin
-
-Defined in `velk-ui/plugins/text/include/velk-ui/plugins/text/intf_text_plugin.h`.
-
-```cpp
-class ITextPlugin : public Interface<ITextPlugin>
-{
-public:
-    virtual IFont::Ptr default_font() const = 0;
-};
-```
-
-Access via the plugin registry:
-
-```cpp
-auto plugin = velk::get_or_load_plugin<ITextPlugin>(PluginId::TextPlugin);
-auto font   = plugin ? plugin->default_font() : nullptr;
-```
+The plugin also exposes `ITextPlugin` (`velk-ui/plugins/text/intf_text_plugin.h`) via `PluginId::TextPlugin`, which provides `default_font()` — usually accessed through the header-only convenience `velk::ui::get_default_font()`.

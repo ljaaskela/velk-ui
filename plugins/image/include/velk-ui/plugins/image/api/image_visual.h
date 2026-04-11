@@ -16,7 +16,7 @@ namespace velk::ui {
  * image lazily on uri change via the resource store and binds it to an
  * internal ImageMaterial.
  *
- *   auto iv = visual::create_image();
+ *   auto iv = trait::visual::create_image();
  *   iv.set_uri("image:app://images/logo.png");
  *   iv.set_tint(color::white());
  *   element.add_attachment(iv);
@@ -48,7 +48,7 @@ public:
     void set_tint(const color& v) { write_state_value<IImageVisual>(&IImageVisual::State::tint, v); }
 };
 
-namespace visual {
+namespace trait::visual {
 
 /** @brief Creates a new ImageVisual. */
 inline ImageVisual create_image()
@@ -64,7 +64,7 @@ inline ImageVisual create_image(string_view uri)
     return v;
 }
 
-} // namespace visual
+} // namespace trait::visual
 
 } // namespace velk::ui
 

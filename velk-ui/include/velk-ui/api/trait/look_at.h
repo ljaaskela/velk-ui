@@ -12,7 +12,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around ILookAt.
  *
- *   auto la = transform::create_look_at();
+ *   auto la = trait::transform::create_look_at();
  *   la.set_target(target_element);
  *   elem.add_trait(la);
  */
@@ -32,7 +32,7 @@ public:
     void set_target_offset(vec3 v) { write_state_value<ILookAt>(&ILookAt::State::target_offset, v); }
 };
 
-namespace transform {
+namespace trait::transform {
 
 /** @brief Creates a new LookAt transform trait. */
 inline LookAtTrait create_look_at()
@@ -40,7 +40,7 @@ inline LookAtTrait create_look_at()
     return LookAtTrait(instance().create<ILookAt>(ClassId::Transform::LookAt));
 }
 
-} // namespace transform
+} // namespace trait::transform
 
 } // namespace velk::ui
 

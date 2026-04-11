@@ -14,7 +14,7 @@ namespace velk::ui {
  *
  * Provides null-safe access to stack layout constraint properties.
  *
- *   auto stack = constraint::create_stack();
+ *   auto stack = trait::layout::create_stack();
  *   stack.set_axis(0);       // horizontal
  *   stack.set_spacing(10.f);
  */
@@ -46,7 +46,7 @@ public:
     void set_spacing(float v) { write_state_value<IStack>(&IStack::State::spacing, v); }
 };
 
-namespace constraint {
+namespace trait::layout {
 
 /** @brief Creates a new Stack constraint. */
 inline Stack create_stack()
@@ -54,7 +54,7 @@ inline Stack create_stack()
     return Stack(instance().create<IStack>(ClassId::Constraint::Stack));
 }
 
-} // namespace constraint
+} // namespace trait::layout
 
 } // namespace velk::ui
 

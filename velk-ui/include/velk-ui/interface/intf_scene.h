@@ -14,6 +14,18 @@
 namespace velk::ui {
 
 /**
+ * @brief Filter for IScene::find_elements.
+ *
+ * An element matches the query if its IObjectStorage holds at least one
+ * attachment implementing each interface in @c traits. Empty @c traits matches
+ * all elements in the scene.
+ */
+struct ElementQuery
+{
+    vector<Uid> traits; ///< Interface UIDs the element's attachments must implement (AND).
+};
+
+/**
  * @brief Holds element and visual change information for one frame.
  *
  * Returned by IScene::consume_state(). Owns strong references to all
@@ -85,6 +97,19 @@ public:
      */
     virtual vector<IElement::Ptr> ray_cast(vec3 origin, vec3 direction,
                                            size_t max_count = 0) const = 0;
+
+    /**
+     * @brief Returns elements matching @p query, in pre-order tree traversal.
+     *
+     * Walks the scene hierarchy depth-first and returns elements whose attachments
+     * satisfy every interface UID in @c query.traits. An empty trait list matches
+     * all elements.
+     *
+     * @param query     Filter describing required trait interfaces.
+     * @param max_count Maximum number of matches to return (0 = unlimited).
+     */
+    virtual vector<IElement::Ptr> find_elements(const ElementQuery& query,
+                                                size_t max_count = 0) const = 0;
 };
 
 } // namespace velk::ui

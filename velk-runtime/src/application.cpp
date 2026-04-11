@@ -318,14 +318,14 @@ void Application::set_performance_overlay(const IObject::Ptr& window,
     auto camera_elem = ui::create_element();
     scene.add(root, camera_elem);
 
-    auto camera_trait = ui::create_camera();
+    auto camera_trait = ui::trait::render::create_camera();
     camera_trait.set_projection(ui::Projection::Ortho);
     camera_elem.add_trait(camera_trait);
 
     auto text_elem = ui::create_element();
     scene.add(root, text_elem);
 
-    auto text_visual = ui::visual::create_text();
+    auto text_visual = ui::trait::visual::create_text();
     text_visual.set_font(ui::get_default_font());
     text_visual.set_text("FPS: ...");
     text_visual.set_font_size(config.font_size);

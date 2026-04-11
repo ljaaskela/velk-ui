@@ -1,6 +1,8 @@
 # Rendering
 
-This document covers how frames are prepared, submitted, and presented. For the GPU data model and backend architecture, see [Render Backend Architecture](render-backend-architecture.md). For the full frame loop including scene updates, see [Update Cycle](../../velk-ui/docs/update-cycle.md).
+This document is the **internal reference** for `IRenderer` and the prepare/submit pipeline. For everyday use, the runtime sets up the renderer for you and you call `app.update()` / `app.present()` instead of touching the renderer directly — see [runtime.md](../runtime/runtime.md). Read this when you need to drive the renderer manually, when you want to understand what `app.prepare()` and `app.submit()` do internally, or when you're implementing a custom render path.
+
+For the GPU data model and backend architecture, see [render-backend.md](render-backend.md). For what `velk::instance().update()` does (which runs before any rendering), see [update-cycle.md](../ui/update-cycle.md).
 
 ## Views: renderer, surfaces, and cameras
 
@@ -10,6 +12,8 @@ The renderer draws scenes onto surfaces through **views**. A view is a pairing o
 auto renderer = velk::ui::create_renderer(*render_ctx);
 renderer->add_view(camera_element, surface);
 ```
+
+When using the runtime, `app.add_view(window, camera)` does the equivalent — it pulls the surface from the window and forwards to `renderer->add_view`.
 
 **Surfaces** (`ISurface`) represent render targets. A surface maps to a backend swapchain with a `surface_id`. It has width and height properties but no knowledge of scenes or cameras. Surfaces are created via `IRenderContext::create_surface()`.
 
@@ -95,47 +99,11 @@ Globals (view-projection matrix, viewport) are written to a separate persistent 
 
 The renderer does not create threads. The application decides the threading strategy:
 
-**Single-threaded** (simplest):
-```cpp
-while (running) {
-    glfwPollEvents();
-    velk::instance().update();
-    renderer->render();
-}
-```
+- **Single-threaded**: call `renderer->render()` (or `app.present()`) which does prepare + present sequentially.
+- **Threaded**: prepare on the main thread, send the `Frame` handle to a render thread, present from there.
+- **Platform-driven**: e.g. on Android, prepare from the framework's update callback and present from `onDrawFrame` on the render thread.
 
-**Threaded** (overlapping prepare and present):
-```cpp
-// Main thread
-while (running) {
-    glfwPollEvents();
-    velk::instance().update();
-    Frame frame = renderer->prepare();
-    // Hand frame to render thread
-    render_queue.push(frame);
-}
-
-// Render thread
-while (running) {
-    Frame frame = render_queue.pop();
-    renderer->present(frame);
-}
-```
-
-**Platform-driven** (e.g. Android):
-```cpp
-// Main thread: called by app framework
-void on_update() {
-    velk::instance().update();
-    Frame frame = renderer->prepare();
-    pending_frame = frame;
-}
-
-// Render thread: called by platform (GLSurfaceView, Choreographer)
-void on_draw_frame() {
-    renderer->present(pending_frame);
-}
-```
+The runtime layer wraps these patterns — see [runtime.md](../runtime/runtime.md) for `app.prepare()` / `app.submit()` and how to split them across threads. The frame slot system below is what makes this safe regardless of the threading strategy.
 
 ## FrameDesc: selective rendering
 
@@ -242,3 +210,15 @@ VELK_PERF_SCOPE("my_operation");
 ```
 
 Stats can be queried programmatically via `instance().perf_log().get_stats()`.
+
+## Classes
+
+ClassIds for the rendering layer's main types. The runtime constructs these on first window creation; manual construction is only needed when bypassing the runtime.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ClassId::RenderContext` | `IRenderContext` | Owns the render backend, surface factory, shader compiler, pipeline registry. Construct via `velk::create_render_context(config)`. |
+| `velk::ClassId::Surface` | `ISurface` | Render target with `width`, `height`, `update_rate`, `target_fps` properties. Created by `IRenderContext::create_surface(SurfaceConfig)`. The actual swapchain is built lazily when the renderer's `add_view` first sees the surface. |
+| `velk::ClassId::Renderer` | `IRenderer`, `IRendererInternal` | Scene renderer. Walks views, builds batches, writes GPU buffers, submits to the backend. Construct via `velk::ui::create_renderer(ctx)`. |
+
+For shader materials see [Materials](materials.md). For the lower-level GPU interface (`IRenderBackend`, buffers, pipelines, bindless textures) see [Render backend](render-backend.md).

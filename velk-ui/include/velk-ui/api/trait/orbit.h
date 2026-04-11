@@ -12,7 +12,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around IOrbit.
  *
- *   auto orb = transform::create_orbit();
+ *   auto orb = trait::transform::create_orbit();
  *   orb.set_target(target_element);
  *   orb.set_distance(1200.f);
  *   orb.set_yaw(30.f);
@@ -37,7 +37,7 @@ public:
     void set_pitch(float v) { write_state_value<IOrbit>(&IOrbit::State::pitch, v); }
 };
 
-namespace transform {
+namespace trait::transform {
 
 /** @brief Creates a new Orbit transform trait. */
 inline OrbitTrait create_orbit()
@@ -45,7 +45,7 @@ inline OrbitTrait create_orbit()
     return OrbitTrait(instance().create<IOrbit>(ClassId::Transform::Orbit));
 }
 
-} // namespace transform
+} // namespace trait::transform
 
 } // namespace velk::ui
 

@@ -11,7 +11,7 @@ namespace velk::ui {
  *
  * Inherits color and paint accessors from Visual.
  *
- *   auto rect = visual::create_rect();
+ *   auto rect = trait::visual::create_rect();
  *   rect.set_color({0.9f, 0.2f, 0.2f, 1.f});
  */
 class RectVisual : public Visual
@@ -27,7 +27,7 @@ public:
     explicit RectVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
 };
 
-namespace visual {
+namespace trait::visual {
 
 /** @brief Creates a new RectVisual. */
 inline RectVisual create_rect()
@@ -35,7 +35,7 @@ inline RectVisual create_rect()
     return RectVisual(instance().create<IObject>(ClassId::Visual::Rect));
 }
 
-} // namespace visual
+} // namespace trait::visual
 
 } // namespace velk::ui
 

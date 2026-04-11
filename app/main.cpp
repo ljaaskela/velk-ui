@@ -12,6 +12,7 @@
 #include <velk-ui/api/trait/orbit.h>
 #include <velk-ui/api/visual/rect.h>
 #include <velk-ui/api/visual/visual.h>
+#include <velk-ui/interface/intf_camera.h>
 
 int main(int argc, char* argv[])
 {
@@ -36,8 +37,10 @@ int main(int argc, char* argv[])
     auto scene = velk::ui::create_scene("app://scenes/dashboard.json");
     scene.set_geometry(velk::aabb::from_size({static_cast<float>(kWidth), static_cast<float>(kHeight)}));
 
-    auto camera = scene.child_at(scene.root(), 1);
-    auto camera_3d = scene.child_at(scene.root(), 2);
+    // The dashboard scene has two cameras: an ortho camera (no orbit trait)
+    // and a perspective camera with an orbit trait. Find them by trait.
+    auto camera = scene.find_first<velk::ui::ICamera>();   // first camera in pre-order = ortho
+    auto camera_3d = scene.find_first<velk::ui::IOrbit>(); // only the perspective one has orbit
 
     if (camera) {
         app.add_view(window, camera, {0, 0, 0.5f, 1.0f});
@@ -94,13 +97,13 @@ int main(int argc, char* argv[])
     // Add gradient background to the root element
     {
         auto root = scene.root();
-        auto bg = velk::ui::visual::create_rect();
+        auto bg = velk::ui::trait::visual::create_rect();
         bg.set_color(velk::color::red());
         bg.set_paint(velk::ui::material::create_gradient(
             velk::color{0.05f, 0.07f, 0.15f, 1.f}, velk::color{0.18f, 0.12f, 0.28f, 1.f}, 90.f));
 
         root.add_trait(bg);
-        auto click = velk::ui::input::create_click();
+        auto click = velk::ui::trait::input::create_click();
         click.on_click().add_handler([]() { VELK_LOG(E, "Clicked!"); });
         root.add_trait(click);
     }
@@ -160,8 +163,8 @@ void main()
 }
 )";
 
-        auto sm = velk::create_shader_material(static_cast<velk::IRenderContext&>(*ctx.as<velk::IRenderContext>()),
-                                               checker_frag, checker_vert);
+        auto sm = velk::create_shader_material(
+            static_cast<velk::IRenderContext&>(*ctx.as<velk::IRenderContext>()), checker_frag, checker_vert);
         if (sm) {
             sm.set_input<velk::color>("color_a", {0.15f, 0.15f, 0.25f, 0.6f});
             sm.set_input<velk::color>("color_b", {0.25f, 0.2f, 0.35f, 0.6f});

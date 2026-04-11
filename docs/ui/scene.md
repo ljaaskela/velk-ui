@@ -104,3 +104,12 @@ The JSON format declares objects, hierarchy, and trait attachments:
 ```
 
 Available class names: `velk-ui.Element`, `velk-ui.Stack`, `velk-ui.FixedSize`, `velk-ui.Trs`, `velk-ui.Matrix`, `velk-ui.RectVisual`, `velk-ui.RoundedRectVisual`, `velk-ui.Font`, `velk_text.TextVisual`.
+
+## Classes
+
+The two foundational types every scene uses. Built-in traits live in their own catalogs — see [Traits](traits.md) for layout / transform / visual / material / camera, and [Input](input.md) for input traits.
+
+| ClassId | Implements | Description |
+|---|---|---|
+| `velk::ui::ClassId::Element` | `IElement`, `IObjectStorage` | The single element type. Holds position, size, world matrix, z-index. Behavior comes entirely from attached traits. |
+| `velk::ui::ClassId::Scene` | `IScene`, `IHierarchy` | Owns the element tree, runs the layout solver each tick, tracks dirty state. The renderer pulls changes via `consume_state()`. |

@@ -231,6 +231,61 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
     return hits;
 }
 
+vector<IElement::Ptr> Scene::find_elements(const ElementQuery& query, size_t max_count) const
+{
+    vector<IElement::Ptr> matches;
+    if (!initialized_) {
+        return matches;
+    }
+
+    // Walk the hierarchy depth-first, pre-order. Use a manual stack so we can
+    // early-exit when max_count is reached.
+    auto root = logical_.root();
+    if (!root) {
+        return matches;
+    }
+
+    vector<IObject::Ptr> stack;
+    stack.push_back(root);
+
+    while (!stack.empty()) {
+        auto obj = std::move(stack.back());
+        stack.pop_back();
+
+        if (auto elem = interface_pointer_cast<IElement>(obj)) {
+            // Check that every requested trait is present.
+            bool match = true;
+            if (!query.traits.empty()) {
+                auto* storage = interface_cast<IObjectStorage>(elem);
+                if (!storage) {
+                    match = false;
+                } else {
+                    for (auto trait_uid : query.traits) {
+                        if (!storage->find_attachment(AttachmentQuery{trait_uid})) {
+                            match = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match) {
+                matches.push_back(elem);
+                if (max_count > 0 && matches.size() >= max_count) {
+                    return matches;
+                }
+            }
+        }
+
+        // Push children in reverse so we visit them in order.
+        auto children = logical_.children_of(obj);
+        for (size_t i = children.size(); i > 0; --i) {
+            stack.push_back(children[i - 1]);
+        }
+    }
+
+    return matches;
+}
+
 void Scene::ensure_hierarchy()
 {
     if (!initialized_) {

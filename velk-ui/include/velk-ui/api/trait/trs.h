@@ -12,7 +12,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around ITrs.
  *
- *   auto trs = transform::create_trs();
+ *   auto trs = trait::transform::create_trs();
  *   trs.set_rotation(45.f);
  *   trs.set_scale({0.5f, 0.5f});
  *   elem.add_trait(trs);
@@ -36,7 +36,7 @@ public:
     void set_scale(const vec2& v) { write_state_value<ITrs>(&ITrs::State::scale, v); }
 };
 
-namespace transform {
+namespace trait::transform {
 
 /** @brief Creates a new Trs transform trait. */
 inline Trs create_trs()
@@ -44,7 +44,7 @@ inline Trs create_trs()
     return Trs(instance().create<ITrs>(ClassId::Transform::Trs));
 }
 
-} // namespace transform
+} // namespace trait::transform
 
 } // namespace velk::ui
 

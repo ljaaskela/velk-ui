@@ -8,6 +8,10 @@ Application platform built on the [Velk](https://github.com/ljaaskela/velk) comp
 
 ## Modules
 
+### Application runtime ([velk-runtime](velk-runtime/))
+
+The user-facing entry point. Wraps render context creation, window management, plugin loading, and the frame loop behind a single `Application` class. Supports both desktop (managed window via GLFW) and framework-driven (wrapped native surface, Android / embedded) modes.
+
 ### Rendering foundation ([velk-render](velk-render/))
 
 Pointer-based GPU rendering abstraction:
@@ -24,36 +28,101 @@ Declarative UI framework:
 
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [Getting started](velk-ui/docs/getting-started.md) | Build, run the demo, walk through a minimal scene |
-| [Scene](velk-ui/docs/scene.md) | Element trees, traits, hierarchies, the visual graph |
-| [Traits](velk-ui/docs/traits.md) | Built-in traits: layout, visuals, transforms, input |
-| [Update cycle](velk-ui/docs/update-cycle.md) | The frame loop, dirty tracking, scene state consumption |
-| [Input](velk-ui/docs/input.md) | Hit testing, event dispatch, focus |
-| [Performance](velk-ui/docs/performance.md) | Renderer cost, batching, hot paths |
-| **Built-in plugins** | |
-| [Text](velk-ui/docs/plugins/text.md) | Analytic Bezier text rendering, scale-independent fonts |
-| [Image](velk-ui/docs/plugins/image.md) | Image decoding and bindless texture binding |
+User documentation lives at [`docs/`](docs/) — see [`docs/README.md`](docs/README.md) for the index. Quick links:
+
+* **[Getting started](docs/getting-started.md)** Minimal example walkthrough
+* **[Runtime](docs/runtime/runtime.md)** Application setup, frame loop, both creation modes
+* **[Scene](docs/ui/scene.md)** / **[Traits](docs/ui/traits.md)** / **[Input](docs/ui/input.md)** UI authoring
+* **[Rendering](docs/render/rendering.md)** / **[Render backend](docs/render/render-backend.md)** Internals
+* **[Text](docs/plugins/text.md)** / **[Image](docs/plugins/image.md)** Bundled plugins
 
 ## Quick start
 
+A minimal application which shows a fixed 64px*64px velk logo on screen.
+
 ```cpp
-// Rendering setup
-auto ctx = velk::create_render_context(config);                     // Create a render context
-auto surface = ctx.create_surface(1280, 720);                       // Create a surface target surface 
+#include <velk-runtime/api/application.h>
+#include <velk-ui/api/scene.h>
 
-// UI setup
-auto scene = velk::ui::create_scene("app://scenes/dashboard.json"); // Load a Scene from JSON
-auto renderer = velk::ui::create_renderer(*render_ctx);             // Create a Scene renderer and attach it to a target surfece
-renderer->attach(surface, scene);
-
-// Main loop
-while (running) {
-    velk.update();
-    renderer->render();
+int main()
+{
+    // Initialize velk
+    auto app = velk::create_app({});
+    // Create a window
+    auto window = app.create_window({.width = 1280, .height = 720, .title = "demo"});
+    // Load a scene from a file
+    auto scene = velk::ui::create_scene("app://scenes/velk_logo.json");
+    // Find the first Element with a Trait implementing ICamera and bind it to the window
+    if (auto camera = scene.find_first<velk::ui::ICamera>()) {
+        app.add_view(window, camera);
+    }
+    // Application loop
+    while (app.poll()) {
+        app.update();
+        app.present();
+    }
 }
 ```
+
+velk_logo.json:
+```json
+{
+  "version": 1,
+  "objects": [
+    { "id": "root", "class": "velk-ui.Element" },
+    { "id": "camera", "class": "velk-ui.Element" },
+    { "id": "logo", "class": "velk-ui.Element" }
+  ],
+  "hierarchies": {
+    "scene": {
+      "root": ["logo", "camera"]
+    }
+  },
+  "attachments": [
+    { "targets": ["camera"],  "class": "velk-ui.Camera" },
+    { "targets": ["logo"],    "class": "velk-ui.FixedSize", "properties": { "width": "64px", "height": "64px" } },
+    { "targets": ["logo"],    "class": "velk_image.ImageVisual", "properties": { "uri": "image:app://assets/logo.png" } }
+  ]
+}
+```
+
+Or, equivalently, build the same scene programmatically in C++ instead of loading from JSON:
+
+```cpp
+#include <velk-ui/api/camera.h>
+#include <velk-ui/api/element.h>
+#include <velk-ui/api/scene.h>
+#include <velk-ui/api/trait/fixed_size.h>
+#include <velk-ui/plugins/image/api/image_visual.h>
+
+using namespace velk::ui;
+
+// Empty scene; no JSON file
+auto scene = create_scene();
+
+// Three elements ("objects")
+auto root   = create_element();
+auto camera = create_element();
+auto logo   = create_element();
+
+// Hierarchy: root has children ("hierarchies")
+scene.set_root(root);
+scene.add(root, logo);
+scene.add(root, camera);
+
+// Camera: Camera trait ("attachments": velk-ui.Camera)
+camera.add_trait(trait::render::create_camera());
+
+// logo: FixedSize 64x64 ("attachments": velk-ui.FixedSize)
+logo.add_trait(trait::layout::create_fixed_size(dim::px(64.f), dim::px(64.f));
+
+// logo: Visual trait to show the image ("attachments": velk-ui.ImageVisual)
+logo.add_trait(trait::visual::create_image("image:app://assets/logo.png"));
+```
+
+Build & run:
+
+![Application](./docs/minimal_app.png)
 
 ## Building
 

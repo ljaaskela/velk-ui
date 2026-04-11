@@ -13,7 +13,7 @@ namespace velk::ui {
 /**
  * @brief Convenience wrapper around IHover.
  *
- *   auto hover = input::create_hover();
+ *   auto hover = trait::input::create_hover();
  *   element.add_trait(hover);
  *   hover.on_hover_changed().add_handler([](auto) { ... });
  */
@@ -36,7 +36,7 @@ public:
     }
 };
 
-namespace input {
+namespace trait::input {
 
 /** @brief Creates a new Hover input trait. */
 inline Hover create_hover()
@@ -44,7 +44,7 @@ inline Hover create_hover()
     return Hover(instance().create<IHover>(ClassId::Input::Hover));
 }
 
-} // namespace input
+} // namespace trait::input
 
 } // namespace velk::ui
 

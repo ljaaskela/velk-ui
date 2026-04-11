@@ -14,7 +14,7 @@ namespace velk::ui {
  *
  * Provides null-safe access to fixed size constraint properties.
  *
- *   auto fs = constraint::create_fixed_size();
+ *   auto fs = trait::layout::create_fixed_size();
  *   fs.set_width(dim::px(200.f));
  *   fs.set_height(dim::pct(50.f));
  */
@@ -48,22 +48,26 @@ public:
     /** @brief Sets the fixed width and height. Use dim::none() to leave unconstrained. */
     void set_size(dim w, dim h)
     {
-        ::write_state<IFixedSize>(as<IFixedSize>(), [&](auto& s) {
+        write_state<IFixedSize>([&](auto& s) {
             s.width = w;
             s.height = h;
         });
     }
 };
 
-namespace constraint {
+namespace trait::layout {
 
 /** @brief Creates a new FixedSize constraint. */
-inline FixedSize create_fixed_size()
+inline FixedSize create_fixed_size(dim w = dim::none(), dim h = dim::none())
 {
-    return FixedSize(instance().create<IFixedSize>(ClassId::Constraint::FixedSize));
+    auto fs = FixedSize(instance().create<IFixedSize>(ClassId::Constraint::FixedSize));
+    if (w != dim::none() || h != dim::none()) {
+        fs.set_size(w, h);
+    }
+    return fs;
 }
 
-} // namespace constraint
+} // namespace trait::layout
 
 } // namespace velk::ui
 

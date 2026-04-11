@@ -6,7 +6,7 @@ Pointer-based GPU rendering foundation for [velk-platform](../README.md). Namesp
 
 The render backend maps directly to how modern GPUs work: buffer device addresses (pointers), bindless textures, and push constants. The entire GPU interface is minimal (currently 15 methods). Shaders access all data through GPU pointers via `buffer_reference`, textures are bindless indices, and geometry is procedurally generated or vertex-pulled from buffers.
 
-See [Render Backend Architecture](docs/render-backend-architecture.md) for the full technical writeup.
+See [Render Backend Architecture](../docs/render/render-backend.md) for the full technical writeup.
 
 ## Source structure
 
@@ -27,8 +27,10 @@ See [Render Backend Architecture](docs/render-backend-architecture.md) for the f
 
 ## Documentation
 
+User-facing documentation lives at [`../docs/`](../docs/) at the repo root. The render-specific topics:
+
 | Document | Description |
 |----------|-------------|
-| [Render Backend Architecture](docs/render-backend-architecture.md) | Design, data flow, shader model, technical details, Vulkan implementation |
-| [Rendering](docs/rendering.md) | Frame lifecycle: prepare/present split, threading, frame slots, multi-rate rendering |
-| [Materials](docs/materials.md) | Built-in materials and shader materials with dynamic inputs |
+| [Render backend](../docs/render/render-backend.md) | Design, data flow, shader model, technical details, Vulkan implementation |
+| [Rendering](../docs/render/rendering.md) | Internal renderer reference: prepare/present split, frame slots, multi-rate rendering |
+| [Materials](../docs/render/materials.md) | Built-in materials and shader materials with dynamic inputs |
