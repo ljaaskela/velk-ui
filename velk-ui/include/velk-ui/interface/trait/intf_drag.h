@@ -3,6 +3,8 @@
 
 #include <velk/interface/intf_metadata.h>
 
+#include <velk-ui/input_types.h>
+
 namespace velk::ui {
 
 /**
@@ -10,16 +12,17 @@ namespace velk::ui {
  *
  * Captures the pointer on press and tracks movement. Fires on_drag_start
  * on the first move after press, on_drag_move on subsequent moves, and
- * on_drag_end on release.
+ * on_drag_end on release. Each event delivers a DragEvent with positions,
+ * deltas, and modifier state.
  */
 class IDrag : public Interface<IDrag>
 {
 public:
     VELK_INTERFACE(
-        (RPROP, bool, dragging, false), ///< True while a drag gesture is active.
-        (EVT, on_drag_start),           ///< Fired on the first move after pointer down.
-        (EVT, on_drag_move),            ///< Fired on each subsequent move during a drag.
-        (EVT, on_drag_end)              ///< Fired when the pointer is released after dragging.
+        (RPROP, bool, dragging, false),                  ///< True while a drag gesture is active.
+        (EVT, on_drag_start, (DragEvent, drag)),         ///< Fired on the first move after pointer down.
+        (EVT, on_drag_move, (DragEvent, drag)),          ///< Fired on each subsequent move during a drag.
+        (EVT, on_drag_end, (DragEvent, drag))            ///< Fired when the pointer is released after dragging.
     )
 };
 

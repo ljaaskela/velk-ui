@@ -22,11 +22,13 @@ public:
     ~GlfwWindow();
 
     void set_glfw_handle(GLFWwindow* window);
+    void set_external_handle(void* handle);
     void set_surface(ISurface::Ptr surface);
     void set_render_context(const IRenderContext::Ptr& ctx);
     void set_input_dispatcher(ui::IInputDispatcher::Ptr dispatcher);
 
-    GLFWwindow* native_handle() const { return window_; }
+    GLFWwindow* glfw_handle() const { return window_; }
+    void* external_handle() const { return external_handle_; }
 
     ISurface::Ptr surface() const override;
     ui::IInputDispatcher& input() const override;
@@ -40,11 +42,10 @@ private:
     static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
     GLFWwindow* window_ = nullptr;
+    void* external_handle_ = nullptr;
     ISurface::Ptr surface_;
     IRenderContext::WeakPtr render_ctx_;
     ui::IInputDispatcher::Ptr input_;
-
-
 };
 
 } // namespace velk::impl

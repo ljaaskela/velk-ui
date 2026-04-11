@@ -26,12 +26,15 @@ public:
     VELK_CLASS_UID(ClassId::Application, "Application");
 
     bool init(const ApplicationConfig& config) override;
-    IObject::Ptr create_window(const WindowConfig& config) override;
+    IWindow::Ptr create_window(const WindowConfig& config) override;
+    IWindow::Ptr wrap_native_surface(void* native_handle) override;
     void add_view(const IObject::Ptr& window,
                   const ui::IElement::Ptr& camera,
                   const rect& viewport) override;
     bool poll() override;
     void update() override;
+    ui::Frame prepare() override;
+    void submit(ui::Frame frame) override;
     void present() override;
     IRenderContext::Ptr render_context() const override;
     ui::IRenderer::Ptr renderer() const override;
@@ -63,17 +66,23 @@ private:
     void bind_scene_to_window(const IObject::Ptr& window, IWindow* iwin,
                               const shared_ptr<ui::IScene>& scene);
 
+    /// Ensures render context + renderer exist after the first window is created.
+    bool ensure_render_context();
+
+    /// Updates performance overlay timings (called after each submit).
+    void tick_overlays(double cpu_time, double frame_time,
+                       std::chrono::steady_clock::time_point now);
+
     ApplicationConfig config_;
     IRenderContext::Ptr render_ctx_;
     ui::IRenderer::Ptr renderer_;
     IWindowProvider* window_provider_ = nullptr;
-    IPlugin::Ptr glfw_plugin_;
+    IPlugin::Ptr platform_plugin_;
     vector<IObject::Ptr> windows_;
     vector<WindowSceneLink> scene_links_;
     vector<PerformanceOverlay> overlays_;
-    std::chrono::steady_clock::time_point last_present_start_;
-    double last_cpu_time_ = 0.0;
-    double last_frame_time_ = 0.0;
+    std::chrono::steady_clock::time_point last_prepare_start_;
+    std::chrono::steady_clock::time_point last_prepare_end_;
 };
 
 } // namespace velk::impl

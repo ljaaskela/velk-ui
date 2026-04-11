@@ -33,10 +33,16 @@ public:
 
     operator IApplication::Ptr() const { return as_ptr<IApplication>(); }
 
-    /** @brief Creates a managed window with the given configuration. */
+    /** @brief Creates a new managed native window. */
     Window create_window(const WindowConfig& config = {})
     {
         return Window(with<IApplication>([&](auto& a) { return a.create_window(config); }));
+    }
+
+    /** @brief Wraps an externally-provided platform surface (HWND, ANativeWindow*, etc.). */
+    Window wrap_native_surface(void* native_handle)
+    {
+        return Window(with<IApplication>([&](auto& a) { return a.wrap_native_surface(native_handle); }));
     }
 
     /** @brief Binds a camera to a window's surface for rendering. */
@@ -58,7 +64,19 @@ public:
         with<IApplication>([](auto& a) { a.update(); });
     }
 
-    /** @brief Presents all windows. */
+    /** @brief Prepares a frame on the calling thread. */
+    ui::Frame prepare()
+    {
+        return with<IApplication>([](auto& a) { return a.prepare(); });
+    }
+
+    /** @brief Submits a prepared frame (safe from any thread, typically render thread). */
+    void submit(ui::Frame frame)
+    {
+        with<IApplication>([&](auto& a) { a.submit(frame); });
+    }
+
+    /** @brief Convenience: prepare() + submit() in one call (synchronous). */
     void present()
     {
         with<IApplication>([](auto& a) { a.present(); });

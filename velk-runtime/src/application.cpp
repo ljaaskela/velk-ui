@@ -32,72 +32,100 @@ bool Application::init(const ApplicationConfig& config)
     reg.load_plugin_from_path("velk_image.dll");
     reg.load_plugin_from_path("velk_importer.dll");
 
-    // Load the GLFW platform plugin and get its IWindowProvider.
+    // Load the platform plugin (compile-time selection).
+#if defined(__ANDROID__)
+    reg.load_plugin_from_path("libvelk_runtime_android.so");
+    platform_plugin_ = reg.find_plugin(PluginId::RuntimeAndroidPlugin);
+#else
     reg.load_plugin_from_path("velk_runtime_glfw.dll");
-    glfw_plugin_ = reg.find_plugin(PluginId::RuntimeGlfwPlugin);
-    if (!glfw_plugin_) {
-        VELK_LOG(E, "Failed to load GLFW platform plugin");
+    platform_plugin_ = reg.find_plugin(PluginId::RuntimeGlfwPlugin);
+#endif
+    if (!platform_plugin_) {
+        VELK_LOG(E, "Failed to load platform plugin");
         return false;
     }
 
-    window_provider_ = interface_cast<IWindowProvider>(glfw_plugin_);
+    window_provider_ = interface_cast<IWindowProvider>(platform_plugin_);
     if (!window_provider_) {
-        VELK_LOG(E, "GLFW plugin does not implement IWindowProvider");
+        VELK_LOG(E, "Platform plugin does not implement IWindowProvider");
         return false;
     }
 
     return true;
 }
 
-IObject::Ptr Application::create_window(const WindowConfig& config)
+bool Application::ensure_render_context()
+{
+    if (render_ctx_) {
+        return true;
+    }
+
+    // Create render context using the platform backend params populated
+    // by the provider's first create_window/wrap_native_surface call.
+    void* params = window_provider_->get_backend_params();
+    RenderConfig render_config;
+    render_config.backend = config_.backend;
+    render_config.backend_params = params;
+    render_ctx_ = create_render_context(render_config);
+    if (!render_ctx_) {
+        VELK_LOG(E, "Failed to create render context");
+        return false;
+    }
+
+    renderer_ = ui::create_renderer(*render_ctx_);
+    if (!renderer_) {
+        VELK_LOG(E, "Failed to create renderer");
+        return false;
+    }
+    return true;
+}
+
+IWindow::Ptr Application::create_window(const WindowConfig& config)
 {
     if (!window_provider_) {
         return {};
     }
 
-    // First window: render context does not exist yet.
-    // Create the native window first (without a surface), then use its
-    // backend params to create the render context, then finalize the surface.
-    if (!render_ctx_) {
-        auto win_obj = window_provider_->create_window(config, nullptr);
-        if (!win_obj) {
-            VELK_LOG(E, "Failed to create first window");
-            return {};
-        }
-
-        // Create render context using the platform backend params.
-        void* params = window_provider_->get_backend_params();
-        RenderConfig render_config;
-        render_config.backend = config_.backend;
-        render_config.backend_params = params;
-        render_ctx_ = create_render_context(render_config);
-        if (!render_ctx_) {
-            VELK_LOG(E, "Failed to create render context");
-            return {};
-        }
-
-        // Create the renderer.
-        renderer_ = ui::create_renderer(*render_ctx_);
-        if (!renderer_) {
-            VELK_LOG(E, "Failed to create renderer");
-            return {};
-        }
-
-        // Finalize the window: create surface and assign it.
-        window_provider_->finalize_window(win_obj, render_ctx_);
-
-        windows_.emplace_back(std::move(win_obj));
-        return windows_.back();
-    }
-
-    // Subsequent windows: render context exists, pass it to the provider.
-    auto win_obj = window_provider_->create_window(config, render_ctx_);
-    if (!win_obj) {
+    bool first_window = !render_ctx_;
+    auto win = window_provider_->create_window(config, render_ctx_);
+    if (!win) {
         VELK_LOG(E, "Failed to create window");
         return {};
     }
-    windows_.emplace_back(std::move(win_obj));
-    return windows_.back();
+
+    if (first_window) {
+        if (!ensure_render_context()) {
+            return {};
+        }
+        window_provider_->finalize_window(win, render_ctx_);
+    }
+
+    windows_.emplace_back(as_object(win));
+    return win;
+}
+
+IWindow::Ptr Application::wrap_native_surface(void* native_handle)
+{
+    if (!window_provider_) {
+        return {};
+    }
+
+    bool first_window = !render_ctx_;
+    auto win = window_provider_->wrap_native_surface(native_handle, render_ctx_);
+    if (!win) {
+        VELK_LOG(E, "Failed to wrap native surface");
+        return {};
+    }
+
+    if (first_window) {
+        if (!ensure_render_context()) {
+            return {};
+        }
+        window_provider_->finalize_window(win, render_ctx_);
+    }
+
+    windows_.emplace_back(as_object(win));
+    return win;
 }
 
 void Application::add_view(const IObject::Ptr& window,
@@ -172,29 +200,44 @@ void Application::update()
     instance().update();
 }
 
-void Application::present()
+ui::Frame Application::prepare()
+{
+    if (!renderer_) {
+        return {};
+    }
+    last_prepare_start_ = std::chrono::steady_clock::now();
+    auto frame = renderer_->prepare();
+    last_prepare_end_ = std::chrono::steady_clock::now();
+    return frame;
+}
+
+void Application::submit(ui::Frame frame)
 {
     if (!renderer_) {
         return;
     }
-
-    using clock = std::chrono::steady_clock;
-    auto start = clock::now();
-    auto frame = renderer_->prepare();
-    auto cpu_end = clock::now();
     renderer_->present(frame);
-    auto frame_end = clock::now();
+    auto frame_end = std::chrono::steady_clock::now();
 
-    double cpu_time = std::chrono::duration<double>(cpu_end - start).count();
-    double frame_time = std::chrono::duration<double>(frame_end - start).count();
+    double cpu_time = std::chrono::duration<double>(last_prepare_end_ - last_prepare_start_).count();
+    double frame_time = std::chrono::duration<double>(frame_end - last_prepare_start_).count();
+    tick_overlays(cpu_time, frame_time, frame_end);
+}
 
-    // Update performance overlays.
+void Application::present()
+{
+    submit(prepare());
+}
+
+void Application::tick_overlays(double cpu_time, double frame_time,
+                                std::chrono::steady_clock::time_point now)
+{
     for (auto& ov : overlays_) {
         ov.frame_count++;
         ov.cpu_time_accum += cpu_time;
         ov.frame_time_accum += frame_time;
 
-        double elapsed = std::chrono::duration<double>(frame_end - ov.last_update).count();
+        double elapsed = std::chrono::duration<double>(now - ov.last_update).count();
         if (elapsed >= 0.5) {
             double fps = static_cast<double>(ov.frame_count) / elapsed;
             double avg_cpu_ms = ov.cpu_time_accum / static_cast<double>(ov.frame_count) * 1000.0;
@@ -206,7 +249,7 @@ void Application::present()
             ov.frame_count = 0;
             ov.cpu_time_accum = 0.0;
             ov.frame_time_accum = 0.0;
-            ov.last_update = frame_end;
+            ov.last_update = now;
         }
     }
 }
@@ -302,7 +345,7 @@ void Application::shutdown()
     }
     render_ctx_ = nullptr;
     window_provider_ = nullptr;
-    glfw_plugin_ = nullptr;
+    platform_plugin_ = nullptr;
 }
 
 } // namespace velk::impl

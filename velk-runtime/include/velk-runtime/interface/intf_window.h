@@ -15,7 +15,10 @@ class IWindow : public Interface<IWindow>
 public:
     VELK_INTERFACE(
         (RPROP, ::velk::size, size, {}),
-        (EVT, on_resize)
+        (EVT, on_resize, (::velk::size, new_size)),
+        (EVT, on_surface_created),
+        (EVT, on_surface_changed, (::velk::size, new_size)),
+        (EVT, on_surface_destroyed)
     )
 
     /** @brief Returns the render surface for this window. */

@@ -1,6 +1,6 @@
 #include "input_dispatcher.h"
 
-#include <velk/api/any.h>
+#include <velk/api/event.h>
 #include <velk/api/state.h>
 #include <velk/interface/intf_object.h>
 #include <velk/interface/intf_object_storage.h>
@@ -37,10 +37,7 @@ void InputDispatcher::set_scene(const shared_ptr<IScene>& scene)
 
 void InputDispatcher::pointer_event(const PointerEvent& event)
 {
-    {
-        Any<PointerEvent> a(event);
-        ::velk::invoke_event(get_interface(IInterface::UID), "on_pointer_event", a.get_any_interface());
-    }
+    ::velk::invoke_event(get_interface(IInterface::UID), "on_pointer_event", event);
 
     auto scene = scene_.lock();
     if (!scene) {
@@ -109,10 +106,7 @@ void InputDispatcher::pointer_event(const PointerEvent& event)
 
 void InputDispatcher::scroll_event(const ScrollEvent& event)
 {
-    {
-        Any<ScrollEvent> a(event);
-        ::velk::invoke_event(get_interface(IInterface::UID), "on_scroll_event", a.get_any_interface());
-    }
+    ::velk::invoke_event(get_interface(IInterface::UID), "on_scroll_event", event);
 
     ScrollEvent ev = event;
     auto hit = hit_test(ev.position);
@@ -176,7 +170,7 @@ void InputDispatcher::set_focus(const IElement::Ptr& element)
         return;
     }
     focused_ = element;
-    invoke_event(this->get_interface(IInterface::UID), "on_focus_changed");
+    invoke_event(this->get_interface(IInterface::UID), "on_focus_changed", static_cast<bool>(focused_));
 }
 
 // ============================================================================

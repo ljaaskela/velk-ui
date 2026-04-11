@@ -16,6 +16,7 @@ namespace PluginId {
 
 inline constexpr Uid RuntimePlugin{"25a0cd31-1b2a-4eda-b04d-9bcdc40bf9fe"};
 inline constexpr Uid RuntimeGlfwPlugin{"b2cd54b3-2d75-4c9d-a262-02a2a245c7a8"};
+inline constexpr Uid RuntimeAndroidPlugin{"00000000-0000-0000-0000-000000000000"};  // placeholder
 
 } // namespace PluginId
 

@@ -1,5 +1,6 @@
 #include "glfw_window.h"
 
+#include <velk/api/event.h>
 #include <velk/api/state.h>
 
 namespace velk::impl {
@@ -23,6 +24,11 @@ void GlfwWindow::set_glfw_handle(GLFWwindow* window)
         glfwSetMouseButtonCallback(window_, mouse_button_callback);
         glfwSetScrollCallback(window_, scroll_callback);
     }
+}
+
+void GlfwWindow::set_external_handle(void* handle)
+{
+    external_handle_ = handle;
 }
 
 void GlfwWindow::set_surface(ISurface::Ptr surface)
@@ -57,6 +63,10 @@ IRenderContext::Ptr GlfwWindow::render_context() const
 
 bool GlfwWindow::should_close() const
 {
+    // External (framework-owned) windows: lifecycle managed by the platform.
+    if (external_handle_) {
+        return false;
+    }
     return window_ && glfwWindowShouldClose(window_);
 }
 
@@ -82,8 +92,7 @@ void GlfwWindow::framebuffer_size_callback(GLFWwindow* window, int width, int he
         });
     }
 
-    Any<::velk::size> a(new_size);
-    ::velk::invoke_event(self->get_interface(IInterface::UID), "on_resize", a.get_any_interface());
+    ::velk::invoke_event(self->get_interface(IInterface::UID), "on_resize", new_size);
 }
 
 void GlfwWindow::cursor_pos_callback(GLFWwindow* window, double x, double y)

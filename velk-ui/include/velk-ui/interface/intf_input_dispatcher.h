@@ -21,9 +21,9 @@ class IInputDispatcher : public Interface<IInputDispatcher>
 {
 public:
     VELK_INTERFACE(
-        (EVT, on_focus_changed),
-        (EVT, on_pointer_event),
-        (EVT, on_scroll_event)
+        (EVT, on_focus_changed, (bool, focused)),
+        (EVT, on_pointer_event, (PointerEvent, event)),
+        (EVT, on_scroll_event, (ScrollEvent, event))
     )
 
     /** @brief Feed a pointer event from the platform layer. */

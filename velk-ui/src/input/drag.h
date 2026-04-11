@@ -18,6 +18,7 @@ public:
 
 private:
     void set_dragging(bool v);
+    DragEvent make_drag_event(const PointerEvent& event) const;
 
     vec2 start_position_{};
     vec2 last_position_{};

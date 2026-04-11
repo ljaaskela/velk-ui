@@ -5,6 +5,7 @@
 
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/render_types.h>
+#include <velk-runtime/interface/intf_window.h>
 #include <velk-ui/interface/intf_element.h>
 #include <velk-ui/interface/intf_renderer.h>
 
@@ -47,8 +48,17 @@ public:
     /** @brief Initializes the runtime: loads plugins, creates render context. */
     virtual bool init(const ApplicationConfig& config) = 0;
 
-    /** @brief Creates a managed window with the given configuration. */
-    virtual IObject::Ptr create_window(const WindowConfig& config) = 0;
+    /** @brief Creates a new managed native window (desktop). */
+    virtual IWindow::Ptr create_window(const WindowConfig& config) = 0;
+
+    /**
+     * @brief Wraps an externally-provided platform surface.
+     *
+     * Used for framework-driven cases (Android ANativeWindow*, embedded HWND, etc.).
+     * Dimensions are queried from the native handle. The user is responsible for
+     * feeding input events to window.input() and notifying the window of resizes.
+     */
+    virtual IWindow::Ptr wrap_native_surface(void* native_handle) = 0;
 
     /** @brief Binds a camera to a window's surface for rendering. */
     virtual void add_view(const IObject::Ptr& window,
@@ -61,7 +71,13 @@ public:
     /** @brief Runs velk update and scene processing. */
     virtual void update() = 0;
 
-    /** @brief Presents all windows (prepare + submit). */
+    /** @brief Prepares a frame on the calling thread (main/UI thread). */
+    virtual ui::Frame prepare() = 0;
+
+    /** @brief Submits a prepared frame (safe from any thread, typically render thread). */
+    virtual void submit(ui::Frame frame) = 0;
+
+    /** @brief Convenience: prepare() + submit() in one call (synchronous, single-threaded). */
     virtual void present() = 0;
 
     /** @brief Returns the render context owned by this application. */

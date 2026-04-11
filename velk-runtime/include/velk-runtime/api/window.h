@@ -56,10 +56,28 @@ public:
         return RenderContext(with<IWindow>([](auto& w) { return w.render_context(); }));
     }
 
-    /** @brief Resize event. Handler receives vec2 new size. */
+    /** @brief Resize event. Handler receives ::velk::size new size. */
     Event on_resize() const
     {
         return with<IWindow>([](auto& w) { return w.on_resize(); });
+    }
+
+    /** @brief Fired when a new platform surface is attached. Handler receives the native handle. */
+    Event on_surface_created() const
+    {
+        return with<IWindow>([](auto& w) { return w.on_surface_created(); });
+    }
+
+    /** @brief Fired when the existing surface dimensions change. Handler receives ::velk::size. */
+    Event on_surface_changed() const
+    {
+        return with<IWindow>([](auto& w) { return w.on_surface_changed(); });
+    }
+
+    /** @brief Fired when the platform surface is destroyed (no arg). */
+    Event on_surface_destroyed() const
+    {
+        return with<IWindow>([](auto& w) { return w.on_surface_destroyed(); });
     }
 
     /** @brief Returns true if the window has been requested to close. */

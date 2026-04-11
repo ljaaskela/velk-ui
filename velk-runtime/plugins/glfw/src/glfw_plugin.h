@@ -25,18 +25,20 @@ public:
     ReturnValue initialize(IVelk& velk, PluginConfig& config) override;
     ReturnValue shutdown(IVelk& velk) override;
 
-    IObject::Ptr create_window(const WindowConfig& config,
+    IWindow::Ptr create_window(const WindowConfig& config,
                                const IRenderContext::Ptr& ctx) override;
-    void finalize_window(const IObject::Ptr& window,
+    IWindow::Ptr wrap_native_surface(void* native_handle,
+                                     const IRenderContext::Ptr& ctx) override;
+    void finalize_window(const IWindow::Ptr& window,
                          const IRenderContext::Ptr& ctx) override;
     bool poll_events() override;
     void* get_backend_params() override;
 
 private:
-    GlfwWindow* get_glfw_window(const IObject::Ptr& obj) const;
+    GlfwWindow* get_glfw_window(const IWindow::Ptr& w) const;
 
     vk::VulkanInitParams vk_params_;
-    vector<IObject::Ptr> windows_;
+    vector<IWindow::Ptr> windows_;
 };
 
 } // namespace velk::impl

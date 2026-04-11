@@ -6,6 +6,17 @@
 
 #include <velk-ui/api/input_dispatcher.h>
 
+#if defined(APIENTRY)
+#undef APIENTRY
+#endif
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan_win32.h>
+#endif
+
 namespace velk::impl {
 
 static void glfw_error_callback(int error, const char* description)
@@ -31,22 +42,12 @@ ReturnValue GlfwPlugin::shutdown(IVelk&)
     return ReturnValue::Success;
 }
 
-GlfwWindow* GlfwPlugin::get_glfw_window(const IObject::Ptr& obj) const
+GlfwWindow* GlfwPlugin::get_glfw_window(const IWindow::Ptr& w) const
 {
-    auto* iwin = interface_cast<IWindow>(obj);
-    if (!iwin) {
-        return nullptr;
-    }
-    // GlfwWindow stores itself as the GLFW user pointer.
-    auto surface = iwin->surface();
-    // Actually, we get it through the native handle lookup.
-    // Since GlfwWindow sets glfwSetWindowUserPointer(window_, this),
-    // we need the GLFWwindow*. But we don't have it from IWindow alone.
-    // Use static_cast since we know the concrete type within this plugin.
-    return static_cast<GlfwWindow*>(iwin);
+    return static_cast<GlfwWindow*>(w.get());
 }
 
-IObject::Ptr GlfwPlugin::create_window(const WindowConfig& config,
+IWindow::Ptr GlfwPlugin::create_window(const WindowConfig& config,
                                        const IRenderContext::Ptr& ctx)
 {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -62,31 +63,22 @@ IObject::Ptr GlfwPlugin::create_window(const WindowConfig& config,
         return {};
     }
 
-    // Create the velk window object.
-    auto obj = instance().create<IObject>(ClassId::GlfwWindow);
+    auto obj = instance().create<IWindow>(ClassId::GlfwWindow);
     if (!obj) {
         glfwDestroyWindow(glfw_win);
         return {};
     }
 
     auto* win = get_glfw_window(obj);
-    if (!win) {
-        glfwDestroyWindow(glfw_win);
-        return {};
-    }
-
     win->set_glfw_handle(glfw_win);
 
-    // Set initial size.
     write_state<IWindow>(win, [&](IWindow::State& s) {
         s.size = {static_cast<float>(config.width), static_cast<float>(config.height)};
     });
 
-    // Create input dispatcher (not bound to a scene yet; user binds via scene).
     auto dispatcher = instance().create<ui::IInputDispatcher>(ui::ClassId::Input::Dispatcher);
     win->set_input_dispatcher(std::move(dispatcher));
 
-    // If render context is available, create the surface now.
     if (ctx) {
         auto surface = ctx->create_surface(config.width, config.height);
         win->set_surface(std::move(surface));
@@ -106,18 +98,82 @@ IObject::Ptr GlfwPlugin::create_window(const WindowConfig& config,
     return obj;
 }
 
-void GlfwPlugin::finalize_window(const IObject::Ptr& window,
+IWindow::Ptr GlfwPlugin::wrap_native_surface(void* native_handle,
+                                              const IRenderContext::Ptr& ctx)
+{
+    if (!native_handle) {
+        return {};
+    }
+
+#if defined(_WIN32)
+    HWND hwnd = static_cast<HWND>(native_handle);
+    if (!IsWindow(hwnd)) {
+        VELK_LOG(E, "wrap_native_surface: invalid HWND");
+        return {};
+    }
+
+    RECT rect{};
+    GetClientRect(hwnd, &rect);
+    int w = rect.right - rect.left;
+    int h = rect.bottom - rect.top;
+
+    auto obj = instance().create<IWindow>(ClassId::GlfwWindow);
+    if (!obj) {
+        return {};
+    }
+
+    auto* win = get_glfw_window(obj);
+    win->set_external_handle(hwnd);
+
+    write_state<IWindow>(win, [&](IWindow::State& s) {
+        s.size = {static_cast<float>(w), static_cast<float>(h)};
+    });
+
+    auto dispatcher = instance().create<ui::IInputDispatcher>(ui::ClassId::Input::Dispatcher);
+    win->set_input_dispatcher(std::move(dispatcher));
+
+    if (ctx) {
+        auto surface = ctx->create_surface(w, h);
+        win->set_surface(std::move(surface));
+        win->set_render_context(ctx);
+    } else {
+        // First window: stash HWND for the create_surface callback.
+        vk_params_.user_data = hwnd;
+        vk_params_.create_surface = [](void* vk_instance, void* out_surface, void* user_data) -> bool {
+            auto inst = static_cast<VkInstance>(vk_instance);
+            auto* surf = static_cast<VkSurfaceKHR*>(out_surface);
+            auto h = static_cast<HWND>(user_data);
+
+            auto fn = (PFN_vkCreateWin32SurfaceKHR)
+                glfwGetInstanceProcAddress(inst, "vkCreateWin32SurfaceKHR");
+            if (!fn) {
+                return false;
+            }
+            VkWin32SurfaceCreateInfoKHR ci{};
+            ci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+            ci.hwnd = h;
+            ci.hinstance = GetModuleHandleW(nullptr);
+            return fn(inst, &ci, nullptr, surf) == VK_SUCCESS;
+        };
+    }
+
+    windows_.emplace_back(obj);
+    return obj;
+#else
+    (void)ctx;
+    VELK_LOG(E, "wrap_native_surface: not implemented on this platform");
+    return {};
+#endif
+}
+
+void GlfwPlugin::finalize_window(const IWindow::Ptr& window,
                                  const IRenderContext::Ptr& ctx)
 {
-    if (!ctx) {
+    if (!ctx || !window) {
         return;
     }
 
     auto* win = get_glfw_window(window);
-    if (!win) {
-        return;
-    }
-
     auto state = read_state<IWindow>(win);
     int w = static_cast<int>(state->size.width);
     int h = static_cast<int>(state->size.height);
@@ -132,13 +188,14 @@ bool GlfwPlugin::poll_events()
     glfwPollEvents();
 
     // Return false if all windows should close.
-    for (auto& obj : windows_) {
-        auto* win = interface_cast<IWindow>(obj);
-        if (win && !win->should_close()) {
-            return true;
+    bool any_alive = false;
+    for (auto& w : windows_) {
+        if (w && !w->should_close()) {
+            any_alive = true;
+            break;
         }
     }
-    return false;
+    return any_alive;
 }
 
 void* GlfwPlugin::get_backend_params()
