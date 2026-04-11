@@ -1,5 +1,6 @@
 #include "vk_backend.h"
 
+#include <velk/api/perf.h>
 #include <velk/api/velk.h>
 
 #include <cstring>
@@ -84,6 +85,8 @@ bool VkBackend::init(void* params)
     if (initialized_) {
         return true;
     }
+
+    VELK_PERF_SCOPE("vk.init");
 
     if (volkInitialize() != VK_SUCCESS) {
         VELK_LOG(E, "VkBackend: volk init failed");
@@ -1011,6 +1014,7 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
         VELK_LOG(E, "VkBackend: cannot create pipeline without a render pass");
         return 0;
     }
+    VELK_PERF_SCOPE("vk.create_pipeline");
     VkRenderPass render_pass = default_render_pass_;
 
     // Shader modules
@@ -1111,8 +1115,13 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
     pipeline_ci.subpass = 0;
 
     PipelineEntry pe{};
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pe.pipeline) !=
-        VK_SUCCESS) {
+    VkResult pipeline_result;
+    {
+        VELK_PERF_SCOPE("vk.vkCreateGraphicsPipelines");
+        pipeline_result = vkCreateGraphicsPipelines(
+            device_, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pe.pipeline);
+    }
+    if (pipeline_result != VK_SUCCESS) {
         VELK_LOG(E, "VkBackend: failed to create graphics pipeline");
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);

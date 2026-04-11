@@ -74,7 +74,7 @@ The shader itself defines what data it reads and how (as everything is available
 
 Above the backend, `IRenderContext` provides a higher-level API that separates shader compilation from pipeline creation:
 
-* `compile_shader(source, stage)`: Compiles GLSL source to an `IShader::Ptr` handle that owns the compiled bytecode
+* `compile_shader(source, stage, key = 0)`: Compiles GLSL source to an `IShader::Ptr` handle that owns the compiled bytecode. Consults an on-disk SPIR-V cache before falling back to shaderc — see [Materials → Shader cache](materials.md#shader-cache). Built-in shaders pass a `constexpr make_hash64(source)` as the cache key; leaving `key` as 0 hashes the source at runtime
 * `create_pipeline(vertex, fragment)`: Links two compiled shaders into a pipeline. Passing nullptr for either shader substitutes the registered default
 * `compile_pipeline(frag_source, vert_source)`: Convenience that compiles and links in one call
 

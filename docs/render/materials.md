@@ -38,6 +38,30 @@ The UI renderer registers default vertex and fragment shaders via `IRenderContex
 
 Most materials only need to provide a fragment shader. The default vertex shader handles quad positioning, color, and UV passthrough.
 
+## Shader cache
+
+`IRenderContext::compile_shader()` consults an on-disk cache before invoking shaderc. shaderc compilations are around 70 ms each on a typical desktop, and a small UI scene easily compiles 15+ shaders, so eliminating that on warm runs cuts roughly a second off first-frame latency.
+
+### How it works
+
+Cached SPIR-V blobs live under the `shader_cache://` resource scheme, which `RenderContext::init()` registers as a `FileProtocol` pointing at `<cwd>/shader_cache/`. Each blob is a binary file named `<16-hex-key>.spv`.
+
+The cache key for a shader combines:
+
+- A 64-bit hash of the GLSL source. Built-in shaders pass this as a `constexpr make_hash64(source)` constant via the optional `key` parameter to `compile_shader()`. User shaders (e.g. anything passed to `create_shader_material()`) leave the parameter as 0 and the runtime hashes the source on the fly. The runtime hash cost is negligible (microseconds) at typical shader sizes.
+- A stage discriminator so a vertex shader and fragment shader with identical source never collide.
+- A 64-bit hash of all currently registered shader includes (sorted by name). Folding this into every per-shader key means any change to a virtual include such as `velk.glsl` or `velk-ui.glsl` automatically invalidates entries that depend on it. Old entries become orphans rather than corrupt cache hits, and the next compile rewrites them under the new key.
+
+There is no version file and no bulk wipe — invalidation is implicit in the key.
+
+### What is cached and what is not
+
+Both built-in and user-supplied shaders go through the same cache. There is no special path for `create_shader_material()`: the same `compile_shader()` call site sees both, and both benefit on the second run. Cold runs (no cache, or cache wiped) still pay the full shaderc cost.
+
+### Disabling the cache
+
+Set the environment variable `VELK_SHADER_CACHE_DISABLED=1` to bypass the cache entirely. Useful when bisecting shaderc / driver issues. Deleting the `shader_cache/` directory also forces a clean rebuild on the next run.
+
 ## Application-defined materials (ext::Material)
 
 Use `ext::Material<T>` when you control the shader and data layout directly. Define the GPU data struct, implement `gpu_data_size()` and `write_gpu_data()`, and the framework passes the data straight to the shader. This should be the default option for any shader code.

@@ -1,5 +1,6 @@
 #include "shader_compiler.h"
 
+#include <velk/api/perf.h>
 #include <velk/api/velk.h>
 
 #include <cstring>
@@ -8,11 +9,10 @@
 
 namespace velk {
 
-namespace {
-
-// Virtual include: velk.glsl
-// Framework-level shader declarations.
-const char* velk_glsl = R"(
+// Framework-level shader declarations registered automatically into every
+// RenderContext as the "velk.glsl" virtual include. Exposed so the shader
+// cache can include its content in the cache key hash.
+const char* kVelkGlsl = R"(
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 
@@ -49,6 +49,8 @@ vec2 velk_unit_quad(int vertex_index)
     uint _velk_pad1;
 )";
 
+namespace {
+
 class VelkIncluder : public shaderc::CompileOptions::IncluderInterface
 {
 public:
@@ -59,12 +61,7 @@ public:
     {
         auto* result = new shaderc_include_result{};
 
-        if (std::strcmp(requested_source, "velk.glsl") == 0) {
-            result->source_name = "velk.glsl";
-            result->source_name_length = 9;
-            result->content = velk_glsl;
-            result->content_length = std::strlen(velk_glsl);
-        } else if (user_includes_) {
+        if (user_includes_) {
             auto it = user_includes_->find(requested_source);
             if (it != user_includes_->end()) {
                 // Store the name so it outlives this call
@@ -105,6 +102,7 @@ private:
 vector<uint32_t> compile_glsl_to_spirv(string_view source, ShaderStage stage,
                                        const ShaderIncludeMap* user_includes)
 {
+    VELK_PERF_SCOPE("vk.compile_glsl_to_spirv");
     shaderc::Compiler compiler;
     shaderc::CompileOptions options;
 

@@ -1,15 +1,15 @@
 #include "font_buffers.h"
 
+#include <velk/api/perf.h>
+
 namespace velk::ui {
 
 namespace {
 
 // Append the prefix-sum offsets and the flat curve-index list for one axis
 // of a baked glyph into the band buffer (as uint32_t entries).
-void append_axis(
-    velk::vector<uint32_t>& bands,
-    const uint16_t (&offsets)[BakedGlyph::BAND_COUNT + 1],
-    const velk::vector<uint16_t>& flat)
+void append_axis(::velk::vector<uint32_t>& bands, const uint16_t (&offsets)[BakedGlyph::BAND_COUNT + 1],
+                 const ::velk::vector<uint16_t>& flat)
 {
     for (uint32_t i = 0; i <= BakedGlyph::BAND_COUNT; ++i) {
         bands.push_back(static_cast<uint32_t>(offsets[i]));
@@ -28,6 +28,7 @@ uint32_t FontBuffers::ensure_glyph(FT_Face face, uint32_t freetype_glyph_id)
         return it->second;
     }
 
+    VELK_PERF_SCOPE("text.bake_glyph");
     auto result = baker_.bake(face, freetype_glyph_id, scratch_);
 
     GlyphRecord rec{};

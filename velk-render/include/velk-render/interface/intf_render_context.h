@@ -38,8 +38,19 @@ public:
     virtual IMaterial::Ptr create_shader_material(string_view fragment_source,
                                                   string_view vertex_source = {}) = 0;
 
-    /** @brief Compiles GLSL source to a reusable shader handle. */
-    virtual IShader::Ptr compile_shader(string_view source, ShaderStage stage) = 0;
+    /**
+     * @brief Compiles GLSL source to a reusable shader handle.
+     *
+     * @param source GLSL source code.
+     * @param stage Shader stage (Vertex or Fragment).
+     * @param key Optional cache key. When non-zero, the SPIR-V is read from /
+     *            written to the shader cache under this key. When zero, a hash
+     *            of @p source is computed at runtime. Built-in shaders should
+     *            pass a constexpr `make_hash64(source)` to avoid the runtime
+     *            hash. User shaders pass 0.
+     */
+    virtual IShader::Ptr compile_shader(string_view source, ShaderStage stage,
+                                        uint64_t key = 0) = 0;
 
     /**
      * @brief Creates a pipeline from compiled shaders.

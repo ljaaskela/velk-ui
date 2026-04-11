@@ -50,6 +50,7 @@ Scene::~Scene()
 
 IFuture::Ptr Scene::load_from(string_view path)
 {
+    VELK_PERF_SCOPE("scene.load_from");
     auto promise = make_promise();
 
     auto file = instance().resource_store().get_resource<IFile>(path);

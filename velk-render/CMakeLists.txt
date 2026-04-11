@@ -12,6 +12,8 @@ add_library(velk_render SHARED
     src/render_plugin.h
     src/render_plugin.cpp
     src/shader.h
+    src/shader_cache.h
+    src/shader_cache.cpp
     src/shader_compiler.h
     src/shader_compiler.cpp
     src/shader_material.h

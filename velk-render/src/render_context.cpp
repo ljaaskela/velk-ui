@@ -7,6 +7,7 @@
 
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
+#include <velk/hash.h>
 
 #include <velk-render/interface/intf_material_internal.h>
 #include <velk-render/platform.h>
@@ -52,6 +53,11 @@ bool RenderContextImpl::init(const RenderConfig& config)
         return false;
     }
 
+    // Register the framework-level velk.glsl include so it appears in
+    // shader_includes_ alongside any plugin-registered includes. The shader
+    // cache uses this map to compute its per-shader cache keys.
+    shader_includes_["velk.glsl"] = string(kVelkGlsl);
+
     initialized_ = true;
     VELK_LOG(I, "RenderContext initialized (Vulkan, pointer-based)");
     return true;
@@ -75,10 +81,36 @@ ISurface::Ptr RenderContextImpl::create_surface(const SurfaceConfig& config)
     return surface;
 }
 
-IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage stage)
+IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage stage, uint64_t key)
 {
     if (!initialized_ || source.empty()) {
         return nullptr;
+    }
+
+    if (key == 0) {
+        key = make_hash64(source);
+    }
+
+    shader_cache_.ensure_initialized();
+
+    // Combined cache key: source key XOR stage discriminator XOR hash of all
+    // currently-registered includes. Folding the include hash into the key
+    // means that any change to a virtual include (e.g. velk.glsl) naturally
+    // invalidates affected entries; old entries with the previous include
+    // content become orphans rather than corrupt cache hits.
+    constexpr uint64_t kStageVertexMix = 0x68f3df8b8e0c8b8dULL;
+    constexpr uint64_t kStageFragmentMix = 0xa24baed4963ee407ULL;
+    uint64_t stage_mix = (stage == ShaderStage::Vertex) ? kStageVertexMix : kStageFragmentMix;
+    uint64_t include_hash = hash_shader_includes(shader_includes_);
+    uint64_t cache_key = key ^ stage_mix ^ include_hash;
+
+    auto cached = shader_cache_.read(cache_key);
+    if (!cached.empty()) {
+        auto shader = instance().create<IShader>(Shader::static_class_id());
+        if (shader) {
+            shader->init(std::move(cached));
+            return shader;
+        }
     }
 
     auto* includes = shader_includes_.empty() ? nullptr : &shader_includes_;
@@ -86,6 +118,8 @@ IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage s
     if (spirv.empty()) {
         return nullptr;
     }
+
+    shader_cache_.write(cache_key, spirv);
 
     auto shader = instance().create<IShader>(Shader::static_class_id());
     if (!shader) {

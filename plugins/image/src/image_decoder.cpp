@@ -2,6 +2,7 @@
 
 #include "image.h"
 
+#include <velk/api/perf.h>
 #include <velk/ext/core_object.h>
 #include <velk/interface/resource/intf_resource.h>
 
@@ -21,6 +22,8 @@ IResource::Ptr ImageDecoder::decode(const IResource::Ptr& inner) const
     if (!file) {
         return nullptr;
     }
+
+    VELK_PERF_SCOPE("image.decode");
 
     vector<uint8_t> bytes;
     if (!succeeded(file->read(bytes)) || bytes.empty()) {

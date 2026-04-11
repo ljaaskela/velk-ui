@@ -1,6 +1,7 @@
 #ifndef VELK_RENDER_CONTEXT_IMPL_H
 #define VELK_RENDER_CONTEXT_IMPL_H
 
+#include "shader_cache.h"
 #include "shader_compiler.h"
 
 #include <velk/ext/object.h>
@@ -20,7 +21,8 @@ public:
     ISurface::Ptr create_surface(const SurfaceConfig& config) override;
     IMaterial::Ptr create_shader_material(string_view fragment_source, string_view vertex_source) override;
 
-    IShader::Ptr compile_shader(string_view source, ShaderStage stage) override;
+    IShader::Ptr compile_shader(string_view source, ShaderStage stage,
+                                uint64_t key = 0) override;
     uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
                              uint64_t key = 0) override;
     uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
@@ -39,6 +41,7 @@ private:
     IRenderBackend::Ptr backend_;
     std::unordered_map<uint64_t, PipelineId> pipeline_map_;
     ShaderIncludeMap shader_includes_;
+    mutable ShaderCache shader_cache_;
     IShader::Ptr default_vertex_shader_;
     IShader::Ptr default_fragment_shader_;
     uint64_t next_pipeline_key_ = PipelineKey::CustomBase;

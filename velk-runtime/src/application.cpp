@@ -1,5 +1,6 @@
 #include "application.h"
 
+#include <velk/api/perf.h>
 #include <velk/api/velk.h>
 #include <velk/interface/intf_plugin_registry.h>
 
@@ -61,6 +62,8 @@ bool Application::ensure_render_context()
         return true;
     }
 
+    VELK_PERF_SCOPE("app.ensure_render_context");
+
     // Create render context using the platform backend params populated
     // by the provider's first create_window/wrap_native_surface call.
     void* params = window_provider_->get_backend_params();
@@ -86,6 +89,8 @@ IWindow::Ptr Application::create_window(const WindowConfig& config)
     if (!window_provider_) {
         return {};
     }
+
+    VELK_PERF_SCOPE("app.create_window");
 
     bool first_window = !render_ctx_;
     auto win = window_provider_->create_window(config, render_ctx_);

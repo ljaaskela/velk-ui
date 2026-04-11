@@ -14,8 +14,13 @@ namespace velk {
 /// Registry of virtual shader include files (name -> content).
 using ShaderIncludeMap = std::unordered_map<string, string>;
 
-/// Compiles GLSL to SPIR-V. Resolves #include directives against
-/// the built-in velk.glsl and any user-registered includes.
+/// Source for the framework-level "velk.glsl" virtual include. Registered
+/// automatically into every RenderContext during init.
+extern const char* kVelkGlsl;
+
+/// Compiles GLSL to SPIR-V. Resolves #include directives against the supplied
+/// include map (which should already contain "velk.glsl" and any plugin
+/// includes such as "velk-ui.glsl").
 vector<uint32_t> compile_glsl_to_spirv(string_view source, ShaderStage stage,
                                        const ShaderIncludeMap* user_includes = nullptr);
 
