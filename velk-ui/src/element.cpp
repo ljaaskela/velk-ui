@@ -63,13 +63,29 @@ DirtyFlags Element::consume_dirty()
     return result;
 }
 
-void Element::subscribe_traits()
+ReturnValue Element::add_attachment(const IInterface::Ptr& attachment)
 {
-    auto* storage = interface_cast<IObjectStorage>(this);
-    if (!storage) {
-        return;
+    auto rv = Object::add_attachment(attachment);
+    if (succeeded(rv) && scene_.lock()) {
+        subscribe_trait(attachment);
     }
+    return rv;
+}
 
+ReturnValue Element::remove_attachment(const IInterface::Ptr& attachment)
+{
+    auto rv = Object::remove_attachment(attachment);
+    if (succeeded(rv) && scene_.lock()) {
+        // Re-subscribe from scratch: the removed trait's event handler is
+        // now stale. This is simpler than tracking individual subscriptions
+        // and only runs on structural changes (rare).
+        subscribe_traits();
+    }
+    return rv;
+}
+
+void Element::subscribe_trait(const IInterface::Ptr& attachment)
+{
     auto notify = [this](DirtyFlags flag) {
         return [this, flag](FnArgs) -> ReturnValue {
             auto scene = get_scene();
@@ -85,23 +101,31 @@ void Element::subscribe_traits()
         };
     };
 
-    for (size_t i = 0; i < storage->attachment_count(); ++i) {
-        auto att = storage->get_attachment(i);
-
-        // Visual traits: on_visual_changed -> DirtyFlags::Visual
-        if (auto* visual = interface_cast<IVisual>(att)) {
-            Event evt = visual->on_visual_changed();
-            if (evt) {
-                trait_subs_.emplace_back(evt, notify(DirtyFlags::Visual));
-            }
+    // Visual traits: on_visual_changed -> DirtyFlags::Visual
+    if (auto* visual = interface_cast<IVisual>(attachment)) {
+        Event evt = visual->on_visual_changed();
+        if (evt) {
+            trait_subs_.emplace_back(evt, notify(DirtyFlags::Visual));
         }
+    }
 
-        // Layout/transform traits: on_layout_changed -> DirtyFlags::Layout
-        if (auto* layout_notify = interface_cast<ILayoutNotify>(att)) {
-            Event evt = layout_notify->on_layout_changed();
-            if (evt) {
-                trait_subs_.emplace_back(evt, notify(DirtyFlags::Layout));
-            }
+    // Layout/transform traits: on_layout_changed -> DirtyFlags::Layout
+    if (auto* layout_notify = interface_cast<ILayoutNotify>(attachment)) {
+        Event evt = layout_notify->on_layout_changed();
+        if (evt) {
+            trait_subs_.emplace_back(evt, notify(DirtyFlags::Layout));
+        }
+    }
+}
+
+void Element::subscribe_traits()
+{
+    trait_subs_.clear();
+
+    auto* storage = interface_cast<IObjectStorage>(this);
+    if (storage) {
+        for (size_t i = 0; i < storage->attachment_count(); ++i) {
+            subscribe_trait(storage->get_attachment(i));
         }
     }
 }

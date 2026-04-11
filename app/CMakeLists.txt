@@ -2,14 +2,7 @@ add_executable(velk_ui_app
     main.cpp
 )
 
-target_link_libraries(velk_ui_app PRIVATE velk velk_ui velk_render velk_text velk_image glfw)
-
-# Include velk_vk public headers for VulkanInitParams and Vulkan headers for surface creation
-find_package(Vulkan REQUIRED)
-target_include_directories(velk_ui_app PRIVATE
-    ${CMAKE_SOURCE_DIR}/velk-render/plugins/vk/include
-    ${Vulkan_INCLUDE_DIRS}
-)
+target_link_libraries(velk_ui_app PRIVATE velk velk_ui velk_render velk_runtime velk_text)
 
 # Copy scene files to output directory
 add_custom_command(TARGET velk_ui_app POST_BUILD

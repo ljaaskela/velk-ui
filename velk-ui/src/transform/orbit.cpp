@@ -16,19 +16,6 @@ void Orbit::transform(IElement& element)
     auto target_obj = state->target.get<IElement>();
     auto target_state = read_state<IElement>(target_obj);
     if (!target_state) {
-        cache_.invalidate();
-        return;
-    }
-
-    CacheKey key{target_obj.get(),
-                 {target_state->world_matrix(0, 3),
-                  target_state->world_matrix(1, 3),
-                  target_state->world_matrix(2, 3)},
-                 target_state->size,
-                 state->yaw,
-                 state->pitch,
-                 state->distance};
-    if (!cache_.changed(key)) {
         return;
     }
 
@@ -68,12 +55,24 @@ void Orbit::transform(IElement& element)
     // Recompute up = right x forward
     vec3 up = vec3::cross(right, fwd);
 
-    // Write world matrix: columns are right, up, -forward, position
+    // Build the desired world matrix.
+    mat4 new_world;
+    new_world.set_col(0, right);
+    new_world.set_col(1, up);
+    new_world.set_col(2, -fwd);
+    new_world.set_col(3, eye);
+
+    // Skip the write if the camera element already has this exact matrix.
+    // The layout solver overwrites world_matrix on every layout pass, so
+    // checking the current state is the only reliable way to detect when
+    // we need to re-apply the orbit transform.
+    auto cam_state = read_state<IElement>(&element);
+    if (cam_state && cam_state->world_matrix == new_world) {
+        return;
+    }
+
     write_state<IElement>(&element, [&](IElement::State& es) {
-        es.world_matrix.set_col(0, right);
-        es.world_matrix.set_col(1, up);
-        es.world_matrix.set_col(2, -fwd);
-        es.world_matrix.set_col(3, eye);
+        es.world_matrix = new_world;
     });
 }
 

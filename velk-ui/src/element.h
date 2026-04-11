@@ -25,8 +25,12 @@ public:
     shared_ptr<IScene> get_scene() const override { return scene_.lock(); }
     DirtyFlags consume_dirty() override;
 
+    ReturnValue add_attachment(const IInterface::Ptr& attachment) override;
+    ReturnValue remove_attachment(const IInterface::Ptr& attachment) override;
+
 private:
     void subscribe_traits();
+    void subscribe_trait(const IInterface::Ptr& attachment);
 
     IScene::WeakPtr scene_;
     DirtyFlags pending_dirty_ = DirtyFlags::None;

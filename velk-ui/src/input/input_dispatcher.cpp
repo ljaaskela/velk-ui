@@ -1,5 +1,6 @@
 #include "input_dispatcher.h"
 
+#include <velk/api/any.h>
 #include <velk/api/state.h>
 #include <velk/interface/intf_object.h>
 #include <velk/interface/intf_object_storage.h>
@@ -36,6 +37,11 @@ void InputDispatcher::set_scene(const shared_ptr<IScene>& scene)
 
 void InputDispatcher::pointer_event(const PointerEvent& event)
 {
+    {
+        Any<PointerEvent> a(event);
+        ::velk::invoke_event(get_interface(IInterface::UID), "on_pointer_event", a.get_any_interface());
+    }
+
     auto scene = scene_.lock();
     if (!scene) {
         INPUT_LOG("pointer_event: scene expired");
@@ -103,6 +109,11 @@ void InputDispatcher::pointer_event(const PointerEvent& event)
 
 void InputDispatcher::scroll_event(const ScrollEvent& event)
 {
+    {
+        Any<ScrollEvent> a(event);
+        ::velk::invoke_event(get_interface(IInterface::UID), "on_scroll_event", a.get_any_interface());
+    }
+
     ScrollEvent ev = event;
     auto hit = hit_test(ev.position);
     if (hit) {

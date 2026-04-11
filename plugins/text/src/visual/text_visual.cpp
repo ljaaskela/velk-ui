@@ -19,7 +19,7 @@ void TextVisual::set_font(const IFont::Ptr& font)
 
 void TextVisual::on_state_changed(string_view name, IMetadata& owner, Uid interfaceId)
 {
-    if (interfaceId == ITextVisual::UID && (name == "text" || name == "font_size")) {
+    if (name.empty() || name == "text" || name == "font_size") {
         reshape();
     }
     invoke_visual_changed();
@@ -71,6 +71,7 @@ void TextVisual::reshape()
     if (!state || state->text.empty()) {
         return;
     }
+
 
     string_view text(state->text.data(), state->text.size());
 
