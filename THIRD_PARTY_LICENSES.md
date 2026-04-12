@@ -4,14 +4,14 @@ velk-ui bundles or links the following third-party software:
 
 | Component | Version | License | Location |
 |-----------|---------|---------|----------|
-| [GLFW](https://www.glfw.org/) | 3.4 | Zlib | `third_party/glfw-3.4.tar.gz` |
+| [GLFW](https://www.glfw.org/) | 3.4 | Zlib | `velk-runtime/plugins/glfw/third_party/glfw-3.4.tar.gz` |
 | [volk](https://github.com/zeux/volk) | via Vulkan SDK | MIT | Vulkan SDK headers |
 | [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | via Vulkan SDK | MIT | Vulkan SDK headers |
 | [shaderc](https://github.com/google/shaderc) | via Vulkan SDK | Apache 2.0 | Vulkan SDK shared library |
 | [FreeType](https://freetype.org/) | 2.13.3 | FreeType License (BSD-style) | `plugins/text/third_party/freetype-2.13.3.zip` |
 | [HarfBuzz](https://harfbuzz.github.io/) | 10.2.0 | MIT | `plugins/text/third_party/harfbuzz-10.2.0.zip` |
 | [Inter](https://rsms.me/inter/) | 4.x | SIL Open Font License 1.1 | Embedded in `velk_text.dll` |
-| [Slug reference shaders](https://github.com/EricLengyel/Slug) | 2017 reference | MIT / Apache 2.0 / public domain (multi) | Translated to GLSL in `plugins/text/src/embedded/velk_text_glsl.h` |
+| [Slug reference shaders](https://github.com/EricLengyel/Slug) | 2025 reference | MIT / Apache 2.0 (patent in public domain) | Translated to GLSL in `plugins/text/src/embedded/velk_text_glsl.h` |
 | [stb_image](https://github.com/nothings/stb) | latest (single header) | MIT or Public Domain (dual) | `plugins/image/third_party/stb/stb_image.h` |
 
 ## Inter font
@@ -48,4 +48,4 @@ shaderc is Google's GLSL to SPIR-V compiler, distributed under the Apache 2.0 li
 
 ## Slug reference shaders
 
-The text plugin (`velk_text`) uses analytic Bezier glyph coverage adapted from Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) reference shaders, published under a dual license (MIT, Apache 2.0). Velk-platform has **translated the pixel-shader algorithm to GLSL** and adapted it from Lengyel's curve+band texture layout to velk-platform  `std430` buffer-reference layout. The translated shader lives in `plugins/text/src/embedded/velk_text_glsl.h` and is documented as derived work from Lengyel's reference. The CPU-side glyph baker, band assignment, GPU buffer management, and material/visual integration are original code.
+The text plugin (`velk_text`) uses analytic Bezier glyph coverage adapted from Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) reference shaders, published under a dual license (MIT, Apache 2.0). The Slug patent was [placed into the public domain](https://terathon.com/blog/decade-slug.html) in March 2026. Velk-platform has **translated the pixel-shader algorithm to GLSL** and adapted it from Lengyel's curve+band texture layout to velk-platform `std430` buffer-reference layout. The translated shader lives in `plugins/text/src/embedded/velk_text_glsl.h` and is documented as derived work from Lengyel's reference. The CPU-side glyph baker, band assignment, GPU buffer management, and material/visual integration are original code.
