@@ -2,6 +2,14 @@
 
 A `Scene` is the top-level container for UI. It owns a tree of elements, runs layout each frame, and pushes visual changes to a renderer.
 
+## Contents
+- [Hierarchy](#hierarchy)
+- [Elements](#elements)
+- [Traits](#traits)
+- [Geometry and rendering](#geometry-and-rendering)
+- [Loading from JSON](#loading-from-json)
+- [Classes](#classes)
+
 ## Hierarchy
 
 Scene extends velk's `ClassId::Hierarchy`, which provides a general-purpose parent/child tree of `IObject` pointers. In velk-ui, those objects are always elements. The `Scene` API wrapper inherits `velk::Hierarchy`, so all hierarchy operations (add, remove, replace, iterate) work directly on the scene.

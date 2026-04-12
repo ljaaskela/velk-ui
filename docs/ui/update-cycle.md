@@ -2,9 +2,23 @@
 
 This document is the **internal reference** for what happens inside `velk::instance().update()` when the scene tick runs: dirty flag accumulation, the layout solver, trait phases, and how the renderer pulls scene state during `prepare()`. For the user-level frame loop (poll/update/present), see [runtime.md](../runtime/runtime.md).
 
+## Contents
+- [Trait phases](#trait-phases)
+  - [Solver pipeline (per element, top-down)](#solver-pipeline-per-element-top-down)
+- [What happens during a frame](#what-happens-during-a-frame)
+- [Dirty flags](#dirty-flags)
+- [Scene update steps](#scene-update-steps)
+- [Renderer steps](#renderer-steps)
+  - [prepare()](#prepare)
+  - [present(frame)](#presentframe)
+- [Selective and multi-rate rendering](#selective-and-multi-rate-rendering)
+- [Scene geometry](#scene-geometry)
+- [Deferred updates](#deferred-updates)
+
+
 ## Trait phases
 
-Every trait attached to an element belongs to one of five phases. See [Traits](traits.md) for the full guide on each category.
+Every trait attached to an element belongs to one of following phases. See [Traits](traits.md) for the full guide on each category.
 
 | Phase | Interface | Runs during | Purpose |
 |-------|-----------|-------------|---------|
@@ -13,6 +27,8 @@ Every trait attached to an element belongs to one of five phases. See [Traits](t
 | **Constraint** | `ILayoutTrait` | Scene update | Refines own size. E.g. FixedSize |
 | **Transform** | `ITransformTrait` | Scene update | Modifies the world matrix. E.g. Trs, Matrix |
 | **Visual** | `IVisual` | Renderer | Produces draw commands. E.g. RectVisual, TextVisual |
+| **Input** | `IInputTrait` | Scene update | Input handling. Does not participate in the layout solver |
+| **Render** | `none` | Renderer | Render observation. Defines a view into the scene. E.g. Camera |
 
 Input runs synchronously when the platform delivers events (typically via the runtime's window dispatcher — see [Input](input.md)). Layout, Constraint, and Transform run inside `Scene::update()` via the layout solver. Visual runs inside `renderer->prepare()` when the renderer queries each element's visuals for draw commands.
 

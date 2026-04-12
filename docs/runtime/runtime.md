@@ -2,6 +2,34 @@
 
 `velk-runtime` is the user-facing entry point. It owns a single `Application` that loads plugins, sets up the render context, manages platform windows, and drives the per-frame loop.
 
+## Contents
+- [Usage](#usage)
+- [Two execution modes](#two-execution-modes)
+  - [App-driven (desktop)](#app-driven-desktop)
+  - [Framework-driven (Android, embedded host)](#framework-driven-android-embedded-host)
+- [Application](#application)
+  - [`ApplicationConfig`](#applicationconfig)
+- [Window](#window)
+  - [`WindowConfig`](#windowconfig)
+  - [Update rate](#update-rate)
+  - [Window lifecycle](#window-lifecycle)
+  - [Window events](#window-events)
+- [Frame loop](#frame-loop)
+  - [`poll()`](#poll)
+  - [`update()`](#update)
+  - [`prepare()` and `submit(Frame)`](#prepare-and-submitframe)
+  - [`present()`](#present)
+- [Adding views](#adding-views)
+- [Performance overlay](#performance-overlay)
+- [Render context and renderer access](#render-context-and-renderer-access)
+- [Input](#input)
+- [Plugin loading](#plugin-loading)
+- [Threading](#threading)
+- [Classes](#classes)
+- [See also](#see-also)
+
+## Usage
+
 For most apps, this is the only setup code you write. The runtime hides GLFW, Vulkan, the renderer, and the plugin loading boilerplate behind one class.
 
 ```cpp

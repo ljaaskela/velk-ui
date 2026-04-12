@@ -2,6 +2,26 @@
 
 velk-ui's input system dispatches platform events (mouse, keyboard, scroll) to elements through an opt-in trait-based model. Elements only receive input if they have an `IInputTrait` attached.
 
+## Contents
+- [InputDispatcher](#inputdispatcher)
+  - [Where it comes from](#where-it-comes-from)
+  - [State queries](#state-queries)
+- [Dispatch model](#dispatch-model)
+  - [Pointer events](#pointer-events)
+  - [Scroll events](#scroll-events)
+  - [Key events](#key-events)
+  - [Hover tracking](#hover-tracking)
+  - [Press capture](#press-capture)
+- [InputResult](#inputresult)
+- [IInputTrait](#iinputtrait)
+- [Built-in input traits](#built-in-input-traits)
+- [Dispatcher events](#dispatcher-events)
+- [Event types](#event-types)
+- [Custom input traits](#custom-input-traits)
+- [Debug logging](#debug-logging)
+- [Classes](#classes)
+
+
 ## InputDispatcher
 
 `InputDispatcher` is the scene-level coordinator. It receives platform input events, hit-tests against the scene, and dispatches to elements with input traits.

@@ -1,6 +1,6 @@
 # velk-render
 
-Pointer-based GPU rendering foundation for [velk-platform](../README.md). Namespace: `velk::`.
+Bindless GPU rendering foundation for [velk-platform](../README.md). Namespace: `velk::`.
 
 ## Architecture
 

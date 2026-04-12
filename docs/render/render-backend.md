@@ -1,8 +1,51 @@
 # Velk Render Backend Architecture
 
-A pointer-based GPU rendering abstraction that maps directly to how modern GPUs work, rather than abstracting over graphics API concepts. For frame lifecycle (prepare/present split, threading, multi-rate rendering), see [Rendering](rendering.md).
+A bindless GPU rendering abstraction that maps directly to how modern GPUs work, rather than abstracting over graphics API concepts. For frame lifecycle (prepare/present split, threading, multi-rate rendering), see [Rendering](rendering.md).
 
-Inspired by [No Graphics API](https://www.sebastianaaltonen.com/blog/no-graphics-api) essay, which argues that modern GPU hardware (coherent caches, buffer device addresses, bindless descriptors) has converged enough that the traditional graphics API abstraction layer can be replaced by something much simpler. Velk has no legacy codepath to maintain, so the backend could be built around this idea from the start.
+The archicture was inspired by [No Graphics API](https://www.sebastianaaltonen.com/blog/no-graphics-api) essay by Sebastian Aaltonen. It argues that modern GPU hardware (coherent caches, buffer device addresses, bindless descriptors) has converged enough that the traditional graphics API abstraction layer can be replaced by something much simpler. Velk has no legacy codepath to maintain, so why not try something different (and hopefully simpler).
+
+## Contents
+- [Bindless?](#bindless)
+- [The Core Idea](#the-core-idea)
+- [Architecture Overview](#architecture-overview)
+- [IRenderBackend interface](#irenderbackend-interface)
+  - [What is not there (on purpose)](#what-is-not-there-on-purpose)
+- [The DrawCall](#the-drawcall)
+- [Data Flow: How Pixels Get Drawn](#data-flow-how-pixels-get-drawn)
+  - [Per-frame staging buffer](#per-frame-staging-buffer)
+    - [Note](#note)
+  - [The DrawDataHeader](#the-drawdataheader)
+  - [Instance data](#instance-data)
+  - [Shader includes](#shader-includes)
+- [Geometry Without Geometry Objects](#geometry-without-geometry-objects)
+  - [2D UI: Procedural quads](#2d-ui-procedural-quads)
+  - [3D meshes: Vertex pulling](#3d-meshes-vertex-pulling)
+- [Materials: Inline GPU Data](#materials-inline-gpu-data)
+- [Textures: Bindless by Default](#textures-bindless-by-default)
+- [Technical Details](#technical-details)
+  - [buffer_reference vs plain structs in GLSL](#bufferreference-vs-plain-structs-in-glsl)
+  - [std430 alignment and the DrawDataHeader](#std430-alignment-and-the-drawdataheader)
+  - [Color space](#color-space)
+  - [Frame synchronization](#frame-synchronization)
+  - [Render pass setup](#render-pass-setup)
+- [What This Enables](#what-this-enables)
+- [Vulkan Implementation Details](#vulkan-implementation-details)
+- [Future: Metal Backend](#future-metal-backend)
+
+
+## Bindless?
+
+"Bindless" traditionally refers to accessing GPU resources (textures, buffers) by address or index rather than binding them to fixed slots before each draw call. Velk's render backend takes this approach across the board:
+
+  * **Bindless textures**: all textures live in a global array, accessed by index. One descriptor set bind per frame, zero per draw call.
+  * **Bindless buffers**: all shader data (instance arrays, material parameters, glyph tables, mesh vertices) is accessed via `buffer_reference` GPU pointers. Shaders navigate a pointer graph starting from a single push constant root address.
+  * **No descriptor set switching per draw**: each draw call receives one 8-byte push constant (a GPU address). The shader dereferences it to reach everything it needs.
+  * **No vertex buffer binding**: there are no VAOs, vertex attribute descriptions or `vkCmdBindVertexBuffers`. Pipelines have empty vertex input state. 2D geometry is procedural (unit quads expanded in the vertex shader), 3D geometry uses vertex pulling from GPU buffers.
+  * **Inline per-frame data**: all per-draw data (draw headers, instance arrays, material parameters) is written sequentially into a single persistently mapped GPU staging buffer using a bump allocator. This means that per-frame allocations, staging copies or command buffer transfers are not needed.
+
+The result is that the per-draw-call CPU cost is dominated by the `vkCmdPushConstants` + `vkCmdDraw` calls themselves, which is the theoretical minimum. On the GPU side, the pointer dereference for draw data is a single memory load from L2-cached memory, comparable to a traditional uniform buffer read.
+
+However, this is *not* GPU-driven rendering (yet). The CPU still decides what to draw and builds the draw call list. The GPU does not perform culling, sorting, or indirect dispatch. The "bindless" label describes the resource access model: once data is in GPU memory, shaders reach it by address, not by API-managed binding.
 
 ## The Core Idea
 
@@ -104,11 +147,12 @@ A typical Vulkan abstraction might expose 40+ methods for these. Here, they're e
 ```cpp
 struct DrawCall
 {
-    PipelineId pipeline = 0;
-    uint32_t vertex_count = 0;
-    uint32_t instance_count = 1;
-    uint8_t root_constants[128]{};
-    uint32_t root_constants_size = 0;
+    PipelineId pipeline{};      ///< Which pipeline to bind.
+    uint32_t vertex_count{};    ///< Vertices per instance (e.g. 4 for a quad strip).
+    uint32_t instance_count{1}; ///< Number of instances to draw.
+    /// Push constant data, typically an 8-byte GPU pointer to a DrawDataHeader.
+    uint8_t root_constants[kMaxRootConstantsSize]{};
+    uint32_t root_constants_size{}; ///< Bytes used in root_constants.
 };
 ```
 

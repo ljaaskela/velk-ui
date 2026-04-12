@@ -4,6 +4,17 @@ A walkthrough of a minimal velk-platform application: build, run, then increment
 
 For the architectural overview, see [Runtime](runtime/runtime.md). For the underlying systems, see [Scene](ui/scene.md), [Traits](ui/traits.md), [Input](ui/input.md).
 
+## Contents
+- [Building](#building)
+- [Minimal main](#minimal-main)
+- [JSON scenes](#json-scenes)
+- [Programmatic UI](#programmatic-ui)
+- [Adding text](#adding-text)
+- [Handling input](#handling-input)
+- [Performance overlay](#performance-overlay)
+- [Next steps](#next-steps)
+
+
 ## Building
 
 Requires CMake 3.14+, MSVC 2019 (C++17), and the Vulkan SDK (for shaderc).

@@ -2,6 +2,18 @@
 
 velk-ui is designed around a few deliberate choices that keep memory compact, cache-friendly, and scalable. This document explains the reasoning.
 
+## Contents
+- [Single element type](#single-element-type)
+- [Flat hierarchy](#flat-hierarchy)
+- [Traits](#traits)
+- [Batched dirty processing](#batched-dirty-processing)
+- [Bindless GPU backend](#bindless-gpu-backend)
+- [Comparison with ECS](#comparison-with-ecs)
+  - [Similarities](#similarities)
+  - [Key differences](#key-differences)
+  - [What this means for performance](#what-this-means-for-performance)
+
+
 ## Single element type
 
 All UI nodes regardles of their type are implemented by the same class (`ClassId::Element`). There is no `Button`, `Panel`, `Label` in the class hierarchy. This means velk's type registry allocates a single `ObjectHive` for all elements, giving dense, contiguous storage with no per-subclass fragmentation. Creating and iterating thousands of elements stays cache-friendly because they all live in the same page-allocated pool.
@@ -32,11 +44,11 @@ Property changes during a frame are not processed immediately. Elements accumula
 
 Combined with velk's deferred property writes, bulk updates (e.g. animating 100 elements) result in exactly one layout pass and one renderer upload per frame.
 
-## Pointer-based GPU backend
+## Bindless GPU backend
 
 The render backend is designed to minimize CPU overhead per draw call and avoid GPU-side indirection.
 
-**No CPU-side resource binding.** Traditional backends spend CPU time per draw call binding vertex buffers, updating descriptor sets, and setting uniforms. The pointer-based model reduces this to a single `vkCmdPushConstants` (8 bytes) per draw. All other data is already in GPU memory, reachable via pointer dereference.
+**No CPU-side resource binding.** Traditional backends spend CPU time per draw call binding vertex buffers, updating descriptor sets, and setting uniforms. The bindless model reduces this to a single `vkCmdPushConstants` (8 bytes) per draw. All other data is already in GPU memory, reachable via address dereference.
 
 **No vertex input overhead.** There are no VAOs, no vertex buffer binds, no vertex attribute descriptions. Pipelines have empty vertex input state. Shaders read instance data directly from GPU buffers via `buffer_reference` pointers.
 

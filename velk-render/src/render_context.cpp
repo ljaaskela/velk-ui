@@ -59,7 +59,7 @@ bool RenderContextImpl::init(const RenderConfig& config)
     shader_includes_["velk.glsl"] = string(kVelkGlsl);
 
     initialized_ = true;
-    VELK_LOG(I, "RenderContext initialized (Vulkan, pointer-based)");
+    VELK_LOG(I, "RenderContext initialized (Vulkan, bindless)");
     return true;
 }
 

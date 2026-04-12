@@ -14,7 +14,7 @@ The user-facing entry point. Wraps render context creation, window management, p
 
 ### Rendering foundation ([velk-render](velk-render/))
 
-Pointer-based GPU rendering abstraction:
+Bindless GPU rendering abstraction:
 * Minimal backend interface relying on buffer device addresses, bindless textures, push-constant-driven draw calls.
 * Includes a Vulkan 1.2 backend (`velk::vk`) with BDA and bindless descriptors.
 
@@ -23,8 +23,10 @@ Pointer-based GPU rendering abstraction:
 Declarative UI framework:
 * Scene graphs, element composition via traits (constraints, visuals, transforms, input), JSON scene loading.
 * A scene renderer using velk-render that walks the visual tree and submits draw calls to the render backend.
-* Text rendering plugin (`velk_text`) using analytic Bezier glyph coverage adapted from Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) reference shaders. No glyph atlas: outlines are baked once with FreeType, packed into GPU curve and band buffers, and shaded per-pixel with exact analytic coverage. Scale-independent: one font instance renders at any pixel size with no re-baking.
-* Image plugin (`velk_image`) decoding raster images via stb_image into bindless GPU textures.
+
+#### Plugins
+* Text rendering plugin ([velk_text](docs/plugins/text.md)) using analytic Bezier glyph coverage adapted from Eric Lengyel's [Slug](https://github.com/EricLengyel/Slug) reference shaders. No glyph atlas: outlines are baked once with FreeType, packed into GPU curve and band buffers, and shaded per-pixel with exact analytic coverage. Scale-independent: one font instance renders at any pixel size with no re-baking.
+* Image plugin ([velk_image](docs/plugins/image.md)) decoding raster images via stb_image into bindless GPU textures.
 
 ## Documentation
 

@@ -100,7 +100,7 @@ struct SurfaceDesc
 };
 
 /**
- * @brief Pointer-based GPU rendering backend.
+ * @brief Bindless GPU rendering backend.
  *
  * Designed around how modern GPUs work: buffer device addresses (pointers),
  * bindless textures, and push constants. No vertex input descriptions,

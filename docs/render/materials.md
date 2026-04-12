@@ -7,6 +7,26 @@ There are two ways to create materials:
 - **ext::Material** for application-defined materials where you control the shader and data layout directly
 - **ShaderMaterial** for dynamic materials where inputs are discovered automatically from the shader
 
+## Contents
+- [Shader includes](#shader-includes)
+- [Default shaders](#default-shaders)
+- [Shader cache](#shader-cache)
+  - [How it works](#how-it-works)
+  - [What is cached and what is not](#what-is-cached-and-what-is-not)
+  - [Disabling the cache](#disabling-the-cache)
+- [Application-defined materials (ext::Material)](#application-defined-materials-extmaterial)
+  - [C++ side](#c-side)
+  - [Shader side](#shader-side)
+- [Shader materials (ShaderMaterial)](#shader-materials-shadermaterial)
+  - [Creating a shader material](#creating-a-shader-material)
+  - [How it works](#how-it-works)
+  - [The inputs object](#the-inputs-object)
+  - [Pre-populating inputs](#pre-populating-inputs)
+- [DrawData struct layout](#drawdata-struct-layout)
+- [Supported parameter types](#supported-parameter-types)
+- [Classes](#classes)
+
+
 ## Shader includes
 
 Shader includes are registered via `IRenderContext::register_shader_include()`. Any module can register its own include, and shaders reference them with `#include "name"`.

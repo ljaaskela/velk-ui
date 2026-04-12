@@ -2,6 +2,26 @@
 
 Traits are the primary extension mechanism in velk-ui. An element on its own has only position, size, and z-index. Everything else (layout, appearance, input handling, transforms) comes from traits attached to it.
 
+## Contents
+- [Why traits](#why-traits)
+- [Trait phases](#trait-phases)
+- [Attaching traits](#attaching-traits)
+- [CRTP base classes](#crtp-base-classes)
+- [Layout traits](#layout-traits)
+- [Transform traits](#transform-traits)
+- [Visual traits](#visual-traits)
+  - [Visual phase](#visual-phase)
+- [Render traits](#render-traits)
+- [Input traits](#input-traits)
+- [Writing a custom trait](#writing-a-custom-trait)
+- [Built-in trait classes](#built-in-trait-classes)
+  - [Constraint phase](#constraint-phase)
+  - [Transform phase](#transform-phase)
+  - [Visual phase](#visual-phase)
+  - [Material classes](#material-classes)
+  - [Camera](#camera)
+
+
 ## Why traits
 
 A traditional UI framework bakes behavior into a class hierarchy: `Button` inherits `Widget`, `ScrollView` inherits `Container`, etc. This creates rigid trees where adding a new combination of behaviors means creating a new class.

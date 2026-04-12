@@ -9,6 +9,25 @@ It also provides `ImageMaterial` for sampling textures in custom visuals, `Image
 
 Image and environment decoding are done with [stb_image](https://github.com/nothings/stb) (single-header, public domain), vendored under the plugin.
 
+## Contents
+- [Usage](#usage)
+- [Loading an image](#loading-an-image)
+  - [URIs and decoders](#uris-and-decoders)
+  - [Persistence](#persistence)
+  - [Failed loads](#failed-loads)
+- [Drawing an image](#drawing-an-image)
+  - [ImageVisual](#imagevisual)
+  - [ImageMaterial](#imagematerial)
+  - [JSON declaration](#json-declaration)
+- [Environment maps](#environment-maps)
+  - [Loading an environment](#loading-an-environment)
+  - [Binding to a camera](#binding-to-a-camera)
+  - [JSON declaration](#json-declaration)
+  - [Supported formats](#supported-formats)
+- [Lifetime and the renderer](#lifetime-and-the-renderer)
+- [Classes](#classes)
+
+
 ## Usage
 
 The plugin is loaded automatically by `velk::create_app()`. Its `initialize()` registers the four classes (`Image`, `ImageDecoder`, `ImageMaterial`, `ImageVisual`) plus the `Environment` and `EnvDecoder` types, and registers `ImageDecoder` and `EnvDecoder` with the resource store under the names `"image"` and `"env"`. After init, any code can fetch images by URI.

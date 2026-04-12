@@ -4,6 +4,18 @@ UI framework for [velk-platform](../README.md). Namespace: `velk::ui`.
 
 Declarative scene loading from JSON, programmatic element creation, trait-based composition (constraints, visuals, transforms, input), and a scene renderer that submits draw calls to [velk-render](../velk-render/).
 
+## Documentation
+
+User-facing documentation lives at [`../docs/`](../docs/) at the repo root. The UI-specific topics:
+
+| Document | Description |
+|----------|-------------|
+| [Scene](../docs/ui/scene.md) | Scene hierarchy, elements, geometry, JSON format |
+| [Traits](../docs/ui/traits.md) | Trait system: phases, layout, transform, visual, and input traits |
+| [Input](../docs/ui/input.md) | Input dispatcher, hit testing, event dispatch, built-in input traits |
+| [Update cycle](../docs/ui/update-cycle.md) | Internal scene update tick: dirty flags, layout solver, trait phases |
+| [Performance](../docs/ui/performance.md) | Design choices: single element type, flat hierarchy, traits, batched updates |
+
 ## Source structure
 
 | Directory | Description |
@@ -21,14 +33,3 @@ Declarative scene loading from JSON, programmatic element creation, trait-based 
 * **Material**: Defines how a visual is drawn. A material provides a custom shader pipeline and GPU data.
 * **Scene**: Extends Velk's `ClassId::Hierarchy`. Owns the element hierarchy, run the layout solver, and track dirty state. The renderer pulls changes via `consume_state()`.
 
-## Documentation
-
-User-facing documentation lives at [`../docs/`](../docs/) at the repo root. The UI-specific topics:
-
-| Document | Description |
-|----------|-------------|
-| [Scene](../docs/ui/scene.md) | Scene hierarchy, elements, geometry, JSON format |
-| [Traits](../docs/ui/traits.md) | Trait system: phases, layout, transform, visual, and input traits |
-| [Input](../docs/ui/input.md) | Input dispatcher, hit testing, event dispatch, built-in input traits |
-| [Update cycle](../docs/ui/update-cycle.md) | Internal scene update tick: dirty flags, layout solver, trait phases |
-| [Performance](../docs/ui/performance.md) | Design choices: single element type, flat hierarchy, traits, batched updates |

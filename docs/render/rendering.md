@@ -4,6 +4,25 @@ This document is the **internal reference** for `IRenderer` and the prepare/subm
 
 For the GPU data model and backend architecture, see [render-backend.md](render-backend.md). For what `velk::instance().update()` does (which runs before any rendering), see [update-cycle.md](../ui/update-cycle.md).
 
+## Contents
+- [Views: renderer, surfaces, and cameras](#views-renderer-surfaces-and-cameras)
+  - [One scene, multiple surfaces](#one-scene-multiple-surfaces)
+  - [One surface, multiple cameras](#one-surface-multiple-cameras)
+  - [Multiple scenes](#multiple-scenes)
+  - [Relationship diagram](#relationship-diagram)
+- [prepare / present split](#prepare-present-split)
+  - [Per-frame GPU buffers](#per-frame-gpu-buffers)
+  - [Threading model](#threading-model)
+- [FrameDesc: selective rendering](#framedesc-selective-rendering)
+- [Frame slots and back-pressure](#frame-slots-and-back-pressure)
+- [Frame skipping](#frame-skipping)
+- [Multi-rate rendering](#multi-rate-rendering)
+- [What prepare() does internally](#what-prepare-does-internally)
+- [What present() does internally](#what-present-does-internally)
+- [Performance profiling](#performance-profiling)
+- [Classes](#classes)
+
+
 ## Views: renderer, surfaces, and cameras
 
 The renderer draws scenes onto surfaces through **views**. A view is a pairing of a camera element and a surface:

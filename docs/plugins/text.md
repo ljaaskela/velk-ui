@@ -2,6 +2,23 @@
 
 The text plugin (`velk_text`) brings font loading and text rendering support into velk-ui. Loaded automatically by the runtime — no manual setup needed.
 
+## Contents
+- [Approach](#approach)
+- [Usage](#usage)
+- [Drawing text](#drawing-text)
+  - [TextVisual](#textvisual)
+- [JSON declaration](#json-declaration)
+  - [Font size](#font-size)
+- [How it works](#how-it-works)
+  - [Pipeline](#pipeline)
+  - [GPU data layout](#gpu-data-layout)
+  - [Coordinate convention](#coordinate-convention)
+- [Performance](#performance)
+  - [Batching](#batching)
+- [Future improvements](#future-improvements)
+- [Classes](#classes)
+
+
 ## Approach
 
 The text plugin (`velk_text`) renders text using **analytic Bezier glyph coverage**, adapted from Eric Lengyel's public-domain [Slug](https://github.com/EricLengyel/Slug) reference shaders (see `/velk-ui/plugins/text/src/embedded/velk_text_glsl.h` for the GLSL source). 
@@ -12,7 +29,7 @@ The same font instance can render at any pixel size without re-baking, with sub-
 
 ![Text preview](./text.png)
 
-The trade-off is shader cost: every text pixel runs an inside-test that walks a small list of Bezier curves and computes a polynomial root. The band acceleration structure keeps that list short (typically 6 to 16 curves per pixel for typical Latin glyphs), so cost stays bounded and predictable for UI text quantities.
+In typical situations this approach offers very acceptable performance, see [performance chapter](#performance) for more details.
 
 ## Usage
 
@@ -86,7 +103,7 @@ Practical consequences:
 ### Pipeline
 
 ```mermaid
-flowchart TD
+flowchart LR
     A["FreeType outline<br/><i>FT_LOAD_NO_SCALE</i>"]
     B["<b>GlyphBaker</b><br/>quadratic Bezier extraction<br>bbox normalization to [0, 1]²<br>8×8 band assignment, sorted by max orthogonal coord"]
     C["<b>FontBuffers</b> (CPU side)<br/>three flat append-only buffers:<br>curves, bands, glyph table<br>per-section dirty flags"]
@@ -124,7 +141,32 @@ For printable ASCII rendered with Inter, the entire per-font upload is about 92 
 
 ### Coordinate convention
 
-The baker normalizes curves to `[0, 1]^2` over the bbox in **FreeType's Y-up convention** (descender at y = 0, ascender at y = 1). The vertex shader flips quad uv to match: `v_uv = vec2(q.x, 1.0 - q.y)`. The fragment shader and `velk_text_coverage` operate in this Y-up glyph normalized space.
+The baker normalizes curves to `[0, 1]^2` over the bbox in FreeType's Y-up convention (descender at y = 0, ascender at y = 1). The vertex shader flips quad uv to match: `v_uv = vec2(q.x, 1.0 - q.y)`. The fragment shader and `velk_text_coverage` operate in this Y-up glyph normalized space.
+
+## Performance
+
+The fragment shader for text runs an inside-test for every pixel:
+* walks a small list of Bezier curves and 
+* computes a polynomial root. 
+
+The band acceleration structure keeps that list short (typically 6 to 16 curves per pixel for typical Latin glyphs), so cost stays bounded and predictable for a typical UI use case. 
+
+So what kind of performance is possible? The screenshot below shows a stress test use case with 10 overlapping text blocks (each a full paragraph over 1000 characters of lorem ipsum with varying text size and color) rendering over 11,000 glyphs per frame at above 3,000 fps (no buffering to texture etc). 
+
+![Text performance overlay showing >3000 fps with >10k glyphs](./text_perf.png)
+(captured on a desktop PC with an AMD Ryzen 5800X and an AMD Radeon RX9070XT)
+
+The analytic coverage shader keeps per-pixel cost bounded regardless of font size, and the band acceleration structure limits curve tests to a small subset per pixel (typically 6 to 16 for Latin glyphs).
+
+### Batching
+
+All `TextVisual` instances sharing the same font share a single `TextMaterial`, which the renderer uses as its batching key. This means that in an optimal case the renderer can collapse all `TextVisual` instances using the same font into a single draw call, regardless of the font size, color or text defined in each visual.
+
+In the RenderDoc capture below, all 11,601 glyph quads across every text block (each with different font size and color) are drawn in one instanced draw call. There is no per-element or per-line overhead; the GPU sees one vertex shader invocation per glyph quad with the glyph index passed via the instance buffer.
+
+![RenderDoc capture showing 1 draw call with 11601 instances](./text_rdc.png)
+
+If a different visual type (e.g. a `RoundedRectVisual`) appears between two text visuals in the draw order, the batch is split because the renderer must switch materials to preserve correct layering.
 
 ## Future improvements
 
