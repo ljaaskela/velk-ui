@@ -149,14 +149,12 @@ The fragment shader for text runs an inside-test for every pixel:
 * walks a small list of Bezier curves and 
 * computes a polynomial root. 
 
-The band acceleration structure keeps that list short (typically 6 to 16 curves per pixel for typical Latin glyphs), so cost stays bounded and predictable for a typical UI use case. 
+The analytic coverage shader keeps per-pixel cost bounded regardless of font size, and the band acceleration structure limits curve tests to a small subset per pixel (typically 6 to 16 for Latin glyphs).
 
 So what kind of performance is possible? The screenshot below shows a stress test use case with 10 overlapping text blocks (each a full paragraph over 1000 characters of lorem ipsum with varying text size and color) rendering over 11,000 glyphs per frame at above 3,000 fps (no buffering to texture etc). 
 
 ![Text performance overlay showing >3000 fps with >10k glyphs](./text_perf.png)
 (captured on a desktop PC with an AMD Ryzen 5800X and an AMD Radeon RX9070XT)
-
-The analytic coverage shader keeps per-pixel cost bounded regardless of font size, and the band acceleration structure limits curve tests to a small subset per pixel (typically 6 to 16 for Latin glyphs).
 
 ### Batching
 
