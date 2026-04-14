@@ -16,11 +16,13 @@
     { "id": "card1", "class": "velk-ui.Element" },
     { "id": "card2", "class": "velk-ui.Element" },
     { "id": "card3", "class": "velk-ui.Element" },
-    { "id": "card4", "class": "velk-ui.Element" }
+    { "id": "card4", "class": "velk-ui.Element" },
+    { "id": "content_texture", "class": "velk_render.RenderTexture" },
+    { "id": "rtt_display", "class": "velk-ui.Element" }
   ],
   "hierarchies": {
     "scene": {
-      "scene_root": ["root", "camera", "camera_3d"],
+      "scene_root": ["root", "camera", "camera_3d", "rtt_display"],
       "root": ["header", "body"],
       "body": ["sidebar", "content"],
       "sidebar": ["nav1", "nav2", "nav3", "logo"],
@@ -33,7 +35,7 @@
   "attachments": [
     { "targets": ["camera"],     "class": "velk-ui.Camera" },
     { "targets": ["camera_3d"], "class": "velk-ui.Camera", "properties": { "projection": 1, "fov": 45.0, "far_clip": 5000.0, "environment": { "ref": "resources.sky" } } },
-    { "targets": ["camera_3d"], "class": "velk-ui.Orbit", "properties": { "target": { "ref": "header", "type": "weak" }, "distance": 1200.0, "yaw": 30.0, "pitch": 15.0 } },
+    { "targets": ["camera_3d"], "class": "velk-ui.Orbit", "properties": { "target": { "ref": "card3", "type": "weak" }, "distance": 1200.0, "yaw": 30.0, "pitch": 15.0 } },
     { "targets": ["root"],    "class": "velk-ui.Stack", "properties": { "axis": 1, "spacing": 0 } },
     { "targets": ["body"],    "class": "velk-ui.Stack", "properties": { "axis": 0, "spacing": 0 } },
     { "targets": ["sidebar"], "class": "velk-ui.Stack", "properties": { "axis": 1, "spacing": 4 } },
@@ -45,6 +47,7 @@
     { "targets": ["sidebar"], "class": "velk-ui.FixedSize", "properties": { "width": "180px" } },
     { "targets": ["nav1", "nav2", "nav3"], "class": "velk-ui.FixedSize", "properties": { "height": "40px" } },
     { "targets": ["card1", "card2", "card3", "card4"], "class": "velk-ui.FixedSize", "properties": { "height": "120px" } },
+    { "targets": ["content"], "class": "velk-ui.RenderToTexture", "properties": { "render_target": { "ref": "content_texture" } } },
 
     { "targets": ["header"],  "class": "velk-ui.RectVisual",        "properties": { "color": { "r": 0.1, "g": 0.1, "b": 0.15, "a": 0.7 } } },
     { "targets": ["sidebar"], "class": "velk-ui.RectVisual",        "properties": { "color": { "r": 0.06, "g": 0.06, "b": 0.10, "a": 0.6 } } },
@@ -59,6 +62,11 @@
     { "targets": ["card1"],   "class": "velk_text.TextVisual", "properties": { "text": "Total Users",     "font_size": 16.0,  "v_align": "center", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
     { "targets": ["card2"],   "class": "velk_text.TextVisual", "properties": { "text": "Revenue",         "font_size": 32.0,  "v_align": "center", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
     { "targets": ["card3"],   "class": "velk_text.TextVisual", "properties": { "text": "Active Sessions", "font_size": 64.0,  "v_align": "center", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
-    { "targets": ["card4"],   "class": "velk_text.TextVisual", "properties": { "text": "Uptime",          "font_size": 128.0, "v_align": "center", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } }
+    { "targets": ["card4"],   "class": "velk_text.TextVisual", "properties": { "text": "Uptime",          "font_size": 128.0, "v_align": "center", "color": { "r": 0.7, "g": 0.7, "b": 0.75, "a": 1.0 } } },
+
+    { "targets": ["rtt_display"], "class": "velk-ui.FixedSize", "properties": { "width": "400px", "height": "300px" } },
+    { "targets": ["rtt_display"], "class": "velk-ui.Trs", "properties": { "translate": { "x": 50, "y": 400, "z": 0 } } },
+    { "targets": ["rtt_display"], "class": "velk-ui.RectVisual", "properties": { "color": { "r": 1.0, "g": 0.0, "b": 0.0, "a": 0.5 } } },
+    { "targets": ["rtt_display"], "class": "velk-ui.TextureVisual", "properties": { "texture": { "ref": "content_texture" } } }
   ]
 }

@@ -4,6 +4,7 @@
 #include <velk/interface/intf_object_storage.h>
 
 #include <velk-ui/interface/intf_layout_notify.h>
+#include <velk-ui/interface/intf_render_to_texture.h>
 #include <velk-ui/interface/intf_scene.h>
 #include <velk-ui/interface/intf_visual.h>
 
@@ -79,6 +80,9 @@ ReturnValue Element::remove_attachment(const IInterface::Ptr& attachment)
         // Re-subscribe from scratch: the removed trait's event handler is
         // now stale. This is simpler than tracking individual subscriptions
         // and only runs on structural changes (rare).
+        if (interface_cast<IRenderToTexture>(attachment)) {
+            render_trait_count--;
+        }
         subscribe_traits();
     }
     return rv;
@@ -100,6 +104,10 @@ void Element::subscribe_trait(const IInterface::Ptr& attachment)
             return ReturnValue::Success;
         };
     };
+
+    if (interface_cast<IRenderToTexture>(attachment)) {
+        render_trait_count++;
+    }
 
     // Visual traits: on_visual_changed -> DirtyFlags::Visual
     if (auto* visual = interface_cast<IVisual>(attachment)) {

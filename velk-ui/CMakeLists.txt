@@ -17,6 +17,12 @@ add_library(velk_ui SHARED
     src/visual/rect_visual.cpp
     src/visual/rounded_rect_visual.h
     src/visual/rounded_rect_visual.cpp
+    src/visual/texture_visual.h
+    src/visual/texture_visual.cpp
+    src/visual/texture_material.h
+    src/visual/texture_material.cpp
+    src/render_to_texture.h
+    src/render_to_texture.cpp
     src/transform/trs.h
     src/transform/trs.cpp
     src/transform/look_at.h

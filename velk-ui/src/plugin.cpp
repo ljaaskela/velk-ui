@@ -21,6 +21,9 @@
 #include "transform/trs.h"
 #include "visual/rect_visual.h"
 #include "visual/rounded_rect_visual.h"
+#include "render_to_texture.h"
+#include "visual/texture_material.h"
+#include "visual/texture_visual.h"
 
 #include <velk/ext/any.h>
 
@@ -36,6 +39,9 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<FixedSize>(velk);
     rv &= register_type<RectVisual>(velk);
     rv &= register_type<RoundedRectVisual>(velk);
+    rv &= register_type<impl::TextureVisual>(velk);
+    rv &= register_type<impl::TextureMaterial>(velk);
+    rv &= register_type<impl::RenderToTexture>(velk);
     rv &= register_type<GradientMaterial>(velk);
     rv &= register_type<impl::Camera>(velk);
     rv &= register_type<Renderer>(velk);

@@ -17,6 +17,7 @@
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
 #include <velk-ui/interface/intf_camera.h>
+#include <velk-ui/interface/intf_render_to_texture.h>
 #include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
 
@@ -167,6 +168,27 @@ private:
         size_t size = 0;
     };
     std::unordered_map<IBuffer*, BufferEntry> buffer_map_;
+
+    /** @brief Per render-to-texture trait: GPU texture management. */
+    struct RenderTargetEntry
+    {
+        IRenderTarget::Ptr target;
+        TextureId texture_id = 0;
+        int width = 0;
+        int height = 0;
+        bool dirty = true;
+    };
+    std::unordered_map<IElement*, RenderTargetEntry> render_target_entries_;
+
+    /** @brief Visual entries for a render target pass, collected during pre-filter. */
+    struct RenderTargetPassData
+    {
+        IElement* element = nullptr;
+        vector<VisualListEntry> before_entries;
+        vector<VisualListEntry> after_entries;
+        vector<Batch> batches;
+    };
+    vector<RenderTargetPassData> render_target_passes_;
 
     struct DeferredTextureDestroy
     {
