@@ -1,0 +1,44 @@
+#ifndef VELK_RENDER_INTF_RENDER_TARGET_H
+#define VELK_RENDER_INTF_RENDER_TARGET_H
+
+#include <velk-render/interface/intf_gpu_resource.h>
+
+namespace velk {
+
+/**
+ * @brief Interface for GPU resources that can be used as render targets.
+ *
+ * Both swapchain surfaces and renderable textures implement this interface.
+ * The render target id is the backend handle passed to begin_pass().
+ *
+ * Chain: IInterface -> IGpuResource -> IRenderTarget
+ */
+class IRenderTarget : public Interface<IRenderTarget, IGpuResource>
+{
+public:
+    /**
+     * @brief Returns the backend handle for this render target.
+     *
+     * For surfaces, this is the surface_id from create_surface().
+     * For renderable textures, this is the TextureId (bindless index).
+     * Passed to the backend's begin_pass() to select the target.
+     */
+    virtual uint64_t get_render_target_id() const = 0;
+
+    /** @brief Sets the backend handle. Called by the renderer after creating the backend resource. */
+    virtual void set_render_target_id(uint64_t id) = 0;
+};
+
+/**
+ * @brief Returns the render target id from any interface pointer that supports IRenderTarget.
+ */
+template <typename T>
+uint64_t get_render_target_id(const T& ptr)
+{
+    auto* rt = interface_cast<IRenderTarget>(ptr);
+    return rt ? rt->get_render_target_id() : 0;
+}
+
+} // namespace velk
+
+#endif // VELK_RENDER_INTF_RENDER_TARGET_H

@@ -5,6 +5,14 @@
 
 namespace velk {
 
+/** @brief Discriminator for GPU resource types. */
+enum class GpuResourceType : uint8_t
+{
+    Surface,
+    Texture,
+    Buffer
+};
+
 class IGpuResource;
 
 /**
@@ -63,6 +71,9 @@ public:
 class IGpuResource : public Interface<IGpuResource>
 {
 public:
+    /** @brief Returns the resource type discriminator. */
+    virtual GpuResourceType get_type() const = 0;
+
     /**
      * @brief Registers @p obs to be notified when this resource is destroyed.
      *

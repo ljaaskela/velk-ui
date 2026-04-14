@@ -109,15 +109,8 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const ISurface::Ptr
         return;
     }
 
-    // Reuse existing surface_id if another view already uses this surface
-    uint64_t sid = 0;
-    for (auto& v : views_) {
-        if (v.surface == surface) {
-            sid = v.surface_id;
-            break;
-        }
-    }
-    if (sid == 0 && backend_) {
+    // Create the backend surface if this is the first view using it
+    if (get_render_target_id(surface) == 0 && backend_) {
         auto state = read_state<ISurface>(surface);
         if (state) {
             SurfaceDesc desc{};
@@ -125,10 +118,13 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const ISurface::Ptr
             desc.height = state->height;
             desc.update_rate = state->update_rate;
             desc.target_fps = state->target_fps;
-            sid = backend_->create_surface(desc);
+            uint64_t sid = backend_->create_surface(desc);
+            if (auto* rt = interface_cast<IRenderTarget>(surface)) {
+                rt->set_render_target_id(sid);
+            }
         }
     }
-    views_.push_back({camera_element, surface, viewport, sid});
+    views_.push_back({camera_element, surface, viewport});
 }
 
 void Renderer::remove_view(const IElement::Ptr& camera_element, const ISurface::Ptr& surface)
@@ -136,7 +132,7 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const ISurface::
     for (auto it = views_.begin(); it != views_.end(); ++it) {
         if (it->camera_element == camera_element && it->surface == surface) {
             if (backend_) {
-                backend_->destroy_surface(it->surface_id);
+                backend_->destroy_surface(get_render_target_id(it->surface));
             }
             views_.erase(it);
             return;
@@ -618,7 +614,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
             if (sstate->width != entry.cached_width || sstate->height != entry.cached_height) {
                 entry.cached_width = sstate->width;
                 entry.cached_height = sstate->height;
-                backend_->resize_surface(entry.surface_id, sstate->width, sstate->height);
+                backend_->resize_surface(get_render_target_id(entry.surface), sstate->width, sstate->height);
                 entry.batches_dirty = true;
                 RENDER_LOG("render: surface resized to %dx%d", sstate->width, sstate->height);
             }
@@ -820,7 +816,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
 
         // Capture draw calls for this surface into the frame slot
         RenderPass pass;
-        pass.target.surface_id = entry.surface_id;
+        pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
         float vp_x = has_viewport ? entry.viewport.x * sw : 0;
         float vp_y = has_viewport ? entry.viewport.y * sh : 0;
         pass.viewport = {vp_x, vp_y, vp_w, vp_h};
@@ -875,8 +871,10 @@ void Renderer::present(Frame frame)
             // Remove passes that overlap with the frame being presented
             for (auto it = s.passes.begin(); it != s.passes.end();) {
                 bool overlaps = false;
+                uint64_t it_id = get_render_target_id(it->target.target);
                 for (auto& tp : target->passes) {
-                    if (it->target.surface_id == tp.target.surface_id) {
+                    uint64_t tp_id = get_render_target_id(tp.target.target);
+                    if (it_id == tp_id) {
                         overlaps = true;
                         break;
                     }
@@ -895,30 +893,31 @@ void Renderer::present(Frame frame)
             }
         }
 
-        // Present the frame, grouping passes by surface
-        uint64_t current_surface = 0;
+        // Present the frame, grouping passes by render target
+        uint64_t current_target = 0;
         for (size_t i = 0; i < target->passes.size(); ++i) {
             auto& pass = target->passes[i];
+            uint64_t pass_target_id = get_render_target_id(pass.target.target);
 
-            if (pass.target.surface_id != current_surface) {
-                if (current_surface != 0) {
+            if (pass_target_id != current_target) {
+                if (current_target != 0) {
                     VELK_PERF_SCOPE("renderer.end_frame");
                     backend_->end_frame();
                 }
-                current_surface = pass.target.surface_id;
+                current_target = pass_target_id;
                 VELK_PERF_SCOPE("renderer.wait_vsync");
-                backend_->begin_frame(pass.target.surface_id);
+                backend_->begin_frame(current_target);
             }
 
-            RENDER_LOG("present: submitting %zu draw calls to surface %llu",
+            RENDER_LOG("present: submitting %zu draw calls to target %llu",
                        pass.draw_calls.size(),
-                       pass.target.surface_id);
+                       current_target);
             {
                 VELK_PERF_SCOPE("renderer.submit");
                 backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
             }
         }
-        if (current_surface != 0) {
+        if (current_target != 0) {
             VELK_PERF_SCOPE("renderer.end_frame");
             backend_->end_frame();
         }
@@ -1040,7 +1039,7 @@ void Renderer::shutdown()
         }
 
         for (auto& entry : views_) {
-            backend_->destroy_surface(entry.surface_id);
+            backend_->destroy_surface(get_render_target_id(entry.surface));
         }
 
         for (auto& [key, tid] : texture_map_) {

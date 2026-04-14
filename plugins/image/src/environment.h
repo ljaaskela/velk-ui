@@ -31,6 +31,8 @@ class Environment final : public ::velk::ext::GpuResource<Environment, IEnvironm
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::Environment, "Environment");
 
+    GpuResourceType get_type() const override { return GpuResourceType::Texture; }
+
     Environment() = default;
 
     /// Initializes from decoded half-float pixel data.

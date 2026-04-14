@@ -9,6 +9,7 @@
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_gpu_resource.h>
+#include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_material.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>
@@ -85,7 +86,6 @@ private:
         IElement::Ptr camera_element;
         ISurface::Ptr surface;
         rect viewport;
-        uint64_t surface_id = 0;
         bool batches_dirty = true;
         int cached_width = 0;
         int cached_height = 0;
@@ -95,8 +95,7 @@ private:
     /** @brief Target for a render pass: either a swapchain surface or an off-screen texture. */
     struct RenderTarget
     {
-        uint64_t surface_id{};
-        TextureId texture_id{};
+        IRenderTarget::Ptr target;
     };
 
     /** @brief A single render pass captured by prepare() for present(). */

@@ -27,6 +27,8 @@ class Image final : public ::velk::ext::GpuResource<Image, IImage, ITexture>
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::Image, "Image");
 
+    GpuResourceType get_type() const override { return GpuResourceType::Texture; }
+
     Image();
     // Destructor is provided by ext::GpuResource (it notifies observers).
 

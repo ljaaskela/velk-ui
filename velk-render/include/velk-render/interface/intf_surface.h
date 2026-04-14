@@ -3,6 +3,7 @@
 
 #include <velk/interface/intf_metadata.h>
 
+#include <velk-render/interface/intf_render_target.h>
 #include <velk-render/render_types.h>
 
 namespace velk {
@@ -15,7 +16,7 @@ namespace velk {
  * the platform layer on resize); update_rate and target_fps are read-only and
  * fixed at creation time.
  */
-class ISurface : public Interface<ISurface>
+class ISurface : public Interface<ISurface, IRenderTarget>
 {
 public:
     VELK_INTERFACE(

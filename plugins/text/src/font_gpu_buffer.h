@@ -45,6 +45,9 @@ class FontGpuBuffer : public ::velk::ext::GpuResource<FontGpuBuffer, IBuffer, IF
 {
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::FontGpuBuffer, "FontGpuBuffer");
+
+    GpuResourceType get_type() const override { return GpuResourceType::Buffer; }
+
     FontGpuBuffer() = default;
 
     // IFontGpuBufferInternal
