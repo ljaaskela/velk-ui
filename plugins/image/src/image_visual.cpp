@@ -19,10 +19,9 @@ ImageVisual::ImageVisual() = default;
 
 void ImageVisual::on_state_changed(string_view name, IMetadata& owner, Uid interfaceId)
 {
-    if (interfaceId == IImageVisual::UID) {
-        if (name == "uri" || name == "tint") {
-            ensure_loaded();
-        }
+    constexpr string_view names[] = {"uri", "tint"};
+    if (has_state_changed<IImageVisual>(interfaceId, name, names)) {
+        ensure_loaded();
     }
     invoke_visual_changed();
 }

@@ -132,6 +132,7 @@ void Scene::set_geometry(aabb geometry)
 
 void Scene::update(const UpdateInfo& info)
 {
+    VELK_PERF_EVENT(Update);
     VELK_PERF_SCOPE("scene.update");
     auto* h = get_hierarchy(logical_);
     if (!h) {

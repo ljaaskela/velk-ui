@@ -19,7 +19,8 @@ void TextVisual::set_font(const IFont::Ptr& font)
 
 void TextVisual::on_state_changed(string_view name, IMetadata& owner, Uid interfaceId)
 {
-    if (name.empty() || name == "text" || name == "font_size" || name == "layout") {
+    constexpr string_view names[] = {"text", "font_size", "layout"};
+    if (has_state_changed<ITextVisual>(interfaceId, name, names)) {
         cache_.invalidate();
     }
     invoke_visual_changed();

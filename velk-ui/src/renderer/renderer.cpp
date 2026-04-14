@@ -538,6 +538,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     if (!backend_) {
         return {};
     }
+    VELK_PERF_EVENT(Render);
     VELK_PERF_SCOPE("renderer.prepare");
 
     // Drain any GPU resources whose safe window has elapsed.
@@ -570,7 +571,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     }
 
     slot->id = next_frame_id_++;
-    slot->surface_submits.clear();
+    slot->passes.clear();
     active_slot_ = slot;
 
     // If this slot's buffer is undersized (it was in-flight during a
@@ -745,7 +746,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     for (int attempt = 0;; ++attempt) {
     frame_overflow_ = false;
     write_offset_ = 0;
-    slot->surface_submits.clear();
+    slot->passes.clear();
 
     for (auto& entry : views_) {
         if (!view_matches(entry, desc)) {
@@ -818,13 +819,13 @@ Frame Renderer::prepare(const FrameDesc& desc)
         build_draw_calls(entry);
 
         // Capture draw calls for this surface into the frame slot
-        SurfaceSubmit submit;
-        submit.surface_id = entry.surface_id;
+        RenderPass pass;
+        pass.target.surface_id = entry.surface_id;
         float vp_x = has_viewport ? entry.viewport.x * sw : 0;
         float vp_y = has_viewport ? entry.viewport.y * sh : 0;
-        submit.viewport = {vp_x, vp_y, vp_w, vp_h};
-        submit.draw_calls = draw_calls_;
-        slot->surface_submits.push_back(std::move(submit));
+        pass.viewport = {vp_x, vp_y, vp_w, vp_h};
+        pass.draw_calls = draw_calls_;
+        slot->passes.push_back(std::move(pass));
     }
 
     if (!frame_overflow_) {
@@ -845,85 +846,90 @@ Frame Renderer::prepare(const FrameDesc& desc)
 void Renderer::present(Frame frame)
 {
     if (!backend_ || frame.id == 0) {
+        VELK_PERF_EVENT(Present);
         return;
     }
-    VELK_PERF_SCOPE("renderer.present");
+    {
+        VELK_PERF_SCOPE("renderer.present");
 
-    std::lock_guard<std::mutex> lock(slot_mutex_);
+        std::lock_guard<std::mutex> lock(slot_mutex_);
 
-    // Find the frame being presented to determine which surfaces it targets
-    FrameSlot* target = nullptr;
-    for (auto& s : frame_slots_) {
-        if (s.ready && s.id == frame.id) {
-            target = &s;
-            break;
+        // Find the frame being presented to determine which surfaces it targets
+        FrameSlot* target = nullptr;
+        for (auto& s : frame_slots_) {
+            if (s.ready && s.id == frame.id) {
+                target = &s;
+                break;
+            }
         }
-    }
-    if (!target) {
-        slot_cv_.notify_one();
-        return;
-    }
-
-    // Discard older unpresented frames that target overlapping surfaces
-    for (auto& s : frame_slots_) {
-        if (!s.ready || s.id >= frame.id) {
-            continue;
+        if (!target) {
+            slot_cv_.notify_one();
+            return;
         }
-        // Remove surface submits that overlap with the frame being presented
-        for (auto it = s.surface_submits.begin(); it != s.surface_submits.end();) {
-            bool overlaps = false;
-            for (auto& ts : target->surface_submits) {
-                if (it->surface_id == ts.surface_id) {
-                    overlaps = true;
-                    break;
+
+        // Discard older unpresented frames that target overlapping surfaces
+        for (auto& s : frame_slots_) {
+            if (!s.ready || s.id >= frame.id) {
+                continue;
+            }
+            // Remove passes that overlap with the frame being presented
+            for (auto it = s.passes.begin(); it != s.passes.end();) {
+                bool overlaps = false;
+                for (auto& tp : target->passes) {
+                    if (it->target.surface_id == tp.target.surface_id) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (overlaps) {
+                    it = s.passes.erase(it);
+                } else {
+                    ++it;
                 }
             }
-            if (overlaps) {
-                it = s.surface_submits.erase(it);
-            } else {
-                ++it;
+            // If all passes were removed, mark slot as not ready but preserve presented_at
+            // so the buffer isn't reused before the GPU is done with it
+            if (s.passes.empty()) {
+                s.ready = false;
+                s.presented_at = present_counter_ + 1;
             }
         }
-        // If all submits were removed, mark slot as not ready but preserve presented_at
-        // so the buffer isn't reused before the GPU is done with it
-        if (s.surface_submits.empty()) {
-            s.ready = false;
-            s.presented_at = present_counter_ + 1;
-        }
-    }
 
-    // Present the frame, grouping submits by surface
-    uint64_t current_surface = 0;
-    for (size_t i = 0; i < target->surface_submits.size(); ++i) {
-        auto& submit = target->surface_submits[i];
+        // Present the frame, grouping passes by surface
+        uint64_t current_surface = 0;
+        for (size_t i = 0; i < target->passes.size(); ++i) {
+            auto& pass = target->passes[i];
 
-        if (submit.surface_id != current_surface) {
-            if (current_surface != 0) {
-                VELK_PERF_SCOPE("renderer.end_frame");
-                backend_->end_frame();
+            if (pass.target.surface_id != current_surface) {
+                if (current_surface != 0) {
+                    VELK_PERF_SCOPE("renderer.end_frame");
+                    backend_->end_frame();
+                }
+                current_surface = pass.target.surface_id;
+                VELK_PERF_SCOPE("renderer.wait_vsync");
+                backend_->begin_frame(pass.target.surface_id);
             }
-            current_surface = submit.surface_id;
-            VELK_PERF_SCOPE("renderer.begin_frame");
-            backend_->begin_frame(submit.surface_id);
-        }
 
-        RENDER_LOG("present: submitting %zu draw calls to surface %llu",
-                   submit.draw_calls.size(), submit.surface_id);
-        {
-            VELK_PERF_SCOPE("renderer.submit");
-            backend_->submit({submit.draw_calls.data(), submit.draw_calls.size()}, submit.viewport);
+            RENDER_LOG("present: submitting %zu draw calls to surface %llu",
+                       pass.draw_calls.size(),
+                       pass.target.surface_id);
+            {
+                VELK_PERF_SCOPE("renderer.submit");
+                backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
+            }
         }
-    }
-    if (current_surface != 0) {
-        VELK_PERF_SCOPE("renderer.end_frame");
-        backend_->end_frame();
-    }
-    present_counter_++;
-    target->ready = false;
-    target->presented_at = present_counter_;
-    target->surface_submits.clear();
+        if (current_surface != 0) {
+            VELK_PERF_SCOPE("renderer.end_frame");
+            backend_->end_frame();
+        }
+        present_counter_++;
+        target->ready = false;
+        target->presented_at = present_counter_;
+        target->passes.clear();
 
-    slot_cv_.notify_one();
+        slot_cv_.notify_one();
+    }
+    VELK_PERF_EVENT(Present);
 }
 
 void Renderer::render()

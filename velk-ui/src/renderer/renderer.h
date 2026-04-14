@@ -92,10 +92,17 @@ private:
         vector<Batch> batches;  ///< Cached batches for this view; rebuilt when dirty.
     };
 
-    /** @brief Per-surface data captured by prepare() for present(). */
-    struct SurfaceSubmit
+    /** @brief Target for a render pass: either a swapchain surface or an off-screen texture. */
+    struct RenderTarget
     {
-        uint64_t surface_id = 0;
+        uint64_t surface_id{};
+        TextureId texture_id{};
+    };
+
+    /** @brief A single render pass captured by prepare() for present(). */
+    struct RenderPass
+    {
+        RenderTarget target;
         rect viewport;
         vector<DrawCall> draw_calls;
     };
@@ -104,7 +111,7 @@ private:
     struct FrameSlot
     {
         uint64_t id = 0;
-        vector<SurfaceSubmit> surface_submits;
+        vector<RenderPass> passes;
         bool ready = false;         ///< Prepared and waiting for present.
         uint64_t presented_at = 0;  ///< Frame counter when this slot was presented (0 = free).
 
