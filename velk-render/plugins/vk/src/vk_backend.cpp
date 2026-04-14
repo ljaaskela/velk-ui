@@ -217,6 +217,11 @@ void VkBackend::shutdown()
 
     // Destroy textures
     for (auto& [id, td] : textures_) {
+        if (td.is_renderable) {
+            vkDestroyFramebuffer(device_, td.framebuffer, nullptr);
+            vkDestroyRenderPass(device_, td.render_pass, nullptr);
+            vkDestroyRenderPass(device_, td.load_render_pass, nullptr);
+        }
         vkDestroyImageView(device_, td.view, nullptr);
         vmaDestroyImage(allocator_, td.image, td.allocation);
     }
@@ -876,11 +881,16 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
     td.bindless_index = next_bindless_index_++;
 
     VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
-    switch (desc.format) {
-        case PixelFormat::R8:         vk_format = VK_FORMAT_R8_UNORM; break;
-        case PixelFormat::RGBA8:      vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
-        case PixelFormat::RGBA8_SRGB: vk_format = VK_FORMAT_R8G8B8A8_SRGB; break;
-        case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+    if (desc.usage == TextureUsage::RenderTarget && default_surface_format_ != VK_FORMAT_UNDEFINED) {
+        // Render targets must use the same format as the surface so pipelines are compatible
+        vk_format = default_surface_format_;
+    } else {
+        switch (desc.format) {
+            case PixelFormat::R8:         vk_format = VK_FORMAT_R8_UNORM; break;
+            case PixelFormat::RGBA8:      vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
+            case PixelFormat::RGBA8_SRGB: vk_format = VK_FORMAT_R8G8B8A8_SRGB; break;
+            case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+        }
     }
 
     VkImageCreateInfo img_ci{};

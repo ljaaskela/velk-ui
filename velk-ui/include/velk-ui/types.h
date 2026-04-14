@@ -82,18 +82,19 @@ inline float resolve_dim(dim d, float available)
     }
 }
 
-enum class CacheMode : uint8_t
+/** @brief Controls whether an element renders to the main surface, to traits, or both. */
+enum class RenderMode : uint8_t
 {
-    None,    ///< Render directly (default).
-    Cached   ///< Render subtree to texture, composite result.
+    Default,    ///< Render to surface and to any render-to-texture traits.
+    TraitOnly   ///< Render only to render-to-texture traits; skip surface.
 };
 
 /** @brief Entry type in the visual list stream. */
 enum class VisualEntry : uint8_t
 {
-    Element,   ///< Regular element to draw.
-    PushCache, ///< Begin cached subtree (element has cache_mode == Cached).
-    PopCache   ///< End cached subtree.
+    Element,          ///< Regular element to draw.
+    PushRenderTarget, ///< Begin render-to-texture subtree.
+    PopRenderTarget   ///< End render-to-texture subtree.
 };
 
 enum class BlendMode : uint8_t

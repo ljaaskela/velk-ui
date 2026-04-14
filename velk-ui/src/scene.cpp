@@ -8,6 +8,7 @@
 #include <velk/interface/intf_store.h>
 
 #include <velk-ui/interface/intf_input_trait.h>
+#include <velk-ui/interface/intf_render_to_texture.h>
 #include <velk/interface/resource/intf_resource.h>
 #include <velk/interface/resource/intf_resource_store.h>
 #include <velk/plugins/importer/api/importer.h>
@@ -478,15 +479,17 @@ void Scene::rebuild_visual_list()
 void Scene::collect_visual_list(const IObject::Ptr& obj)
 {
     auto elem = interface_pointer_cast<IElement>(obj);
-    auto elem_state = read_state<IElement>(elem);
-    bool cached = elem_state && elem_state->cache_mode == CacheMode::Cached;
+    if (!elem) {
+        return;
+    }
 
-    if (cached) {
-        visual_list_.push_back({VisualEntry::PushCache, elem});
+    // Check for RenderToTexture trait
+    bool has_rtt = elem->has_render_traits();
+    if (has_rtt) {
+        visual_list_.push_back({VisualEntry::PushRenderTarget, elem});
+        after_visual_list_.push_back({VisualEntry::PushRenderTarget, elem});
     }
-    if (elem) {
-        visual_list_.push_back({VisualEntry::Element, elem});
-    }
+    visual_list_.push_back({VisualEntry::Element, elem});
 
     auto* h = get_hierarchy(logical_);
     if (!h) {
@@ -506,11 +509,10 @@ void Scene::collect_visual_list(const IObject::Ptr& obj)
         collect_visual_list(kid);
     }
 
-    if (elem) {
-        after_visual_list_.push_back({VisualEntry::Element, elem});
-    }
-    if (cached) {
-        after_visual_list_.push_back({VisualEntry::PopCache, elem});
+    after_visual_list_.push_back({VisualEntry::Element, elem});
+    if (has_rtt) {
+        visual_list_.push_back({VisualEntry::PopRenderTarget, elem});
+        after_visual_list_.push_back({VisualEntry::PopRenderTarget, elem});
     }
 }
 

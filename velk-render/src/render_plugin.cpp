@@ -1,6 +1,7 @@
 #include "render_plugin.h"
 
 #include "render_context.h"
+#include "render_texture.h"
 #include "shader.h"
 #include "shader_material.h"
 #include "surface.h"
@@ -15,6 +16,7 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     auto rv = register_type<RenderContextImpl>(velk);
     rv &= register_type<Shader>(velk);
     rv &= register_type<Surface>(velk);
+    rv &= register_type<RenderTexture>(velk);
     rv &= register_type<impl::ShaderMaterial>(velk);
     rv &= register_type<::velk::ext::AnyValue<UpdateRate>>(velk);
     return rv;

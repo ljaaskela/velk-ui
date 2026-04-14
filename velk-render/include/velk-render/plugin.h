@@ -12,6 +12,7 @@ inline constexpr Uid Renderer{"8f4bdd2c-865b-4266-a1f1-abb921c9d60b"};
 inline constexpr Uid Surface{"ee9a45db-d4e3-44c4-bbee-19c244a5f32a"};
 inline constexpr Uid ShaderMaterial{"04a29568-7677-42ee-9858-83b87196057f"};
 inline constexpr Uid Shader{"1e766d8e-917b-419f-8262-14fbfb8fbb16"};
+inline constexpr Uid RenderTexture{"ed3e9c55-9227-4c93-8c96-1759452e741f"};
 
 } // namespace ClassId
 

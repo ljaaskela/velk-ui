@@ -63,7 +63,7 @@ public:
         // ITexture or IBuffer). If you see a compile error here, your
         // class is using GpuResource without inheriting an IGpuResource
         // interface, which is a misuse.
-        IGpuResource* self = this;
+        IGpuResource* self = this->template get_interface<IGpuResource>();
         for (auto* obs : snapshot) {
             obs->on_gpu_resource_destroyed(self);
         }

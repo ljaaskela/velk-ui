@@ -217,42 +217,38 @@ void Renderer::rebuild_batches(const SceneState& state, ViewEntry& entry)
     VELK_PERF_SCOPE("renderer.rebuild_batches");
     auto& batches_ = entry.batches;
     batches_.clear();
+    render_target_passes_.clear();
 
     auto resolve_texture = [](const IMaterial::Ptr& material, uint64_t fallback) -> uint64_t {
         return material ? reinterpret_cast<uintptr_t>(material.get()) : fallback;
     };
 
-    // Multi-pass batching over a visual list. Emits visual[0] from all elements,
-    // then visual[1], etc. Consecutive entries with the same batch key are merged.
-    //
-    // Called twice: once for before-children visuals (pre-order list),
-    // once for after-children visuals (post-order list).
-
-    uint64_t last_bkey = 0;
-
     auto get_visuals = [](const ElementCache& cache, VisualPhase phase) -> const vector<VisualCommands>& {
         return phase == VisualPhase::AfterChildren ? cache.after_visuals : cache.before_visuals;
     };
 
-    auto emit_visuals = [&](const vector<VisualListEntry>& entries, VisualPhase phase) {
+    auto emit_visuals = [&](const vector<VisualListEntry>& entries, VisualPhase phase,
+                            vector<Batch>& target_batches,
+                            float offset_x = 0.f, float offset_y = 0.f) {
+        uint64_t last_bkey = 0;
         size_t max_visuals = 0;
-        for (auto& entry : entries) {
-            if (entry.type != VisualEntry::Element) {
+        for (auto& ve : entries) {
+            if (ve.type != VisualEntry::Element) {
                 continue;
             }
-            auto it = element_cache_.find(entry.element.get());
+            auto it = element_cache_.find(ve.element.get());
             if (it != element_cache_.end()) {
                 max_visuals = std::max(max_visuals, get_visuals(it->second, phase).size());
             }
         }
 
         for (size_t pass = 0; pass < max_visuals; ++pass) {
-            for (auto& entry : entries) {
-                if (entry.type != VisualEntry::Element) {
+            for (auto& ve : entries) {
+                if (ve.type != VisualEntry::Element) {
                     continue;
                 }
 
-                auto* elem = entry.element.get();
+                auto* elem = ve.element.get();
                 auto it = element_cache_.find(elem);
                 if (it == element_cache_.end()) {
                     continue;
@@ -268,8 +264,8 @@ void Renderer::rebuild_batches(const SceneState& state, ViewEntry& entry)
                     continue;
                 }
 
-                float wx = elem_state->world_matrix(0, 3);
-                float wy = elem_state->world_matrix(1, 3);
+                float wx = elem_state->world_matrix(0, 3) - offset_x;
+                float wy = elem_state->world_matrix(1, 3) - offset_y;
 
                 auto& vc = visuals[pass];
                 for (auto& de : vc.entries) {
@@ -278,21 +274,22 @@ void Renderer::rebuild_batches(const SceneState& state, ViewEntry& entry)
 
                     uint64_t bkey = make_batch_key(pipeline, resolve_texture(vc.material, texture));
 
-                    if (batches_.empty() || bkey != last_bkey) {
+                    if (target_batches.empty() || bkey != last_bkey) {
                         Batch batch;
                         batch.pipeline_key = pipeline;
                         batch.texture_key = texture;
                         batch.instance_stride = de.instance_size;
                         batch.material = vc.material;
-                        batches_.push_back(std::move(batch));
+                        target_batches.push_back(std::move(batch));
                         last_bkey = bkey;
                     }
 
-                    auto& batch = batches_.back();
+                    auto& batch = target_batches.back();
 
                     auto data_offset = batch.instance_data.size();
                     batch.instance_data.resize(data_offset + de.instance_size);
-                    std::memcpy(batch.instance_data.data() + data_offset, de.instance_data, de.instance_size);
+                    std::memcpy(batch.instance_data.data() + data_offset, de.instance_data,
+                                de.instance_size);
 
                     float* inst = reinterpret_cast<float*>(batch.instance_data.data() + data_offset);
                     inst[0] += wx;
@@ -304,11 +301,74 @@ void Renderer::rebuild_batches(const SceneState& state, ViewEntry& entry)
         }
     };
 
-    // Before-children visuals in pre-order (depth-first)
-    emit_visuals(state.visual_list, VisualPhase::BeforeChildren);
+    // Pre-filter: partition visual list entries into main and render target lists.
+    auto filter_render_targets = [&](const vector<VisualListEntry>& entries,
+                                     vector<VisualListEntry>& main_out,
+                                     VisualPhase phase) {
+        int depth = 0;
+        IElement* active_rt_elem = nullptr;
+        RenderTargetPassData* active_pass = nullptr;
 
-    // After-children visuals in post-order
-    emit_visuals(state.after_visual_list, VisualPhase::AfterChildren);
+        for (auto& ve : entries) {
+            if (ve.type == VisualEntry::PushRenderTarget) {
+                if (depth == 0) {
+                    active_rt_elem = ve.element.get();
+
+                    active_pass = nullptr;
+                    for (auto& rtp : render_target_passes_) {
+                        if (rtp.element == active_rt_elem) {
+                            active_pass = &rtp;
+                            break;
+                        }
+                    }
+                    if (!active_pass) {
+                        render_target_passes_.push_back({active_rt_elem, {}, {}, {}});
+                        active_pass = &render_target_passes_.back();
+                    }
+                }
+                depth++;
+                continue;
+            }
+
+            if (ve.type == VisualEntry::PopRenderTarget) {
+                depth--;
+                if (depth == 0) {
+                    active_rt_elem = nullptr;
+                    active_pass = nullptr;
+                }
+                continue;
+            }
+
+            // VisualEntry::Element
+            if (depth > 0 && active_pass) {
+                // Inside a render target subtree: add to render target pass
+                auto& list = (phase == VisualPhase::BeforeChildren)
+                                 ? active_pass->before_entries
+                                 : active_pass->after_entries;
+                list.push_back(ve);
+            }
+            // Always add to main list (Default render mode renders to both)
+            main_out.push_back(ve);
+        }
+    };
+
+    vector<VisualListEntry> main_before;
+    vector<VisualListEntry> main_after;
+    filter_render_targets(state.visual_list, main_before, VisualPhase::BeforeChildren);
+    filter_render_targets(state.after_visual_list, main_after, VisualPhase::AfterChildren);
+
+    // Batch render target passes (offset by the element's world position)
+    for (auto& rtp : render_target_passes_) {
+        auto es = read_state<IElement>(rtp.element);
+        float ox = es ? es->world_matrix(0, 3) : 0.f;
+        float oy = es ? es->world_matrix(1, 3) : 0.f;
+        emit_visuals(rtp.before_entries, VisualPhase::BeforeChildren, rtp.batches, ox, oy);
+        emit_visuals(rtp.after_entries, VisualPhase::AfterChildren, rtp.batches, ox, oy);
+    }
+
+    // Batch the main surface visual lists
+    emit_visuals(main_before, VisualPhase::BeforeChildren, batches_);
+    emit_visuals(main_after, VisualPhase::AfterChildren, batches_);
 }
 
 uint64_t Renderer::write_to_frame_buffer(const void* data, size_t size, size_t alignment)
@@ -440,6 +500,12 @@ void Renderer::build_draw_calls(const ViewEntry& entry)
             auto tit = texture_map_.find(tex);
             if (tit != texture_map_.end()) {
                 texture_id = tit->second;
+            } else {
+                // Render target textures have their id via IRenderTarget
+                uint64_t rt_id = get_render_target_id(tex);
+                if (rt_id != 0) {
+                    texture_id = static_cast<uint32_t>(rt_id);
+                }
             }
         }
 
@@ -500,6 +566,7 @@ void Renderer::build_draw_calls(const ViewEntry& entry)
         }
         auto pit = pipeline_map_->find(effective_pipeline_key);
         if (pit == pipeline_map_->end()) {
+            VELK_LOG(W, "Renderer: pipeline %llu not found (mat=%p)", effective_pipeline_key, batch.material.get());
             continue;
         }
 
@@ -633,6 +700,15 @@ Frame Renderer::prepare(const FrameDesc& desc)
         // Evict removed elements from the cache
         for (auto& removed : state.removed_list) {
             element_cache_.erase(removed.get());
+            auto rit = render_target_entries_.find(removed.get());
+            if (rit != render_target_entries_.end()) {
+                if (rit->second.texture_id != 0 && backend_) {
+                    std::lock_guard<std::mutex> dlock(deferred_destroy_mutex_);
+                    deferred_destroy_.push_back({rit->second.texture_id,
+                                                 present_counter_ + kGpuLatencyFrames});
+                }
+                render_target_entries_.erase(rit);
+            }
         }
 
         // Rebuild draw commands for elements that changed
@@ -821,7 +897,91 @@ Frame Renderer::prepare(const FrameDesc& desc)
         draw_calls_.clear();
         build_draw_calls(entry);
 
-        // Capture draw calls for this surface into the frame slot
+        // Create GPU resources for render target passes
+        for (auto& rtp : render_target_passes_) {
+            auto& rte = render_target_entries_[rtp.element];
+            if (!rte.target) {
+                auto* storage = interface_cast<IObjectStorage>(rtp.element);
+                if (storage) {
+                    for (size_t ti = 0; ti < storage->attachment_count(); ++ti) {
+                        auto* rtt = interface_cast<IRenderToTexture>(storage->get_attachment(ti));
+                        if (rtt) {
+                            auto rtt_state = read_state<IRenderToTexture>(rtt);
+                            if (rtt_state) {
+                                rte.target = rtt_state->render_target.get<IRenderTarget>();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!rte.target) {
+                continue;
+            }
+            auto es = read_state<IElement>(rtp.element);
+            int w = es ? static_cast<int>(es->size.width) : 0;
+            int h = es ? static_cast<int>(es->size.height) : 0;
+            if (w <= 0) w = 1;
+            if (h <= 0) h = 1;
+
+            if (rte.texture_id != 0 && (rte.width != w || rte.height != h)) {
+                if (backend_) {
+                    std::lock_guard<std::mutex> dlock(deferred_destroy_mutex_);
+                    deferred_destroy_.push_back({rte.texture_id, present_counter_ + kGpuLatencyFrames});
+                }
+                rte.texture_id = 0;
+            }
+            if (rte.texture_id == 0 && backend_) {
+                TextureDesc tdesc{};
+                tdesc.width = w;
+                tdesc.height = h;
+                tdesc.format = PixelFormat::RGBA8;
+                tdesc.usage = TextureUsage::RenderTarget;
+                rte.texture_id = backend_->create_texture(tdesc);
+                rte.width = w;
+                rte.height = h;
+                rte.target->set_render_target_id(static_cast<uint64_t>(rte.texture_id));
+            }
+        }
+
+        // Build render target passes (submitted before the main surface pass)
+        for (auto& rtp : render_target_passes_) {
+            auto rit = render_target_entries_.find(rtp.element);
+            if (rit == render_target_entries_.end() || rit->second.texture_id == 0) {
+                continue;
+            }
+            auto& rte = rit->second;
+
+            FrameGlobals rt_globals{};
+            build_ortho_projection(rt_globals.view_projection,
+                                   static_cast<float>(rte.width), static_cast<float>(rte.height));
+            rt_globals.viewport[0] = static_cast<float>(rte.width);
+            rt_globals.viewport[1] = static_cast<float>(rte.height);
+            rt_globals.viewport[2] = 1.0f / static_cast<float>(rte.width);
+            rt_globals.viewport[3] = 1.0f / static_cast<float>(rte.height);
+            uint64_t saved_globals = globals_gpu_addr_;
+            globals_gpu_addr_ = write_to_frame_buffer(&rt_globals, sizeof(rt_globals));
+
+            ViewEntry rt_view{};
+            rt_view.batches = rtp.batches;
+
+            vector<DrawCall> saved_calls;
+            std::swap(draw_calls_, saved_calls);
+            build_draw_calls(rt_view);
+
+            RenderPass rt_pass{};
+            rt_pass.target.target = rte.target;
+            rt_pass.viewport = {0, 0, static_cast<float>(rte.width), static_cast<float>(rte.height)};
+            rt_pass.draw_calls = draw_calls_;
+            slot->passes.push_back(std::move(rt_pass));
+
+            std::swap(draw_calls_, saved_calls);
+            globals_gpu_addr_ = saved_globals;
+
+            rte.dirty = false;
+        }
+
+        // Main surface pass
         RenderPass pass;
         pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
         float vp_x = has_viewport ? entry.viewport.x * sw : 0;
@@ -905,9 +1065,18 @@ void Renderer::present(Frame frame)
             VELK_PERF_SCOPE("renderer.wait_vsync");
             backend_->begin_frame();
         }
+        bool had_texture_pass = false;
         for (size_t i = 0; i < target->passes.size(); ++i) {
             auto& pass = target->passes[i];
-            uint64_t pass_target_id = get_render_target_id(pass.target.target);
+            auto* rt = pass.target.target.get();
+            uint64_t pass_target_id = rt ? rt->get_render_target_id() : 0;
+            bool is_texture = rt && rt->get_type() == GpuResourceType::Texture;
+
+            // Insert barrier when transitioning from texture passes to surface pass
+            if (!is_texture && had_texture_pass) {
+                backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
+                had_texture_pass = false;
+            }
 
             backend_->begin_pass(pass_target_id);
 
@@ -920,6 +1089,10 @@ void Renderer::present(Frame frame)
             }
 
             backend_->end_pass();
+
+            if (is_texture) {
+                had_texture_pass = true;
+            }
         }
         {
             VELK_PERF_SCOPE("renderer.end_frame");
@@ -1050,6 +1223,13 @@ void Renderer::shutdown()
             backend_->destroy_texture(tid);
         }
         texture_map_.clear();
+
+        for (auto& [key, rte] : render_target_entries_) {
+            if (rte.texture_id != 0) {
+                backend_->destroy_texture(rte.texture_id);
+            }
+        }
+        render_target_entries_.clear();
 
         for (auto& [key, entry] : buffer_map_) {
             backend_->destroy_buffer(entry.handle);

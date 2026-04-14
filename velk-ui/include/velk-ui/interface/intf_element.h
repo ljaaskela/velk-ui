@@ -26,8 +26,8 @@ public:
         (PROP, ::velk::size, size, {}),                       ///< Element size (width, height).
         (RPROP, mat4, world_matrix, {}),                      ///< Computed world-space transform. Written by solver.
         (PROP, int32_t, z_index, 0),                          ///< Draw order among siblings. Higher draws on top.
-        (PROP, CacheMode, cache_mode, CacheMode::None),       ///< Element caching mode.
-        (PROP, BlendMode, blend_mode, BlendMode::SrcAlpha)    ///< Blend mode when compositing.
+        (PROP, BlendMode, blend_mode, BlendMode::SrcAlpha),   ///< Blend mode when compositing.
+        (PROP, RenderMode, render_mode, RenderMode::Default)  ///< Controls surface vs trait rendering.
     )
 
     /** @brief Returns the scene this element belongs to, or nullptr. */
@@ -35,6 +35,8 @@ public:
 
     /** @brief Atomically reads and clears accumulated dirty flags for this element. */
     virtual DirtyFlags consume_dirty() = 0;
+
+    virtual bool has_render_traits() const = 0;
 };
 
 } // namespace velk::ui

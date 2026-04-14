@@ -47,6 +47,9 @@ inline constexpr Uid Rect{"8fc18f28-03e8-4e6e-9fa9-274445d9ef4c"};
 /** @brief Rounded rectangle with SDF corners. */
 inline constexpr Uid RoundedRect{"327eb630-63f9-4144-ab05-e97d6099e920"};
 
+/** @brief Displays a texture on the element bounds. */
+inline constexpr Uid Texture{"84b11445-5f14-41f8-b949-d79aab19115d"};
+
 } // namespace Visual
 
 namespace Material {
@@ -54,12 +57,18 @@ namespace Material {
 /** @brief Built-in linear gradient material. */
 inline constexpr Uid Gradient{"9eb060cd-6050-4878-b817-d58571bf3174"};
 
+/** @brief Material that samples a texture with tint. Used by TextureVisual. */
+inline constexpr Uid Texture{"5b68e32e-99a1-46e4-b029-de4bab50db06"};
+
 } // namespace Material
 
 namespace Render {
 
 /** @brief Camera trait. Defines how the scene is observed (projection, zoom, scale). */
 inline constexpr Uid Camera{"3cd4d525-fc81-4e27-a9c5-ac231036e474"};
+
+/** @brief Renders an element's subtree into a RenderTexture. */
+inline constexpr Uid RenderToTexture{"d8a3aed1-cda4-4046-a69c-409ed7edc5c2"};
 
 } // namespace Render
 

@@ -24,6 +24,7 @@ public:
 
     shared_ptr<IScene> get_scene() const override { return scene_.lock(); }
     DirtyFlags consume_dirty() override;
+    bool has_render_traits() const override { return render_trait_count != 0; }
 
     ReturnValue add_attachment(const IInterface::Ptr& attachment) override;
     ReturnValue remove_attachment(const IInterface::Ptr& attachment) override;
@@ -33,8 +34,9 @@ private:
     void subscribe_trait(const IInterface::Ptr& attachment);
 
     IScene::WeakPtr scene_;
-    DirtyFlags pending_dirty_ = DirtyFlags::None;
     vector<ScopedHandler> trait_subs_;
+    uint32_t render_trait_count{};
+    DirtyFlags pending_dirty_ = DirtyFlags::None;
 };
 
 } // namespace velk::ui
