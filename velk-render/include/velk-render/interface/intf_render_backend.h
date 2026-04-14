@@ -176,17 +176,28 @@ public:
     /// @name Frame submission
     /// @{
 
-    /** @brief Acquires a swapchain image and begins command recording. */
-    virtual void begin_frame(uint64_t surface_id) = 0;
+    /** @brief Begins a new frame: waits for GPU fence and starts command buffer recording. */
+    virtual void begin_frame() = 0;
 
     /**
-     * @brief Records draw calls into the current command buffer.
+     * @brief Begins a render pass targeting the given surface or texture.
+     *
+     * For surface targets, acquires the swapchain image. Begins the Vulkan
+     * render pass and binds the bindless descriptor set.
+     */
+    virtual void begin_pass(uint64_t target_id) = 0;
+
+    /**
+     * @brief Records draw calls into the current render pass.
      * @param calls    Draw calls to record.
-     * @param viewport Viewport and scissor rect. Zero width/height means full surface.
+     * @param viewport Viewport and scissor rect. Zero width/height means full target.
      */
     virtual void submit(array_view<const DrawCall> calls, rect viewport = {}) = 0;
 
-    /** @brief Ends recording, submits to the GPU queue, and presents. */
+    /** @brief Ends the current render pass. */
+    virtual void end_pass() = 0;
+
+    /** @brief Ends command recording, submits to GPU queue, and presents any surfaces used. */
     virtual void end_frame() = 0;
 
     /// @}

@@ -893,31 +893,28 @@ void Renderer::present(Frame frame)
             }
         }
 
-        // Present the frame, grouping passes by render target
-        uint64_t current_target = 0;
+        // Submit all passes within a single frame
+        {
+            VELK_PERF_SCOPE("renderer.wait_vsync");
+            backend_->begin_frame();
+        }
         for (size_t i = 0; i < target->passes.size(); ++i) {
             auto& pass = target->passes[i];
             uint64_t pass_target_id = get_render_target_id(pass.target.target);
 
-            if (pass_target_id != current_target) {
-                if (current_target != 0) {
-                    VELK_PERF_SCOPE("renderer.end_frame");
-                    backend_->end_frame();
-                }
-                current_target = pass_target_id;
-                VELK_PERF_SCOPE("renderer.wait_vsync");
-                backend_->begin_frame(current_target);
-            }
+            backend_->begin_pass(pass_target_id);
 
             RENDER_LOG("present: submitting %zu draw calls to target %llu",
                        pass.draw_calls.size(),
-                       current_target);
+                       pass_target_id);
             {
                 VELK_PERF_SCOPE("renderer.submit");
                 backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
             }
+
+            backend_->end_pass();
         }
-        if (current_target != 0) {
+        {
             VELK_PERF_SCOPE("renderer.end_frame");
             backend_->end_frame();
         }

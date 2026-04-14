@@ -743,6 +743,11 @@ bool VkBackend::create_swapchain(SurfaceData& sd)
 
     vkCreateRenderPass(device_, &rp_ci, nullptr, &sd.render_pass);
 
+    // Load render pass (for subsequent passes on the same surface within a frame)
+    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_att.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    vkCreateRenderPass(device_, &rp_ci, nullptr, &sd.load_render_pass);
+
     // Framebuffers
     sd.framebuffers.resize(img_count);
     for (uint32_t i = 0; i < img_count; ++i) {
@@ -772,6 +777,9 @@ void VkBackend::destroy_swapchain(SurfaceData& sd)
     if (sd.render_pass) {
         vkDestroyRenderPass(device_, sd.render_pass, nullptr);
     }
+    if (sd.load_render_pass) {
+        vkDestroyRenderPass(device_, sd.load_render_pass, nullptr);
+    }
     if (sd.swapchain) {
         vkDestroySwapchainKHR(device_, sd.swapchain, nullptr);
     }
@@ -780,6 +788,7 @@ void VkBackend::destroy_swapchain(SurfaceData& sd)
     sd.image_views.clear();
     sd.images.clear();
     sd.render_pass = VK_NULL_HANDLE;
+    sd.load_render_pass = VK_NULL_HANDLE;
     sd.swapchain = VK_NULL_HANDLE;
 }
 
@@ -1152,54 +1161,66 @@ void VkBackend::destroy_pipeline(PipelineId pipeline)
 // Frame rendering
 // ============================================================================
 
-void VkBackend::begin_frame(uint64_t surface_id)
+void VkBackend::begin_frame()
 {
-    auto it = surfaces_.find(surface_id);
-    if (it == surfaces_.end()) {
-        return;
-    }
-    auto& sd = it->second;
-
-    current_surface_ = surface_id;
-
     auto& sync = frame_sync_[frame_sync_index_];
     vkWaitForFences(device_, 1, &sync.fence, VK_TRUE, UINT64_MAX);
-
-    // Use a rotating acquire semaphore to avoid conflicts with the present engine
-    VkSemaphore acquire_sem = image_available_[acquire_semaphore_index_];
-    acquire_semaphore_index_ = (acquire_semaphore_index_ + 1) % kMaxSwapchainImages;
-
-    VkResult result = vkAcquireNextImageKHR(
-        device_, sd.swapchain, UINT64_MAX, acquire_sem, VK_NULL_HANDLE, &sd.image_index);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        // Swapchain needs recreation; caller should resize_surface
-        return;
-    }
-
     vkResetFences(device_, 1, &sync.fence);
-    vkResetCommandBuffer(frame_sync_[frame_sync_index_].command_buffer, 0);
+    vkResetCommandBuffer(sync.command_buffer, 0);
 
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(frame_sync_[frame_sync_index_].command_buffer, &begin_info);
+    vkBeginCommandBuffer(sync.command_buffer, &begin_info);
 
-    VkClearValue clear_value{};
-    clear_value.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    frame_open_ = true;
+    present_surface_id_ = 0;
+    surface_has_clear_ = false;
+}
+
+void VkBackend::begin_pass(uint64_t target_id)
+{
+    auto it = surfaces_.find(target_id);
+    if (it == surfaces_.end()) {
+        return;
+    }
+    auto& sd = it->second;
+    current_surface_ = target_id;
+
+    // Only acquire the swapchain image once per frame per surface
+    if (present_surface_id_ != target_id) {
+        present_surface_id_ = target_id;
+
+        present_acquire_sem_idx_ = acquire_semaphore_index_;
+        VkSemaphore acquire_sem = image_available_[acquire_semaphore_index_];
+        acquire_semaphore_index_ = (acquire_semaphore_index_ + 1) % kMaxSwapchainImages;
+
+        VkResult result = vkAcquireNextImageKHR(
+            device_, sd.swapchain, UINT64_MAX, acquire_sem, VK_NULL_HANDLE, &sd.image_index);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            current_surface_ = 0;
+            return;
+        }
+    }
+
+    auto& sync = frame_sync_[frame_sync_index_];
 
     VkRenderPassBeginInfo rp_begin{};
     rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rp_begin.renderPass = sd.render_pass;
+    rp_begin.renderPass = surface_has_clear_ ? sd.load_render_pass : sd.render_pass;
     rp_begin.framebuffer = sd.framebuffers[sd.image_index];
     rp_begin.renderArea.extent = {static_cast<uint32_t>(sd.width), static_cast<uint32_t>(sd.height)};
+
+    VkClearValue clear_value{};
+    clear_value.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     rp_begin.clearValueCount = 1;
     rp_begin.pClearValues = &clear_value;
 
-    vkCmdBeginRenderPass(
-        frame_sync_[frame_sync_index_].command_buffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(sync.command_buffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+    surface_has_clear_ = true;
 
     // Bind bindless descriptor set
-    vkCmdBindDescriptorSets(frame_sync_[frame_sync_index_].command_buffer,
+    vkCmdBindDescriptorSets(sync.command_buffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             pipeline_layout_,
                             0,
@@ -1211,6 +1232,8 @@ void VkBackend::begin_frame(uint64_t surface_id)
 
 void VkBackend::submit(array_view<const DrawCall> calls, rect vp)
 {
+    auto& sync = frame_sync_[frame_sync_index_];
+
     auto sit = surfaces_.find(current_surface_);
     if (sit != surfaces_.end()) {
         auto& sd = sit->second;
@@ -1223,12 +1246,12 @@ void VkBackend::submit(array_view<const DrawCall> calls, rect vp)
         viewport.width = vp_w;
         viewport.height = vp_h;
         viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(frame_sync_[frame_sync_index_].command_buffer, 0, 1, &viewport);
+        vkCmdSetViewport(sync.command_buffer, 0, 1, &viewport);
 
         VkRect2D scissor{};
         scissor.offset = {static_cast<int32_t>(vp.x), static_cast<int32_t>(vp.y)};
         scissor.extent = {static_cast<uint32_t>(vp_w), static_cast<uint32_t>(vp_h)};
-        vkCmdSetScissor(frame_sync_[frame_sync_index_].command_buffer, 0, 1, &scissor);
+        vkCmdSetScissor(sync.command_buffer, 0, 1, &scissor);
     }
     for (size_t i = 0; i < calls.size(); ++i) {
         const auto& call = calls[i];
@@ -1238,12 +1261,10 @@ void VkBackend::submit(array_view<const DrawCall> calls, rect vp)
             continue;
         }
 
-        vkCmdBindPipeline(frame_sync_[frame_sync_index_].command_buffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          pit->second.pipeline);
+        vkCmdBindPipeline(sync.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pit->second.pipeline);
 
         if (call.root_constants_size > 0) {
-            vkCmdPushConstants(frame_sync_[frame_sync_index_].command_buffer,
+            vkCmdPushConstants(sync.command_buffer,
                                pipeline_layout_,
                                VK_SHADER_STAGE_ALL,
                                0,
@@ -1251,56 +1272,68 @@ void VkBackend::submit(array_view<const DrawCall> calls, rect vp)
                                call.root_constants);
         }
 
-        vkCmdDraw(
-            frame_sync_[frame_sync_index_].command_buffer, call.vertex_count, call.instance_count, 0, 0);
+        vkCmdDraw(sync.command_buffer, call.vertex_count, call.instance_count, 0, 0);
     }
+}
+
+void VkBackend::end_pass()
+{
+    auto& sync = frame_sync_[frame_sync_index_];
+    vkCmdEndRenderPass(sync.command_buffer);
+    current_surface_ = 0;
 }
 
 void VkBackend::end_frame()
 {
-    auto it = surfaces_.find(current_surface_);
-    if (it == surfaces_.end()) {
-        return;
-    }
-    auto& sd = it->second;
-
-    vkCmdEndRenderPass(frame_sync_[frame_sync_index_].command_buffer);
-    vkEndCommandBuffer(frame_sync_[frame_sync_index_].command_buffer);
-
     auto& sync = frame_sync_[frame_sync_index_];
+    vkEndCommandBuffer(sync.command_buffer);
 
-    // Use per-image semaphores: the acquire semaphore is the one used in begin_frame
-    // (one behind the current acquire_semaphore_index_ since it was advanced after acquire).
-    uint32_t acq_idx = (acquire_semaphore_index_ + kMaxSwapchainImages - 1) % kMaxSwapchainImages;
-    VkSemaphore wait_sem = image_available_[acq_idx];
-    VkSemaphore signal_sem = render_finished_[sd.image_index];
+    if (present_surface_id_ != 0) {
+        // Surface was used: submit with swapchain synchronization
+        auto it = surfaces_.find(present_surface_id_);
+        if (it != surfaces_.end()) {
+            auto& sd = it->second;
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSemaphore wait_sem = image_available_[present_acquire_sem_idx_];
+            VkSemaphore signal_sem = render_finished_[sd.image_index];
 
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &wait_sem;
-    submit_info.pWaitDstStageMask = &wait_stage;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &sync.command_buffer;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &signal_sem;
+            VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-    vkQueueSubmit(graphics_queue_, 1, &submit_info, sync.fence);
+            VkSubmitInfo submit_info{};
+            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit_info.waitSemaphoreCount = 1;
+            submit_info.pWaitSemaphores = &wait_sem;
+            submit_info.pWaitDstStageMask = &wait_stage;
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers = &sync.command_buffer;
+            submit_info.signalSemaphoreCount = 1;
+            submit_info.pSignalSemaphores = &signal_sem;
 
-    VkPresentInfoKHR present_info{};
-    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &signal_sem;
-    present_info.swapchainCount = 1;
-    present_info.pSwapchains = &sd.swapchain;
-    present_info.pImageIndices = &sd.image_index;
+            vkQueueSubmit(graphics_queue_, 1, &submit_info, sync.fence);
 
-    vkQueuePresentKHR(graphics_queue_, &present_info);
+            VkPresentInfoKHR present_info{};
+            present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            present_info.waitSemaphoreCount = 1;
+            present_info.pWaitSemaphores = &signal_sem;
+            present_info.swapchainCount = 1;
+            present_info.pSwapchains = &sd.swapchain;
+            present_info.pImageIndices = &sd.image_index;
+
+            vkQueuePresentKHR(graphics_queue_, &present_info);
+        }
+    } else {
+        // Headless: submit without swapchain synchronization
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &sync.command_buffer;
+
+        vkQueueSubmit(graphics_queue_, 1, &submit_info, sync.fence);
+    }
 
     frame_sync_index_ = (frame_sync_index_ + 1) % kFrameOverlap;
-    current_surface_ = 0;
+    frame_open_ = false;
+    present_surface_id_ = 0;
 }
 
 // ============================================================================

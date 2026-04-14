@@ -47,16 +47,19 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<Click>(velk);
     rv &= register_type<Hover>(velk);
     rv &= register_type<Drag>(velk);
-    rv &= register_type<DimTypeExtension>(velk);
-    rv &= register_type<AlignTypeExtension>(velk);
-    rv &= register_type<ProjectionTypeExtension>(velk);
-    rv &= register_type<VisualPhaseTypeExtension>(velk);
+    // We're never going to have more than ~1 type extension instance so just alloc as needed.
+    ::velk::TypeOptions alloc;
+    alloc.policy = ::velk::CreationPolicy::Alloc;
+    rv &= register_type<DimTypeExtension>(velk, alloc);
+    rv &= register_type<AlignTypeExtension>(velk, alloc);
+    rv &= register_type<ProjectionTypeExtension>(velk, alloc);
+    rv &= register_type<VisualPhaseTypeExtension>(velk, alloc);
+    // Value type registrations
     rv &= register_type<::velk::ext::AnyValue<dim>>(velk);
     rv &= register_type<::velk::ext::AnyValue<HAlign>>(velk);
     rv &= register_type<::velk::ext::AnyValue<VAlign>>(velk);
     rv &= register_type<::velk::ext::AnyValue<Projection>>(velk);
     rv &= register_type<::velk::ext::AnyValue<VisualPhase>>(velk);
-
     rv &= register_type<::velk::ext::AnyValue<PointerEvent>>(velk);
     rv &= register_type<::velk::ext::AnyValue<ScrollEvent>>(velk);
     rv &= register_type<::velk::ext::AnyValue<KeyEvent>>(velk);

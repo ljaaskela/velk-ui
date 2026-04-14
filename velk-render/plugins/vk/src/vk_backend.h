@@ -39,8 +39,10 @@ public:
     PipelineId create_pipeline(const PipelineDesc& desc) override;
     void destroy_pipeline(PipelineId pipeline) override;
 
-    void begin_frame(uint64_t surface_id) override;
+    void begin_frame() override;
+    void begin_pass(uint64_t target_id) override;
     void submit(array_view<const DrawCall> calls, rect viewport) override;
+    void end_pass() override;
     void end_frame() override;
 
 private:
@@ -97,7 +99,8 @@ private:
     {
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-        VkRenderPass render_pass = VK_NULL_HANDLE;
+        VkRenderPass render_pass = VK_NULL_HANDLE;       ///< loadOp=CLEAR (first pass)
+        VkRenderPass load_render_pass = VK_NULL_HANDLE;  ///< loadOp=LOAD (subsequent passes)
         vector<VkImage> images;
         vector<VkImageView> image_views;
         vector<VkFramebuffer> framebuffers;
@@ -110,7 +113,11 @@ private:
 
     std::unordered_map<uint64_t, SurfaceData> surfaces_;
     uint64_t next_surface_id_ = 1;
-    uint64_t current_surface_ = 0;
+    uint64_t current_surface_ = 0;          ///< Surface active in the current render pass.
+    uint64_t present_surface_id_ = 0;     ///< Surface to present in end_frame (0 = headless).
+    uint32_t present_acquire_sem_idx_ = 0; ///< Acquire semaphore index used for the surface pass.
+    bool frame_open_ = false;             ///< True between begin_frame/end_frame.
+    bool surface_has_clear_ = false;       ///< True after first pass on a surface (subsequent passes use LOAD).
 
     // Buffers
     struct BufferData
