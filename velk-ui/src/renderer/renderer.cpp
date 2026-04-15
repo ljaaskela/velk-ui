@@ -159,8 +159,7 @@ bool Renderer::view_matches(const ViewEntry& entry, const FrameDesc& desc) const
 Renderer::FrameSlot* Renderer::claim_frame_slot()
 {
     auto is_slot_free = [&](const FrameSlot& s) {
-        return !s.ready && (s.presented_at == 0 ||
-                            present_counter_ - s.presented_at >= kGpuLatencyFrames);
+        return !s.ready && (s.presented_at == 0 || present_counter_ - s.presented_at >= kGpuLatencyFrames);
     };
 
     FrameSlot* slot = nullptr;
@@ -223,7 +222,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
             if (rit != render_target_entries_.end()) {
                 if (rit->second.texture_id != 0 && backend_) {
                     resources_.defer_texture_destroy(rit->second.texture_id,
-                                                    present_counter_ + kGpuLatencyFrames);
+                                                     present_counter_ + kGpuLatencyFrames);
                 }
                 render_target_entries_.erase(rit);
             }
@@ -273,8 +272,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         auto* be = resources_.find_buffer(buf);
                         bool need_alloc = (be == nullptr);
                         if (!need_alloc && be->size != bsize) {
-                            resources_.defer_buffer_destroy(be->handle,
-                                                            present_counter_ + kGpuLatencyFrames);
+                            resources_.defer_buffer_destroy(be->handle, present_counter_ + kGpuLatencyFrames);
                             resources_.unregister_buffer(buf);
                             be = nullptr;
                             need_alloc = true;
@@ -315,74 +313,88 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
 }
 
 void Renderer::build_frame_passes(const FrameDesc& desc,
-                                  std::unordered_map<IScene*, SceneState>& consumed_scenes,
-                                  FrameSlot& slot)
+                                  std::unordered_map<IScene*, SceneState>& consumed_scenes, FrameSlot& slot)
 {
     static constexpr int kMaxRecordRetries = 3;
     for (int attempt = 0;; ++attempt) {
-    frame_buffer_.begin_frame(slot.buffer);
-    slot.passes.clear();
+        frame_buffer_.begin_frame(slot.buffer);
+        slot.passes.clear();
 
-    for (auto& entry : views_) {
-        if (!view_matches(entry, desc)) {
-            continue;
-        }
-
-        auto scene_ptr = entry.camera_element->get_scene();
-        auto* scene = interface_cast<IScene>(scene_ptr);
-        if (!scene) {
-            continue;
-        }
-
-        auto sit = consumed_scenes.find(scene);
-        if (sit == consumed_scenes.end()) {
-            continue;
-        }
-
-        ICamera* camera = nullptr;
-        if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-            camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
-        }
-
-        if (entry.batches_dirty) {
-            batch_builder_.rebuild_batches(sit->second, entry.batches);
-            if (camera) {
-                prepend_environment_batch(*camera, entry);
+        for (auto& entry : views_) {
+            if (!view_matches(entry, desc)) {
+                continue;
             }
-            entry.batches_dirty = false;
-        }
 
-        auto sstate = read_state<IWindowSurface>(entry.surface);
-        float sw = static_cast<float>(sstate ? sstate->size.x : 0);
-        float sh = static_cast<float>(sstate ? sstate->size.y : 0);
-        bool has_viewport = entry.viewport.width > 0 && entry.viewport.height > 0;
-        float vp_w = has_viewport ? entry.viewport.width * sw : sw;
-        float vp_h = has_viewport ? entry.viewport.height * sh : sh;
-
-        if (vp_w > 0 && vp_h > 0) {
-            FrameGlobals globals{};
-            mat4 vp_mat;
-            if (camera) {
-                vp_mat = camera->get_view_projection(*entry.camera_element, vp_w, vp_h);
-            } else {
-                build_ortho_projection(globals.view_projection, vp_w, vp_h);
-                std::memcpy(vp_mat.m, globals.view_projection, sizeof(vp_mat.m));
+            auto scene_ptr = entry.camera_element->get_scene();
+            auto* scene = interface_cast<IScene>(scene_ptr);
+            if (!scene) {
+                continue;
             }
-            std::memcpy(globals.view_projection, vp_mat.m, sizeof(vp_mat.m));
-            auto inv_vp = mat4::inverse(vp_mat);
-            std::memcpy(globals.inverse_view_projection, inv_vp.m, sizeof(inv_vp.m));
-            globals.viewport[0] = vp_w;
-            globals.viewport[1] = vp_h;
-            globals.viewport[2] = 1.0f / vp_w;
-            globals.viewport[3] = 1.0f / vp_h;
-            globals_gpu_addr_ = frame_buffer_.write(&globals, sizeof(globals));
+
+            auto sit = consumed_scenes.find(scene);
+            if (sit == consumed_scenes.end()) {
+                continue;
+            }
+
+            ICamera* camera = nullptr;
+            if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
+                camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
+            }
+
+            if (entry.batches_dirty) {
+                batch_builder_.rebuild_batches(sit->second, entry.batches);
+                if (camera) {
+                    prepend_environment_batch(*camera, entry);
+                }
+                entry.batches_dirty = false;
+            }
+
+            auto sstate = read_state<IWindowSurface>(entry.surface);
+            float sw = static_cast<float>(sstate ? sstate->size.x : 0);
+            float sh = static_cast<float>(sstate ? sstate->size.y : 0);
+            bool has_viewport = entry.viewport.width > 0 && entry.viewport.height > 0;
+            float vp_w = has_viewport ? entry.viewport.width * sw : sw;
+            float vp_h = has_viewport ? entry.viewport.height * sh : sh;
+
+            if (vp_w > 0 && vp_h > 0) {
+                FrameGlobals globals{};
+                mat4 vp_mat;
+                if (camera) {
+                    vp_mat = camera->get_view_projection(*entry.camera_element, vp_w, vp_h);
+                } else {
+                    build_ortho_projection(globals.view_projection, vp_w, vp_h);
+                    std::memcpy(vp_mat.m, globals.view_projection, sizeof(vp_mat.m));
+                }
+                std::memcpy(globals.view_projection, vp_mat.m, sizeof(vp_mat.m));
+                auto inv_vp = mat4::inverse(vp_mat);
+                std::memcpy(globals.inverse_view_projection, inv_vp.m, sizeof(inv_vp.m));
+                globals.viewport[0] = vp_w;
+                globals.viewport[1] = vp_h;
+                globals.viewport[2] = 1.0f / vp_w;
+                globals.viewport[3] = 1.0f / vp_h;
+                globals_gpu_addr_ = frame_buffer_.write(&globals, sizeof(globals));
+            }
+
+            draw_calls_.clear();
+            batch_builder_.build_draw_calls(entry.batches,
+                                            draw_calls_,
+                                            frame_buffer_,
+                                            resources_,
+                                            globals_gpu_addr_,
+                                            pipeline_map_,
+                                            render_ctx_);
+
+            // Main surface pass
+            RenderPass pass;
+            pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
+            float vp_x = has_viewport ? entry.viewport.x * sw : 0;
+            float vp_y = has_viewport ? entry.viewport.y * sh : 0;
+            pass.viewport = {vp_x, vp_y, vp_w, vp_h};
+            pass.draw_calls = draw_calls_;
+            slot.passes.push_back(std::move(pass));
         }
 
-        draw_calls_.clear();
-        batch_builder_.build_draw_calls(entry.batches, draw_calls_, frame_buffer_, resources_,
-                                        globals_gpu_addr_, pipeline_map_, render_ctx_);
-
-        // Create GPU resources for render target passes
+        // Build render target passes once (not per view)
         for (auto& rtp : batch_builder_.render_target_passes()) {
             auto& rte = render_target_entries_[rtp.element];
             if (!rte.target) {
@@ -398,16 +410,14 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             if (!rte.target) {
                 continue;
             }
-            auto es = read_state<IElement>(rtp.element);
-            int w = es ? static_cast<int>(es->size.width) : 0;
-            int h = es ? static_cast<int>(es->size.height) : 0;
-            if (w <= 0) w = 1;
-            if (h <= 0) h = 1;
-
+            int w{1}, h{1};
+            if (auto es = read_state<IElement>(rtp.element)) {
+                w = std::max(static_cast<int>(es->size.width), 1);
+                h = std::max(static_cast<int>(es->size.height), 1);
+            }
             if (rte.texture_id != 0 && (rte.width != w || rte.height != h)) {
                 if (backend_) {
-                    resources_.defer_texture_destroy(rte.texture_id,
-                                                    present_counter_ + kGpuLatencyFrames);
+                    resources_.defer_texture_destroy(rte.texture_id, present_counter_ + kGpuLatencyFrames);
                 }
                 rte.texture_id = 0;
             }
@@ -422,19 +432,14 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 rte.height = h;
                 rte.target->set_render_target_id(static_cast<uint64_t>(rte.texture_id));
             }
-        }
 
-        // Build render target passes
-        for (auto& rtp : batch_builder_.render_target_passes()) {
-            auto rit = render_target_entries_.find(rtp.element);
-            if (rit == render_target_entries_.end() || rit->second.texture_id == 0) {
+            if (rte.texture_id == 0) {
                 continue;
             }
-            auto& rte = rit->second;
 
             FrameGlobals rt_globals{};
-            build_ortho_projection(rt_globals.view_projection,
-                                   static_cast<float>(rte.width), static_cast<float>(rte.height));
+            build_ortho_projection(
+                rt_globals.view_projection, static_cast<float>(rte.width), static_cast<float>(rte.height));
             rt_globals.viewport[0] = static_cast<float>(rte.width);
             rt_globals.viewport[1] = static_cast<float>(rte.height);
             rt_globals.viewport[2] = 1.0f / static_cast<float>(rte.width);
@@ -444,38 +449,35 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
 
             vector<DrawCall> saved_calls;
             std::swap(draw_calls_, saved_calls);
-            batch_builder_.build_draw_calls(rtp.batches, draw_calls_, frame_buffer_, resources_,
-                                            globals_gpu_addr_, pipeline_map_, render_ctx_);
+            batch_builder_.build_draw_calls(rtp.batches,
+                                            draw_calls_,
+                                            frame_buffer_,
+                                            resources_,
+                                            globals_gpu_addr_,
+                                            pipeline_map_,
+                                            render_ctx_);
 
+            // Insert render target pass before surface passes
             RenderPass rt_pass{};
             rt_pass.target.target = rte.target;
             rt_pass.viewport = {0, 0, static_cast<float>(rte.width), static_cast<float>(rte.height)};
             rt_pass.draw_calls = draw_calls_;
-            slot.passes.push_back(std::move(rt_pass));
+            slot.passes.insert(slot.passes.begin(), std::move(rt_pass));
 
             std::swap(draw_calls_, saved_calls);
             globals_gpu_addr_ = saved_globals;
             rte.dirty = false;
         }
 
-        // Main surface pass
-        RenderPass pass;
-        pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
-        float vp_x = has_viewport ? entry.viewport.x * sw : 0;
-        float vp_y = has_viewport ? entry.viewport.y * sh : 0;
-        pass.viewport = {vp_x, vp_y, vp_w, vp_h};
-        pass.draw_calls = draw_calls_;
-        slot.passes.push_back(std::move(pass));
-    }
-
-    if (!frame_buffer_.overflowed()) {
-        break;
-    }
-    if (attempt >= kMaxRecordRetries) {
-        VELK_LOG(E, "Renderer: frame buffer overflow after %d retries, dropping frame", kMaxRecordRetries);
-        break;
-    }
-    frame_buffer_.grow(*backend_);
+        if (!frame_buffer_.overflowed()) {
+            break;
+        }
+        if (attempt >= kMaxRecordRetries) {
+            VELK_LOG(
+                E, "Renderer: frame buffer overflow after %d retries, dropping frame", kMaxRecordRetries);
+            break;
+        }
+        frame_buffer_.grow(*backend_);
     } // retry loop
 }
 
@@ -501,7 +503,8 @@ Frame Renderer::prepare(const FrameDesc& desc)
     frame_buffer_.ensure_capacity(*backend_);
 
     if ((slot->id % 10000) == 0) {
-        VELK_LOG(I, "Renderer: frame %llu, frame buffer %zu KB, peak usage %zu KB",
+        VELK_LOG(I,
+                 "Renderer: frame %llu, frame buffer %zu KB, peak usage %zu KB",
                  static_cast<unsigned long long>(slot->id),
                  frame_buffer_.get_buffer_size() / 1024,
                  frame_buffer_.get_peak_usage() / 1024);
@@ -590,9 +593,8 @@ void Renderer::present(Frame frame)
 
             backend_->begin_pass(pass_target_id);
 
-            RENDER_LOG("present: submitting %zu draw calls to target %llu",
-                       pass.draw_calls.size(),
-                       pass_target_id);
+            RENDER_LOG(
+                "present: submitting %zu draw calls to target %llu", pass.draw_calls.size(), pass_target_id);
             {
                 VELK_PERF_SCOPE("renderer.submit");
                 backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
