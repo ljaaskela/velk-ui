@@ -78,17 +78,12 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
 
     ctx->register_shader_include("velk-ui.glsl", velk_ui_glsl);
 
-    // Register default material shaders
-    ctx->set_default_vertex_shader(ctx->compile_shader(material_vertex_src, ShaderStage::Vertex));
-    ctx->set_default_fragment_shader(ctx->compile_shader(material_fragment_src, ShaderStage::Fragment));
-
-    // Compile built-in UI pipelines under well-known keys. Text is no
-    // longer registered here: the text plugin owns its rendering and
-    // creates the analytic-Bezier text pipeline lazily via TextMaterial.
-    if (pipeline_map_->find(PipelineKey::Rect) == pipeline_map_->end()) {
-        ctx->compile_pipeline(rect_fragment_src, rect_vertex_src, PipelineKey::Rect);
-        ctx->compile_pipeline(rounded_rect_fragment_src, rounded_rect_vertex_src, PipelineKey::RoundedRect);
-    }
+    // Register default shaders. Visuals and materials that do not provide
+    // their own shader sources fall back to these (see compile_pipeline:
+    // empty source -> registered default). Built-in UI pipelines are now
+    // compiled lazily by batch_builder on first sight of a new visual type.
+    ctx->set_default_vertex_shader(ctx->compile_shader(default_vertex_src, ShaderStage::Vertex));
+    ctx->set_default_fragment_shader(ctx->compile_shader(default_fragment_src, ShaderStage::Fragment));
 
     frame_buffer_.init();
     for (auto& slot : frame_slots_) {

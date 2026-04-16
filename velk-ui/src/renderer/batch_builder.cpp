@@ -47,6 +47,18 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             continue;
         }
 
+        // Ensure the visual's built-in pipeline is compiled. Empty shader
+        // sources on the visual fall back to the renderer's registered
+        // defaults (see IRenderContext::compile_pipeline).
+        if (render_ctx) {
+            uint64_t key = visual->get_pipeline_key();
+            if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
+                render_ctx->compile_pipeline(visual->get_fragment_src(),
+                                             visual->get_vertex_src(),
+                                             key);
+            }
+        }
+
         VisualCommands vc;
         {
             VELK_PERF_SCOPE("renderer.get_draw_entries");

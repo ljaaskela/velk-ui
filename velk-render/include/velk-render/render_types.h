@@ -8,12 +8,10 @@
 
 namespace velk {
 
-/// Well-known pipeline keys used by built-in visuals.
+/// Pipeline keys used by the render context's auto-assign counter.
+/// Visuals that own a built-in pipeline provide their own stable key
+/// (typically via make_hash64 on the class name).
 namespace PipelineKey {
-inline constexpr uint64_t Rect = 1;
-inline constexpr uint64_t Text = 2;
-inline constexpr uint64_t RoundedRect = 3;
-inline constexpr uint64_t Gradient = 4;
 inline constexpr uint64_t CustomBase = 1000; ///< Auto-assigned keys start here.
 } // namespace PipelineKey
 

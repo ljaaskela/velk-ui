@@ -6,6 +6,7 @@
 #include <velk/interface/intf_metadata.h>
 #include <velk/vector.h>
 
+#include <velk/string_view.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/render_types.h>
 #include <velk-ui/interface/intf_trait.h>
@@ -54,6 +55,29 @@ public:
      * resources (rect, rounded rect, gradient, etc.).
      */
     virtual vector<IBuffer::Ptr> get_gpu_resources() const { return {}; }
+
+    /**
+     * @brief Returns the pipeline key for this visual's built-in shader,
+     *        or 0 if the visual does not use a built-in pipeline (e.g. it
+     *        brings its own material via the paint property).
+     *
+     * Each visual class should return a stable, class-unique 64-bit value
+     * (typically a constexpr hash of a class-level name). The renderer
+     * compiles a pipeline per unique key on first sight.
+     */
+    virtual uint64_t get_pipeline_key() const { return 0; }
+
+    /**
+     * @brief Returns the vertex shader source for this visual's pipeline.
+     *        An empty string means "use the registered default vertex shader".
+     */
+    virtual string_view get_vertex_src() const { return {}; }
+
+    /**
+     * @brief Returns the fragment shader source for this visual's pipeline.
+     *        An empty string means "use the registered default fragment shader".
+     */
+    virtual string_view get_fragment_src() const { return {}; }
 };
 
 } // namespace velk::ui

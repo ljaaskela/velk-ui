@@ -5,54 +5,19 @@
 
 namespace velk {
 
+// The default vertex/fragment shader pair used when a visual or material
+// does not supply its own. The vertex shader expands the unit quad to a
+// world-space rect and emits the varyings every known consumer reads:
+//   location 0: v_color    (vec4) - instance color
+//   location 1: v_local_uv (vec2) - unit quad coords, 0..1 across the rect
+//   location 2: v_size     (vec2, flat) - the rect's world-space size
+// Fragments that do not read v_local_uv / v_size simply ignore them.
+//
 // Built-in shaders use:
 //   #include "velk.glsl"    - framework types (GlobalData, Ptr64, velk_unit_quad, VELK_DRAW_DATA)
 //   #include "velk-ui.glsl" - UI instance types (RectInstance, TextInstance)
 
-// ============================================================================
-// Rect
-// ============================================================================
-
-[[maybe_unused]] constexpr string_view rect_vertex_src = R"(
-#version 450
-#include "velk.glsl"
-#include "velk-ui.glsl"
-
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
-};
-
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) out vec4 v_color;
-
-void main()
-{
-    vec2 q = velk_unit_quad(gl_VertexIndex);
-    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec2 world_pos = inst.pos + q * inst.size;
-    gl_Position = root.global_data.view_projection * vec4(world_pos, 0.0, 1.0);
-    v_color = inst.color;
-}
-)";
-
-[[maybe_unused]] constexpr string_view rect_fragment_src = R"(
-#version 450
-
-layout(location = 0) in vec4 v_color;
-layout(location = 0) out vec4 frag_color;
-
-void main()
-{
-    frag_color = v_color;
-}
-)";
-
-// ============================================================================
-// Rounded rect
-// ============================================================================
-
-[[maybe_unused]] constexpr string_view rounded_rect_vertex_src = R"(
+[[maybe_unused]] constexpr string_view default_vertex_src = R"(
 #version 450
 #include "velk.glsl"
 #include "velk-ui.glsl"
@@ -79,68 +44,7 @@ void main()
 }
 )";
 
-[[maybe_unused]] constexpr string_view rounded_rect_fragment_src = R"(
-#version 450
-
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 v_local_uv;
-layout(location = 2) flat in vec2 v_size;
-layout(location = 0) out vec4 frag_color;
-
-float rounded_rect_sdf(vec2 p, vec2 half_size, float radius)
-{
-    vec2 d = abs(p) - half_size + radius;
-    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - radius;
-}
-
-void main()
-{
-    float radius = min(min(v_size.x, v_size.y) * 0.5, 12.0);
-    vec2 half_size = v_size * 0.5;
-    vec2 p = (v_local_uv - 0.5) * v_size;
-
-    float dist = rounded_rect_sdf(p, half_size, radius);
-    float alpha = 1.0 - smoothstep(-0.5, 0.5, dist);
-
-    if (alpha < 0.001) discard;
-    frag_color = vec4(v_color.rgb, v_color.a * alpha);
-}
-)";
-
-// ============================================================================
-// Default material shaders
-// ============================================================================
-
-// Default vertex shader for materials. Outputs:
-//   location 0: v_color    (vec4)
-//   location 1: v_local_uv (vec2)
-[[maybe_unused]] constexpr string_view material_vertex_src = R"(
-#version 450
-#include "velk.glsl"
-#include "velk-ui.glsl"
-
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
-};
-
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) out vec4 v_color;
-layout(location = 1) out vec2 v_local_uv;
-
-void main()
-{
-    vec2 q = velk_unit_quad(gl_VertexIndex);
-    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec2 world_pos = inst.pos + q * inst.size;
-    gl_Position = root.global_data.view_projection * vec4(world_pos, 0.0, 1.0);
-    v_color = inst.color;
-    v_local_uv = q;
-}
-)";
-
-// Default fragment shader: solid color passthrough.
-[[maybe_unused]] constexpr string_view material_fragment_src = R"(
+[[maybe_unused]] constexpr string_view default_fragment_src = R"(
 #version 450
 
 layout(location = 0) in vec4 v_color;
