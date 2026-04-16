@@ -90,4 +90,34 @@ ReturnValue ImageMaterial::write_gpu_data(void* out, size_t size) const
     return ReturnValue::Fail;
 }
 
+namespace {
+constexpr string_view image_fill_src = R"(
+layout(buffer_reference, std430) readonly buffer ImageMaterialData {
+    vec4 tint;
+};
+
+vec4 velk_fill_image(uint64_t data_addr, uint texture_id, uint shape_param, vec2 uv, vec4 base, vec3 ray_dir)
+{
+    ImageMaterialData d = ImageMaterialData(data_addr);
+    vec4 sampled = texture(velk_textures[nonuniformEXT(texture_id)], uv);
+    return sampled * d.tint;
+}
+)";
+} // namespace
+
+string_view ImageMaterial::get_fill_src() const
+{
+    return image_fill_src;
+}
+
+string_view ImageMaterial::get_fill_fn_name() const
+{
+    return "velk_fill_image";
+}
+
+string_view ImageMaterial::get_fill_include_name() const
+{
+    return "velk_image.glsl";
+}
+
 } // namespace velk::ui::impl

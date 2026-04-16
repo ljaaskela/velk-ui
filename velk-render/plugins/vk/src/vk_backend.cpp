@@ -397,12 +397,15 @@ bool VkBackend::create_device()
     features12.descriptorBindingPartiallyBound = VK_TRUE;
     features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
     features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    features12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     features12.runtimeDescriptorArray = VK_TRUE;
     features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    features12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 features2{};
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = &features12;
+    features2.features.shaderInt64 = VK_TRUE;
 
     VkDeviceCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

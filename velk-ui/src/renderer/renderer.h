@@ -141,9 +141,28 @@ private:
 
     std::unordered_map<IElement*, RenderTargetEntry> render_target_entries_;
 
-    // Compute pipeline key for the phase-1.1 RT test shader. Compiled lazily
-    // on first RT view.
-    uint64_t rt_test_pipeline_key_ = 0;
+    // Ray-tracer material tracking. First time a painted visual's material
+    // class is seen, we assign a stable small integer id (1, 2, ...; 0 is
+    // reserved for "no material"). The fill snippet + function name are
+    // captured so the composer can paste them into the compute shader.
+    struct RtMaterialInfo
+    {
+        string_view fill_fn_name;
+        string_view include_name;
+    };
+    vector<RtMaterialInfo> rt_material_info_by_id_; // index i -> material id (i+1)
+    std::unordered_map<uint64_t, uint32_t> rt_material_id_by_class_;
+
+    // Set of pipeline keys (hashes of material-id sets) already compiled.
+    std::unordered_map<uint64_t, bool> rt_compiled_pipelines_;
+
+    // Scratch: list of material ids present in the current view, sorted.
+    vector<uint32_t> rt_frame_materials_;
+
+    // Composes and compiles an RT compute pipeline for the given set of
+    // material ids (ascending, unique). Returns the pipeline key, or 0 on
+    // failure. Caches by a hash of the set; reused across frames.
+    uint64_t ensure_rt_pipeline(const vector<uint32_t>& material_ids);
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

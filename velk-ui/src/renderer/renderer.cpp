@@ -8,6 +8,9 @@
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <velk-render/interface/intf_material.h>
 #include <velk-ui/interface/intf_camera.h>
@@ -356,7 +359,6 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 float sw_full = static_cast<float>(sstate_rt ? sstate_rt->size.x : 0);
                 float sh_full = static_cast<float>(sstate_rt ? sstate_rt->size.y : 0);
                 bool has_vp = entry.viewport.width > 0 && entry.viewport.height > 0;
-                // View's pixel rect on the surface.
                 float vp_x_f = has_vp ? entry.viewport.x * sw_full : 0.f;
                 float vp_y_f = has_vp ? entry.viewport.y * sh_full : 0.f;
                 float vp_w_f = has_vp ? entry.viewport.width * sw_full : sw_full;
@@ -367,8 +369,6 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     continue;
                 }
 
-                // (Re)create storage output texture sized to the viewport
-                // (not the full surface). Blit scales to the viewport rect.
                 if (entry.rt_output_tex != 0 &&
                     (entry.rt_width != vp_w || entry.rt_height != vp_h)) {
                     resources_.defer_texture_destroy(
@@ -385,23 +385,312 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     entry.rt_width = vp_w;
                     entry.rt_height = vp_h;
                 }
-
-                // Compile the RT test compute pipeline once.
-                if (rt_test_pipeline_key_ == 0) {
-                    rt_test_pipeline_key_ =
-                        render_ctx_->compile_compute_pipeline(rt_test_compute_src);
-                }
-
-                auto pit = pipeline_map_->find(rt_test_pipeline_key_);
-                if (entry.rt_output_tex == 0 ||
-                    rt_test_pipeline_key_ == 0 ||
-                    pit == pipeline_map_->end()) {
+                if (entry.rt_output_tex == 0) {
                     continue;
                 }
 
-                struct PushC { uint32_t image_index; uint32_t width; uint32_t height; uint32_t pad; };
-                PushC pc{entry.rt_output_tex, static_cast<uint32_t>(vp_w),
-                         static_cast<uint32_t>(vp_h), 0};
+                // Camera view-projection + world position for ray generation.
+                mat4 vp_mat;
+                if (camera) {
+                    vp_mat = camera->get_view_projection(*entry.camera_element,
+                                                         static_cast<float>(vp_w),
+                                                         static_cast<float>(vp_h));
+                } else {
+                    float tmp[16];
+                    build_ortho_projection(tmp, static_cast<float>(vp_w),
+                                           static_cast<float>(vp_h));
+                    std::memcpy(vp_mat.m, tmp, sizeof(vp_mat.m));
+                }
+                auto inv_vp = mat4::inverse(vp_mat);
+                float cam_px = 0.f, cam_py = 0.f, cam_pz = 0.f;
+                if (auto es = read_state<IElement>(entry.camera_element)) {
+                    cam_px = es->world_matrix(0, 3);
+                    cam_py = es->world_matrix(1, 3);
+                    cam_pz = es->world_matrix(2, 3);
+                }
+
+                struct RtShape {
+                    float origin[4];    // xyz world origin; w reserved
+                    float u_axis[4];    // xyz = local x dir * width; w reserved
+                    float v_axis[4];    // xyz = local y dir * height; w reserved
+                    float color[4];
+                    float params[4];    // x = corner radius (world units)
+                    uint32_t material_id;
+                    uint32_t texture_id;
+                    uint32_t shape_param;
+                    uint32_t _pad;
+                    uint64_t material_data_addr;
+                    uint64_t _tail_pad;
+                };
+                static_assert(sizeof(RtShape) == 112, "RtShape layout mismatch");
+
+                auto register_material = [&](IProgram* prog) -> uint32_t {
+                    if (!prog) return 0;
+                    auto fill = prog->get_fill_src();
+                    auto fn = prog->get_fill_fn_name();
+                    auto inc = prog->get_fill_include_name();
+                    if (fill.empty() || fn.empty() || inc.empty()) return 0;
+                    auto* obj = interface_cast<IObject>(prog);
+                    if (!obj) return 0;
+                    Uid uid = obj->get_class_uid();
+                    uint64_t key = uid.hi ^ uid.lo;
+                    auto it = rt_material_id_by_class_.find(key);
+                    if (it != rt_material_id_by_class_.end()) {
+                        return it->second;
+                    }
+                    // Register the material's fill snippet as a shader
+                    // include so the composed shader can `#include "<name>"`
+                    // and get proper line-number diagnostics in compile errors.
+                    render_ctx_->register_shader_include(inc, fill);
+                    // Let the material register any further include
+                    // dependencies (e.g. the text material's velk_text.glsl).
+                    prog->register_fill_includes(*render_ctx_);
+                    uint32_t id = static_cast<uint32_t>(rt_material_info_by_id_.size()) + 1;
+                    rt_material_info_by_id_.push_back({fn, inc});
+                    rt_material_id_by_class_[key] = id;
+                    return id;
+                };
+
+                vector<RtShape> shapes;
+                shapes.reserve(sit->second.visual_list.size());
+                rt_frame_materials_.clear();
+
+                for (auto& ve : sit->second.visual_list) {
+                    if (ve.type != VisualEntry::Element || !ve.element) continue;
+                    auto es = read_state<IElement>(ve.element);
+                    if (!es) continue;
+                    auto* storage = interface_cast<IObjectStorage>(ve.element);
+                    if (!storage) continue;
+                    // Element world origin and local x/y axis basis. TRS/orbit
+                    // etc. compose into world_matrix; for a flat UI panel the
+                    // z components stay zero and we get the 2D behaviour back.
+                    float ox = es->world_matrix(0, 3);
+                    float oy = es->world_matrix(1, 3);
+                    float oz = es->world_matrix(2, 3);
+                    float ux = es->world_matrix(0, 0);
+                    float uy = es->world_matrix(1, 0);
+                    float uz = es->world_matrix(2, 0);
+                    float vx = es->world_matrix(0, 1);
+                    float vy = es->world_matrix(1, 1);
+                    float vz = es->world_matrix(2, 1);
+                    float ew = es->size.width;
+                    float eh = es->size.height;
+                    for (size_t j = 0; j < storage->attachment_count(); ++j) {
+                        auto* visual = interface_cast<IVisual>(storage->get_attachment(j));
+                        if (!visual) continue;
+                        auto vs = read_state<IVisual>(visual);
+                        if (!vs) continue;
+
+                        // Upload the material's per-draw data once per visual
+                        // (shared across all this visual's draw entries).
+                        uint32_t mat_id = 0;
+                        uint64_t mat_addr = 0;
+                        if (vs->paint) {
+                            auto prog_ptr = vs->paint.get<IProgram>();
+                            IProgram* prog = prog_ptr.get();
+                            mat_id = register_material(prog);
+                            if (mat_id == 0) {
+                                // Paint present but material has no RT fill
+                                // snippet; skip this visual entirely rather
+                                // than flood the bounds with its base color.
+                                continue;
+                            }
+                            size_t sz = prog->gpu_data_size();
+                            if (sz > 0) {
+                                void* scratch = std::malloc(sz);
+                                if (scratch) {
+                                    std::memset(scratch, 0, sz);
+                                    if (prog->write_gpu_data(scratch, sz) == ReturnValue::Success) {
+                                        mat_addr = frame_buffer_.write(scratch, sz);
+                                    }
+                                    std::free(scratch);
+                                }
+                            }
+                            bool seen = false;
+                            for (auto id : rt_frame_materials_) {
+                                if (id == mat_id) { seen = true; break; }
+                            }
+                            if (!seen) rt_frame_materials_.push_back(mat_id);
+                        }
+
+                        float radius = 0.f;
+                        if (!visual->get_intersect_src().empty()) {
+                            radius = std::min(std::min(ew, eh) * 0.5f, 12.f);
+                        }
+
+                        // Iterate the visual's draw entries; one RT shape per
+                        // entry. Each entry's instance_data carries
+                        // pos/size/color (standard prefix) and optionally
+                        // shape_param at offset 32 (e.g. glyph_index for text).
+                        rect local_rect{0, 0, ew, eh};
+                        auto entries = visual->get_draw_entries(local_rect);
+                        for (auto& entry : entries) {
+                            if (entry.instance_size < 16) {
+                                continue; // no pos/size, nothing to draw
+                            }
+                            float local_px = 0, local_py = 0, sz_w = 0, sz_h = 0;
+                            std::memcpy(&local_px, entry.instance_data + 0, 4);
+                            std::memcpy(&local_py, entry.instance_data + 4, 4);
+                            std::memcpy(&sz_w, entry.instance_data + 8, 4);
+                            std::memcpy(&sz_h, entry.instance_data + 12, 4);
+
+                            float cr = 0, cg = 0, cb = 0, ca = 1;
+                            if (entry.instance_size >= 32) {
+                                std::memcpy(&cr, entry.instance_data + 16, 4);
+                                std::memcpy(&cg, entry.instance_data + 20, 4);
+                                std::memcpy(&cb, entry.instance_data + 24, 4);
+                                std::memcpy(&ca, entry.instance_data + 28, 4);
+                            } else {
+                                cr = vs->color.r; cg = vs->color.g;
+                                cb = vs->color.b; ca = vs->color.a;
+                            }
+
+                            uint32_t shape_param = 0;
+                            if (entry.instance_size >= 36) {
+                                std::memcpy(&shape_param, entry.instance_data + 32, 4);
+                            }
+
+                            uint32_t tex_id = 0;
+                            if (entry.texture_key != 0) {
+                                auto* surf = reinterpret_cast<ISurface*>(
+                                    static_cast<uintptr_t>(entry.texture_key));
+                                tex_id = resources_.find_texture(surf);
+                            }
+
+                            // Shape origin in world space = element origin +
+                            // local (px, py) offset along element's axes.
+                            float sx = ox + ux * local_px + vx * local_py;
+                            float sy = oy + uy * local_px + vy * local_py;
+                            float sz = oz + uz * local_px + vz * local_py;
+
+                            RtShape s{};
+                            s.origin[0] = sx;
+                            s.origin[1] = sy;
+                            s.origin[2] = sz;
+                            s.origin[3] = 0.f;
+                            s.u_axis[0] = ux * sz_w;
+                            s.u_axis[1] = uy * sz_w;
+                            s.u_axis[2] = uz * sz_w;
+                            s.u_axis[3] = 0.f;
+                            s.v_axis[0] = vx * sz_h;
+                            s.v_axis[1] = vy * sz_h;
+                            s.v_axis[2] = vz * sz_h;
+                            s.v_axis[3] = 0.f;
+                            s.color[0] = cr;
+                            s.color[1] = cg;
+                            s.color[2] = cb;
+                            s.color[3] = ca;
+                            s.params[0] = radius;
+                            s.material_id = mat_id;
+                            s.texture_id = tex_id;
+                            s.shape_param = shape_param;
+                            s.material_data_addr = mat_addr;
+                            shapes.push_back(s);
+                        }
+                    }
+                }
+
+                // Environment: if the camera has one, ensure its texture is
+                // uploaded and its material is registered BEFORE compiling the
+                // RT pipeline (so env's fill snippet is composed in).
+                uint32_t env_mat_id = 0;
+                uint32_t env_tex_id = 0;
+                uint64_t env_data_addr = 0;
+                if (camera) {
+                    // Reuses the raster path's env-texture-upload logic. The
+                    // synthetic batch it appends to entry.batches is ignored
+                    // on the RT path (we skip batch processing).
+                    prepend_environment_batch(*camera, entry);
+
+                    auto cam_state2 = read_state<ICamera>(camera);
+                    if (cam_state2 && cam_state2->environment) {
+                        auto env_ptr = cam_state2->environment.get<IEnvironment>();
+                        if (env_ptr) {
+                            if (auto* env_surf = interface_cast<ISurface>(env_ptr)) {
+                                env_tex_id = resources_.find_texture(env_surf);
+                            }
+                            auto env_mat = env_ptr->get_material();
+                            if (env_mat) {
+                                auto env_prog = interface_pointer_cast<IProgram>(env_mat);
+                                IProgram* prog = env_prog.get();
+                                env_mat_id = register_material(prog);
+                                if (env_mat_id != 0) {
+                                    size_t sz = prog->gpu_data_size();
+                                    if (sz > 0) {
+                                        void* scratch = std::malloc(sz);
+                                        if (scratch) {
+                                            std::memset(scratch, 0, sz);
+                                            if (prog->write_gpu_data(scratch, sz) == ReturnValue::Success) {
+                                                env_data_addr = frame_buffer_.write(scratch, sz);
+                                            }
+                                            std::free(scratch);
+                                        }
+                                    }
+                                    bool seen = false;
+                                    for (auto id : rt_frame_materials_) {
+                                        if (id == env_mat_id) { seen = true; break; }
+                                    }
+                                    if (!seen) rt_frame_materials_.push_back(env_mat_id);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sort for deterministic hashing regardless of encounter order.
+                std::sort(rt_frame_materials_.begin(), rt_frame_materials_.end());
+                uint64_t rt_pipeline_key = ensure_rt_pipeline(rt_frame_materials_);
+                if (rt_pipeline_key == 0) {
+                    continue;
+                }
+                auto pit = pipeline_map_->find(rt_pipeline_key);
+                if (pit == pipeline_map_->end()) {
+                    continue;
+                }
+
+                // Compositing order is scene enumeration order (DFS/JSON).
+                // A camera-distance depth sort breaks that for a flat UI
+                // viewed at an angle, because coplanar shapes at different
+                // XY end up at different camera-space depths. Proper depth
+                // sorting becomes necessary once shapes live at genuinely
+                // different world z; until then, enumeration is authoritative.
+
+                uint64_t shapes_addr = 0;
+                if (!shapes.empty()) {
+                    shapes_addr = frame_buffer_.write(
+                        shapes.data(), shapes.size() * sizeof(RtShape));
+                }
+
+                struct PushC {
+                    float inv_vp[16];
+                    float cam_pos[4];
+                    uint32_t image_index;
+                    uint32_t width;
+                    uint32_t height;
+                    uint32_t shape_count;
+                    uint32_t env_material_id;
+                    uint32_t env_texture_id;
+                    uint32_t _env_pad0;
+                    uint32_t _env_pad1;
+                    uint64_t shapes_addr;
+                    uint64_t env_data_addr;
+                };
+                static_assert(sizeof(PushC) == 128, "PushC layout mismatch");
+
+                PushC pc{};
+                std::memcpy(pc.inv_vp, inv_vp.m, sizeof(pc.inv_vp));
+                pc.cam_pos[0] = cam_px;
+                pc.cam_pos[1] = cam_py;
+                pc.cam_pos[2] = cam_pz;
+                pc.cam_pos[3] = 0.f;
+                pc.image_index = entry.rt_output_tex;
+                pc.width = static_cast<uint32_t>(vp_w);
+                pc.height = static_cast<uint32_t>(vp_h);
+                pc.shape_count = static_cast<uint32_t>(shapes.size());
+                pc.env_material_id = env_mat_id;
+                pc.env_texture_id = env_tex_id;
+                pc.shapes_addr = shapes_addr;
+                pc.env_data_addr = env_data_addr;
 
                 RenderPass pass;
                 pass.kind = PassKind::ComputeBlit;
@@ -783,6 +1072,74 @@ void Renderer::shutdown()
     batch_builder_.clear();
     draw_calls_.clear();
     pipeline_map_ = nullptr;
+}
+
+uint64_t Renderer::ensure_rt_pipeline(const vector<uint32_t>& material_ids)
+{
+    if (!render_ctx_) {
+        return 0;
+    }
+
+    // Pipeline cache key: FNV-1a on the sorted material-id list. 0 material
+    // ids hashes to the FNV basis; so the "no materials" pipeline is stable.
+    constexpr uint64_t kFnvBasis = 0xcbf29ce484222325ULL;
+    constexpr uint64_t kFnvPrime = 0x100000001b3ULL;
+    constexpr uint64_t kRtTag = 0x5274436f6d702000ULL; // "RtComp \0" to avoid collisions
+    uint64_t key = kFnvBasis ^ kRtTag;
+    for (auto id : material_ids) {
+        key = (key ^ static_cast<uint64_t>(id)) * kFnvPrime;
+    }
+    // Avoid collision with the render-context's auto-assign counter range
+    // (PipelineKey::CustomBase..). Sentinel bit forces the key well away.
+    key |= 0x8000000000000000ULL;
+
+    auto cached = rt_compiled_pipelines_.find(key);
+    if (cached != rt_compiled_pipelines_.end()) {
+        return key;
+    }
+
+    // Compose source: prelude + #include each active material's snippet
+    // + generated dispatch + main.
+    string src;
+    src += rt_compute_prelude_src;
+    for (auto id : material_ids) {
+        if (id == 0 || id > rt_material_info_by_id_.size()) continue;
+        const auto& mi = rt_material_info_by_id_[id - 1];
+        src += string_view("#include \"", 10);
+        src += mi.include_name;
+        src += string_view("\"\n", 2);
+    }
+
+    auto append_literal = [&src](const char* s) {
+        src += string_view(s, std::strlen(s));
+    };
+
+    append_literal(
+        "vec4 velk_resolve_fill(uint mid, uint64_t addr, uint tex_id, uint shape_param,"
+        " vec2 uv, vec4 base, vec3 ray_dir) {\n");
+    append_literal("    switch (mid) {\n");
+    char buf[128];
+    for (auto id : material_ids) {
+        if (id == 0 || id > rt_material_info_by_id_.size()) continue;
+        const auto& mi = rt_material_info_by_id_[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += mi.fill_fn_name;
+        append_literal("(addr, tex_id, shape_param, uv, base, ray_dir);\n");
+    }
+    append_literal("        default: return base;\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+    src += rt_compute_main_src;
+
+    uint64_t compiled = render_ctx_->compile_compute_pipeline(string_view(src), key);
+    if (compiled == 0) {
+        return 0;
+    }
+    rt_compiled_pipelines_[key] = true;
+    return key;
 }
 
 void Renderer::prepend_environment_batch(ICamera& camera, ViewEntry& entry)

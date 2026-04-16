@@ -117,4 +117,42 @@ ReturnValue EnvMaterial::write_gpu_data(void* out, size_t size) const
     });
 }
 
+namespace {
+constexpr string_view env_fill_src = R"(
+layout(buffer_reference, std430) readonly buffer EnvMaterialData {
+    vec4 params; // x = intensity, y = rotation_rad
+};
+
+vec4 velk_fill_env(uint64_t data_addr, uint texture_id, uint shape_param, vec2 uv, vec4 base, vec3 ray_dir)
+{
+    const float PI = 3.14159265358979323846;
+    EnvMaterialData d = EnvMaterialData(data_addr);
+    float c = cos(d.params.y);
+    float s = sin(d.params.y);
+    vec3 dir = vec3(c * ray_dir.x + s * ray_dir.z,
+                    ray_dir.y,
+                    -s * ray_dir.x + c * ray_dir.z);
+    float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
+    float v = asin(clamp(dir.y, -1.0, 1.0)) / PI + 0.5;
+    vec3 rgb = texture(velk_textures[nonuniformEXT(texture_id)], vec2(u, v)).rgb;
+    return vec4(rgb * d.params.x, 1.0);
+}
+)";
+} // namespace
+
+string_view EnvMaterial::get_fill_src() const
+{
+    return env_fill_src;
+}
+
+string_view EnvMaterial::get_fill_fn_name() const
+{
+    return "velk_fill_env";
+}
+
+string_view EnvMaterial::get_fill_include_name() const
+{
+    return "velk_env.glsl";
+}
+
 } // namespace velk::ui::impl

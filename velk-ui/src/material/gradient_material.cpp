@@ -94,4 +94,38 @@ ReturnValue GradientMaterial::write_gpu_data(void* out, size_t size) const
     return ReturnValue::Fail;
 }
 
+namespace {
+constexpr string_view gradient_fill_src = R"(
+layout(buffer_reference, std430) readonly buffer GradientMaterialData {
+    vec4 start_color;
+    vec4 end_color;
+    vec4 angle_pad; // x = angle in degrees; yzw unused
+};
+
+vec4 velk_fill_gradient(uint64_t data_addr, uint texture_id, uint shape_param, vec2 uv, vec4 base, vec3 ray_dir)
+{
+    GradientMaterialData d = GradientMaterialData(data_addr);
+    float rad = radians(d.angle_pad.x);
+    vec2 dir = vec2(cos(rad), sin(rad));
+    float t = clamp(dot(uv - 0.5, dir) + 0.5, 0.0, 1.0);
+    return mix(d.start_color, d.end_color, t);
+}
+)";
+} // namespace
+
+string_view GradientMaterial::get_fill_src() const
+{
+    return gradient_fill_src;
+}
+
+string_view GradientMaterial::get_fill_fn_name() const
+{
+    return "velk_fill_gradient";
+}
+
+string_view GradientMaterial::get_fill_include_name() const
+{
+    return "velk_gradient.glsl";
+}
+
 } // namespace velk::ui

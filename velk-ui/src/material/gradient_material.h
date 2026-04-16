@@ -23,6 +23,10 @@ public:
     uint64_t get_pipeline_handle(IRenderContext& ctx) override;
     size_t gpu_data_size() const override;
     ReturnValue write_gpu_data(void* out, size_t size) const override;
+
+    string_view get_fill_src() const override;
+    string_view get_fill_fn_name() const override;
+    string_view get_fill_include_name() const override;
 };
 
 } // namespace velk::ui

@@ -138,4 +138,59 @@ ReturnValue TextMaterial::write_gpu_data(void* out, size_t size) const
     return ReturnValue::Fail;
 }
 
+namespace {
+// Fill snippet for the compute ray tracer. Wraps slug's velk_text_coverage
+// to produce alpha-modulated coverage; the hit's base color (the glyph's
+// TextInstance color) passes through via `base`.
+//
+// The compute shader's hit_uv has y=0 at the top of the glyph rect, while
+// velk_text_coverage expects FreeType's Y-up convention (y=0 at descender).
+// The flip mirrors the y = 1 - q.y that the raster vertex shader applies.
+constexpr string_view text_fill_src = R"(
+// Compute shaders don't have fragment-quad derivatives, so fwidth() isn't
+// available. Override it with a fixed per-pixel uv estimate before
+// pulling in velk_text.glsl. This fixes AA quality to a single glyph
+// scale (good around 32px tall glyphs); a per-shape derivative would
+// come from a CPU-side pixel-footprint estimate in a later pass.
+#define fwidth(x) vec2(1.0 / 32.0)
+#include "velk_text.glsl"
+
+// Non-readonly to match velk_text_coverage's parameters (GLSL refuses to
+// drop a readonly memory qualifier across a function boundary).
+layout(buffer_reference, std430) buffer TextMaterialData {
+    VelkTextCurveBuffer curves;
+    VelkTextBandBuffer bands;
+    VelkTextGlyphBuffer glyphs;
+};
+
+vec4 velk_fill_text(uint64_t data_addr, uint texture_id, uint shape_param, vec2 uv, vec4 base, vec3 ray_dir)
+{
+    TextMaterialData d = TextMaterialData(data_addr);
+    vec2 glyph_uv = vec2(uv.x, 1.0 - uv.y);
+    float coverage = velk_text_coverage(glyph_uv, shape_param, d.curves, d.bands, d.glyphs);
+    return vec4(base.rgb, base.a * coverage);
+}
+)";
+} // namespace
+
+string_view TextMaterial::get_fill_src() const
+{
+    return text_fill_src;
+}
+
+string_view TextMaterial::get_fill_fn_name() const
+{
+    return "velk_fill_text";
+}
+
+string_view TextMaterial::get_fill_include_name() const
+{
+    return "velk_text_fill.glsl";
+}
+
+void TextMaterial::register_fill_includes(IRenderContext& ctx) const
+{
+    ctx.register_shader_include("velk_text.glsl", embedded::velk_text_glsl);
+}
+
 } // namespace velk::ui

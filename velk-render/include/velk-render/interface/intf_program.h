@@ -3,6 +3,7 @@
 
 #include <velk/interface/intf_metadata.h>
 
+#include <velk/string_view.h>
 #include <velk-render/interface/intf_gpu_resource.h>
 
 #include <cstddef>
@@ -53,6 +54,57 @@ public:
      * @return ReturnValue::Success on success, ReturnValue::Fail on error.
      */
     virtual ReturnValue write_gpu_data(void* out, size_t size) const = 0;
+
+    /**
+     * @brief Returns a GLSL snippet that defines this program's fill function
+     *        for composed shaders (e.g. the RT compute tracer).
+     *
+     * Convention: the snippet is self-contained and declares
+     *   - Any buffer_reference structs it needs for its per-draw data
+     *     (matching what write_gpu_data emits).
+     *   - Exactly one function with the signature
+     *        vec4 <fn_name>(uint64_t data_addr, vec2 uv)
+     *     where data_addr points to the bytes produced by write_gpu_data and
+     *     uv is the shape-local texture coordinate in [0, 1].
+     * The concrete function name is returned by get_fill_fn_name() so the
+     * composer can generate a dispatch switch.
+     *
+     * Default empty = "no snippet"; the consumer falls back to a solid base
+     * color. Rasterization is unchanged either way.
+     */
+    virtual string_view get_fill_src() const { return {}; }
+
+    /**
+     * @brief Returns the name of the fill function declared by get_fill_src().
+     *
+     * Must be unique across material classes (typically derived from the
+     * class name, e.g. "velk_fill_gradient"). Empty when get_fill_src() is
+     * empty.
+     */
+    virtual string_view get_fill_fn_name() const { return {}; }
+
+    /**
+     * @brief Returns the filename under which this material's fill snippet
+     *        should be registered as a shader include (e.g. "velk_gradient.glsl").
+     *
+     * The renderer calls IRenderContext::register_shader_include(name, src)
+     * with this name and the get_fill_src() body, then composed shaders
+     * reference the snippet via `#include "<name>"`. Matches the pattern
+     * the text plugin uses for velk_text.glsl. Empty when there is no
+     * snippet to register.
+     */
+    virtual string_view get_fill_include_name() const { return {}; }
+
+    /**
+     * @brief Hook for materials whose fill snippet depends on additional
+     *        shader includes (e.g. the text material's velk_text.glsl).
+     *
+     * The renderer calls this once when the material class is first
+     * encountered on the RT path, before composing any compute pipeline
+     * that references it. Implementations call ctx.register_shader_include()
+     * for each dependency. Idempotent.
+     */
+    virtual void register_fill_includes(IRenderContext& /*ctx*/) const {}
 };
 
 } // namespace velk
