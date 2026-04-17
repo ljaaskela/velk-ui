@@ -40,6 +40,13 @@ add_library(velk_ui SHARED
     src/material/gradient_material.h
     src/material/gradient_material.cpp
     src/renderer/default_ui_shaders.h
+    src/renderer/view_renderer.h
+    src/renderer/env_helper.h
+    src/renderer/env_helper.cpp
+    src/renderer/rasterizer.h
+    src/renderer/rasterizer.cpp
+    src/renderer/ray_tracer.h
+    src/renderer/ray_tracer.cpp
     src/renderer/renderer.h
     src/renderer/renderer.cpp
     src/import/align_type_extension.h

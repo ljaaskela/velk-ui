@@ -1,0 +1,58 @@
+#ifndef VELK_UI_RAY_TRACER_H
+#define VELK_UI_RAY_TRACER_H
+
+#include <velk/string.h>
+#include <velk/vector.h>
+
+#include <unordered_map>
+
+#include "view_renderer.h"
+
+namespace velk::ui {
+
+/**
+ * @brief Per-view renderer that produces a compute-dispatch + blit pass.
+ *
+ * Owns the RT material registry (stable material ids + fill-snippet
+ * metadata), the compiled compute pipeline cache (keyed by active material
+ * set), and any per-view RT allocations (storage output textures live on
+ * ViewEntry and are released in on_view_removed).
+ *
+ * Activated when a view's camera has render_path == RenderPath::RayTrace.
+ * Skipped otherwise; no state is touched.
+ */
+class RayTracer : public IViewRenderer
+{
+public:
+    void build_passes(ViewEntry& view,
+                      const SceneState& scene_state,
+                      FrameContext& ctx,
+                      vector<RenderPass>& out_passes) override;
+    void on_view_removed(ViewEntry& view, FrameContext& ctx) override;
+    void shutdown(FrameContext& ctx) override;
+
+private:
+    struct MaterialInfo
+    {
+        string_view fill_fn_name;
+        string_view include_name;
+    };
+
+    // Material class (low 64 bits of class UID) -> small integer id.
+    // id 0 is reserved for "no material"; valid ids start at 1.
+    std::unordered_map<uint64_t, uint32_t> material_id_by_class_;
+    vector<MaterialInfo> material_info_by_id_;
+
+    // Set of pipeline keys (hashes of material-id sets) we have compiled.
+    std::unordered_map<uint64_t, bool> compiled_pipelines_;
+
+    // Scratch per-frame set of material ids referenced this view.
+    vector<uint32_t> frame_materials_;
+
+    uint32_t register_material(IProgram* prog, FrameContext& ctx);
+    uint64_t ensure_pipeline(const vector<uint32_t>& material_ids, FrameContext& ctx);
+};
+
+} // namespace velk::ui
+
+#endif // VELK_UI_RAY_TRACER_H

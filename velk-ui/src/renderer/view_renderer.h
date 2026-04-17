@@ -1,0 +1,157 @@
+#ifndef VELK_UI_VIEW_RENDERER_H
+#define VELK_UI_VIEW_RENDERER_H
+
+#include <velk/vector.h>
+
+#include <unordered_map>
+#include <velk-render/interface/intf_gpu_resource.h>
+#include <velk-render/interface/intf_render_backend.h>
+#include <velk-render/interface/intf_render_context.h>
+#include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_window_surface.h>
+#include <velk-render/render_types.h>
+#include <velk-ui/interface/intf_element.h>
+#include <velk-ui/interface/intf_scene.h>
+
+#include "batch_builder.h"
+#include "frame_data_manager.h"
+#include "gpu_resource_manager.h"
+
+namespace velk::ui {
+
+/** @brief Shared non-owning context passed to per-view sub-renderers. */
+struct FrameContext
+{
+    IRenderBackend* backend = nullptr;
+    IRenderContext* render_ctx = nullptr;
+    FrameDataManager* frame_buffer = nullptr;
+    GpuResourceManager* resources = nullptr;
+    BatchBuilder* batch_builder = nullptr; ///< Shared visual-command cache.
+    const std::unordered_map<uint64_t, PipelineId>* pipeline_map = nullptr;
+    IGpuResourceObserver* observer = nullptr; ///< Renderer as observer of GPU resources.
+    uint64_t present_counter = 0;
+    uint64_t latency_frames = 0;
+};
+
+/** @brief Bundles a render target owned by a pass. */
+struct ViewRenderTarget
+{
+    IRenderTarget::Ptr target;
+};
+
+/** @brief Discriminator for the kind of pass a sub-renderer produces. */
+enum class PassKind
+{
+    Raster,      ///< Classic vkCmdBeginRenderPass + draw calls.
+    ComputeBlit, ///< Compute dispatch writing to a storage image, then blit to a surface.
+};
+
+/**
+ * @brief A unit of GPU work produced by a sub-renderer and submitted by
+ *        Renderer in a single command buffer alongside the other passes.
+ *
+ * The structure is a tagged union (see PassKind). Unused fields for the
+ * non-active kind are zero-initialised.
+ */
+struct RenderPass
+{
+    PassKind kind = PassKind::Raster;
+
+    // Raster fields
+    ViewRenderTarget target;
+    rect viewport;
+    vector<DrawCall> draw_calls;
+
+    // ComputeBlit fields
+    DispatchCall compute{};
+    uint64_t blit_surface_id = 0;
+    TextureId blit_source = 0;
+    rect blit_dst_rect{};
+};
+
+/**
+ * @brief Renderer-owned per-view state.
+ *
+ * Visible to all sub-renderers. Each sub-renderer reads/writes only the
+ * fields relevant to its path (raster fields for the rasterizer, rt_* for
+ * the ray tracer); they do not conflict in practice. On view removal, each
+ * sub-renderer releases its own per-view allocations via on_view_removed.
+ */
+struct ViewEntry
+{
+    IElement::Ptr camera_element;
+    IWindowSurface::Ptr surface;
+    rect viewport;
+
+    // Raster-scoped
+    bool batches_dirty = true;
+    int cached_width = 0;
+    int cached_height = 0;
+    vector<BatchBuilder::Batch> batches;
+
+    // Ray-traced output texture (RT-scoped; lives in the bindless storage
+    // image array). Reallocated on viewport size change.
+    TextureId rt_output_tex = 0;
+    int rt_width = 0;
+    int rt_height = 0;
+};
+
+/**
+ * @brief Interface for a per-view renderer.
+ *
+ * An IViewRenderer knows how to turn a single view (camera + surface +
+ * viewport + scene state) into zero or more RenderPasses. The outer Renderer
+ * instantiates one concrete implementation per supported path (rasterizer,
+ * ray tracer) and dispatches each view to the right one based on the
+ * camera's `render_path` property.
+ *
+ * Plugins may provide additional IViewRenderer implementations for custom
+ * render paths (e.g. hybrid or hardware-RT variants).
+ */
+class IViewRenderer
+{
+public:
+    virtual ~IViewRenderer() = default;
+
+    /**
+     * @brief Appends zero or more passes for @p view to @p out_passes.
+     *
+     * Called once per frame per view. The implementation may maintain
+     * per-view state (caches, storage textures) keyed off the ViewEntry.
+     */
+    virtual void build_passes(ViewEntry& view,
+                              const SceneState& scene_state,
+                              FrameContext& ctx,
+                              vector<RenderPass>& out_passes) = 0;
+
+    /**
+     * @brief Emits any extra passes that are not per-view (e.g. raster
+     *        render-to-texture passes that serve multiple views).
+     *
+     * Called once per frame after all build_passes calls have completed, so
+     * implementations can observe the full per-frame shape/batch state before
+     * emitting. Default no-op.
+     */
+    virtual void build_shared_passes(FrameContext& /*ctx*/,
+                                     vector<RenderPass>& /*out_passes*/) {}
+
+    /** @brief Hook called when a view is removed. Release per-view state. */
+    virtual void on_view_removed(ViewEntry& /*view*/, FrameContext& /*ctx*/) {}
+
+    /**
+     * @brief Hook called when an element is detached from a scene.
+     *
+     * Fires once per detached element during the per-frame consume pass,
+     * before any build_passes call. Implementations release any per-element
+     * state they cache (e.g. the rasterizer's render-target texture for
+     * elements with a RenderCache trait). Default no-op.
+     */
+    virtual void on_element_removed(IElement* /*elem*/, FrameContext& /*ctx*/) {}
+
+    /** @brief Hook called on Renderer shutdown. Release all remaining state. */
+    virtual void shutdown(FrameContext& /*ctx*/) {}
+};
+
+} // namespace velk::ui
+
+#endif // VELK_UI_VIEW_RENDERER_H
