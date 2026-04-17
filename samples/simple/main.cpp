@@ -1,3 +1,5 @@
+#include "velk-ui/plugins/text/api/text_visual.h"
+
 #include <velk/api/any.h>
 #include <velk/api/callback.h>
 #include <velk/api/velk.h>
@@ -5,14 +7,27 @@
 #include <velk-render/api/material/shader.h>
 #include <velk-render/api/render_context.h>
 #include <velk-runtime/api/application.h>
+#include <velk-ui/api/camera.h>
 #include <velk-ui/api/element.h>
 #include <velk-ui/api/input/click.h>
 #include <velk-ui/api/material/gradient.h>
 #include <velk-ui/api/scene.h>
+#include <velk-ui/api/trait/fixed_size.h>
 #include <velk-ui/api/trait/orbit.h>
+#include <velk-ui/api/trait/trs.h>
 #include <velk-ui/api/visual/rect.h>
 #include <velk-ui/api/visual/visual.h>
 #include <velk-ui/interface/intf_camera.h>
+
+constexpr velk::string_view ipsum = R"(
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Proin tortor purus platea sit eu id nisi litora libero. Neque vulputate consequat ac amet augue blandit maximus aliquet congue.
+Pharetra vestibulum posuere ornare faucibus fusce dictumst orci aenean eu facilisis ut volutpat commodo senectus purus himenaeos fames primis convallis nisi.
+Phasellus fermentum malesuada phasellus netus dictum aenean placerat egestas amet. Ornare taciti semper dolor tristique morbi. Sem leo tincidunt aliquet semper eu lectus scelerisque quis. Sagittis vivamus mollis nisi mollis enim fermentum laoreet.
+Curabitur semper venenatis lectus viverra ex dictumst nulla maximus. Primis iaculis elementum conubia feugiat venenatis dolor augue ac blandit nullam ac phasellus turpis feugiat mollis.
+Duis lectus porta mattis imperdiet vivamus augue litora lectus arcu. Justo torquent pharetra volutpat ad blandit bibendum accumsan nec elit cras luctus primis ipsum gravida class congue.
+Vehicula etiam elementum finibus enim duis feugiat commodo adipiscing tortor tempor elit. Et mollis consectetur habitant turpis tortor consectetur adipiscing vulputate dolor lectus iaculis convallis adipiscing.
+Nam hendrerit dignissim condimentum ullamcorper diam morbi eget consectetur odio in sagittis.
+)";
 
 int main(int argc, char* argv[])
 {
@@ -25,6 +40,7 @@ int main(int argc, char* argv[])
     wc.width = kWidth;
     wc.height = kHeight;
     wc.title = "velk-ui";
+    // wc.update_rate = velk::UpdateRate::Unlimited;
 
     auto app = velk::create_app(config);
     auto window = app.create_window(wc);
@@ -32,6 +48,10 @@ int main(int argc, char* argv[])
         VELK_LOG(E, "Initialization failed");
         return 1;
     }
+
+    velk::instance().plugin_registry().load_plugin_from_path("velk_tracy.dll");
+
+    VELK_LOG(E, "ipsum: %zu", ipsum.size());
 
     // Load scene
     auto scene = velk::ui::create_scene("app://scenes/dashboard.json");
@@ -43,10 +63,12 @@ int main(int argc, char* argv[])
     auto camera_3d = scene.find_first<velk::ui::IOrbit>(); // only the perspective one has orbit
 
     if (camera) {
-        app.add_view(window, camera, {0, 0, 0.5f, 1.0f});
+        app.add_view(window, camera, {0.5f, 0, 0.5f, 1.0f});
     }
     if (camera_3d) {
-        app.add_view(window, camera_3d, {.5f, 0, .5f, 1.0f});
+        velk::ui::Camera(camera_3d.find_trait<velk::ui::ICamera>())
+            .set_render_path(velk::ui::RenderPath::RayTrace);
+        app.add_view(window, camera_3d, {0, 0, .5f, 1.0f});
     }
 
     // Orbit camera control via input dispatcher events.
@@ -108,6 +130,29 @@ int main(int argc, char* argv[])
             VELK_LOG(E, "Clicked %f %f", ev.local_position.x, ev.local_position.y);
         });
         root.add_trait(click);
+    }
+
+    {
+        float offset = -100;
+        float c = 0.f;
+        /*for (auto i = 0; i < 10; i++) {
+            auto root = velk::ui::create_element();
+            auto sz =
+                velk::ui::trait::layout::create_fixed_size(velk::ui::dim::px(640), velk::ui::dim::px(1080));
+            auto tr = velk::ui::trait::transform::create_trs();
+            tr.set_translate({offset, offset, 0});
+            auto vis = velk::ui::trait::visual::create_text();
+            vis.set_text(ipsum);
+            vis.set_color({1.f - c, c, (c * 2.f) / 2.f, 1});
+            vis.set_font_size(28 - (1.f - c) * 14);
+            vis.set_layout(velk::ui::TextLayout::WordWrap);
+            root.add_trait(sz);
+            root.add_trait(tr);
+            root.add_trait(vis);
+            scene.add(scene.root(), root);
+            offset += 10;
+            c += .1f;
+        }*/
     }
 
     // Custom shader material: checkerboard pattern on the first card
