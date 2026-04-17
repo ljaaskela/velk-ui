@@ -20,6 +20,8 @@ add_library(velk_render SHARED
     src/shader_material.cpp
     src/standard_material.h
     src/standard_material.cpp
+    src/rt_shadow.h
+    src/rt_shadow.cpp
     src/spirv_material_reflect.h
     src/spirv_material_reflect.cpp
     src/surface.h
@@ -46,6 +48,10 @@ add_library(velk_render SHARED
     include/velk-render/detail/intf_renderer_internal.h
     include/velk-render/api/render_context.h
     include/velk-render/api/material/shader.h
+    include/velk-render/interface/intf_render_technique.h
+    include/velk-render/interface/intf_shadow_technique.h
+    include/velk-render/api/render_technique.h
+    include/velk-render/api/shadow_technique.h
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

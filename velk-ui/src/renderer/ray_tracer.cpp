@@ -10,9 +10,12 @@
 
 #include <velk-render/interface/intf_material.h>
 #include <velk-render/interface/intf_program.h>
+#include <velk-render/interface/intf_render_technique.h>
+#include <velk-render/interface/intf_shadow_technique.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-ui/interface/intf_camera.h>
 #include <velk-ui/interface/intf_environment.h>
+#include <velk-ui/interface/intf_light.h>
 #include <velk-ui/interface/intf_visual.h>
 
 #include <algorithm>
@@ -39,6 +42,28 @@ void build_ortho_projection(float* out, float width, float height)
 }
 
 } // namespace
+
+uint32_t RayTracer::register_shadow_tech(IShadowTechnique* tech, FrameContext& ctx)
+{
+    if (!tech || !ctx.render_ctx) return 0;
+    auto inc = tech->get_shader_include();
+    auto fn = tech->get_fn_name();
+    if (inc.snippet.empty() || inc.include_name.empty() || fn.empty()) return 0;
+    auto* obj = interface_cast<IObject>(tech);
+    if (!obj) return 0;
+    Uid uid = obj->get_class_uid();
+    uint64_t key = uid.hi ^ uid.lo;
+    auto it = shadow_tech_id_by_class_.find(key);
+    if (it != shadow_tech_id_by_class_.end()) {
+        return it->second;
+    }
+    ctx.render_ctx->register_shader_include(inc.include_name, inc.snippet);
+    tech->register_includes(*ctx.render_ctx);
+    uint32_t id = static_cast<uint32_t>(shadow_tech_info_by_id_.size()) + 1;
+    shadow_tech_info_by_id_.push_back({fn, inc.include_name});
+    shadow_tech_id_by_class_[key] = id;
+    return id;
+}
 
 uint32_t RayTracer::register_material(IProgram* prog, FrameContext& ctx)
 {
@@ -68,18 +93,27 @@ uint32_t RayTracer::register_material(IProgram* prog, FrameContext& ctx)
     return id;
 }
 
-uint64_t RayTracer::ensure_pipeline(const vector<uint32_t>& material_ids, FrameContext& ctx)
+uint64_t RayTracer::ensure_pipeline(const vector<uint32_t>& material_ids,
+                                    const vector<uint32_t>& shadow_tech_ids,
+                                    FrameContext& ctx)
 {
     if (!ctx.render_ctx) {
         return 0;
     }
 
-    // Pipeline cache key: FNV-1a on the sorted material-id list.
+    // Pipeline cache key: FNV-1a across the sorted material-id and
+    // shadow-tech-id lists. Different technique combos compose to
+    // different shaders, so they need distinct cache entries.
     constexpr uint64_t kFnvBasis = 0xcbf29ce484222325ULL;
     constexpr uint64_t kFnvPrime = 0x100000001b3ULL;
     constexpr uint64_t kRtTag = 0x5274436f6d702000ULL;
     uint64_t key = kFnvBasis ^ kRtTag;
     for (auto id : material_ids) {
+        key = (key ^ static_cast<uint64_t>(id)) * kFnvPrime;
+    }
+    // Separator so a material id X can't collide with a shadow id X.
+    key = (key ^ 0xdeadbeefULL) * kFnvPrime;
+    for (auto id : shadow_tech_ids) {
         key = (key ^ static_cast<uint64_t>(id)) * kFnvPrime;
     }
     // Sentinel bit keeps RT keys well away from the render context's
@@ -91,8 +125,8 @@ uint64_t RayTracer::ensure_pipeline(const vector<uint32_t>& material_ids, FrameC
         return key;
     }
 
-    // Compose source: prelude + #include each active material's snippet
-    // + generated dispatch switch + main.
+    // Compose source: prelude + #include each active material & shadow
+    // technique snippet + generated dispatch switches + main.
     string src;
     src += rt_compute_prelude_src;
     for (auto id : material_ids) {
@@ -100,6 +134,13 @@ uint64_t RayTracer::ensure_pipeline(const vector<uint32_t>& material_ids, FrameC
         const auto& mi = material_info_by_id_[id - 1];
         src += string_view("#include \"", 10);
         src += mi.include_name;
+        src += string_view("\"\n", 2);
+    }
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info_by_id_.size()) continue;
+        const auto& ti = shadow_tech_info_by_id_[id - 1];
+        src += string_view("#include \"", 10);
+        src += ti.include_name;
         src += string_view("\"\n", 2);
     }
 
@@ -123,6 +164,24 @@ uint64_t RayTracer::ensure_pipeline(const vector<uint32_t>& material_ids, FrameC
     append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; return bs; }\n");
     append_literal("    }\n");
     append_literal("}\n");
+
+    // Shadow dispatch: tech_id 0 means "no shadow" (fully lit).
+    append_literal("float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal) {\n");
+    append_literal("    switch (tech_id) {\n");
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info_by_id_.size()) continue;
+        const auto& ti = shadow_tech_info_by_id_[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ti.fn_name;
+        append_literal("(light_idx, world_pos, world_normal);\n");
+    }
+    append_literal("        default: return 1.0;\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
     src += rt_compute_main_src;
 
     uint64_t compiled = ctx.render_ctx->compile_compute_pipeline(string_view(src), key);
@@ -373,6 +432,97 @@ void RayTracer::build_passes(ViewEntry& entry,
         }
     }
 
+    // Enumerate scene lights. Structure mirrors GLSL `struct Light` in
+    // the compute prelude:
+    //   uvec4 flags          x = LightType, y = shadow_tech_id, zw = _
+    //   vec4  position       xyz = world position (point / spot)
+    //   vec4  direction      xyz = world forward axis (dir / spot)
+    //   vec4  color_intensity rgb = colour, a = intensity
+    //   vec4  params         x = range, y = cos(inner), z = cos(outer), w = _
+    struct GpuLight {
+        uint32_t flags[4];
+        float    position[4];
+        float    direction[4];
+        float    color_intensity[4];
+        float    params[4];
+    };
+    static_assert(sizeof(GpuLight) == 80, "GpuLight layout mismatch");
+
+    vector<GpuLight> lights;
+    frame_shadow_techs_.clear();
+
+    for (auto& ve : scene_state.visual_list) {
+        if (ve.type != VisualEntry::Element || !ve.element) continue;
+        auto es = read_state<IElement>(ve.element);
+        if (!es) continue;
+        auto* storage = interface_cast<IObjectStorage>(ve.element);
+        if (!storage) continue;
+
+        for (size_t j = 0; j < storage->attachment_count(); ++j) {
+            auto* light = interface_cast<ILight>(storage->get_attachment(j));
+            if (!light) continue;
+            auto ls = read_state<ILight>(light);
+            if (!ls) continue;
+
+            // Find a shadow technique attached to this light (first wins).
+            IShadowTechnique* shadow_tech = nullptr;
+            auto* light_obj = interface_cast<IObject>(light);
+            if (auto* light_storage = interface_cast<IObjectStorage>(light_obj)) {
+                for (size_t k = 0; k < light_storage->attachment_count(); ++k) {
+                    if (auto* st = interface_cast<IShadowTechnique>(
+                            light_storage->get_attachment(k))) {
+                        shadow_tech = st;
+                        break;
+                    }
+                }
+            }
+            uint32_t shadow_tech_id = 0;
+            if (shadow_tech) {
+                shadow_tech_id = register_shadow_tech(shadow_tech, ctx);
+                if (shadow_tech_id != 0) {
+                    bool seen = false;
+                    for (auto id : frame_shadow_techs_) {
+                        if (id == shadow_tech_id) { seen = true; break; }
+                    }
+                    if (!seen) frame_shadow_techs_.push_back(shadow_tech_id);
+                }
+            }
+
+            GpuLight g{};
+            g.flags[0] = static_cast<uint32_t>(ls->type);
+            g.flags[1] = shadow_tech_id;
+            // Position = element world translation.
+            g.position[0] = es->world_matrix(0, 3);
+            g.position[1] = es->world_matrix(1, 3);
+            g.position[2] = es->world_matrix(2, 3);
+            // Forward = -Z column of the element's world matrix (same
+            // convention as camera forward); normalise to drop scale.
+            float fx = -es->world_matrix(0, 2);
+            float fy = -es->world_matrix(1, 2);
+            float fz = -es->world_matrix(2, 2);
+            float flen = std::sqrt(fx * fx + fy * fy + fz * fz);
+            if (flen > 1e-6f) { fx /= flen; fy /= flen; fz /= flen; }
+            g.direction[0] = fx;
+            g.direction[1] = fy;
+            g.direction[2] = fz;
+            g.color_intensity[0] = ls->color.r;
+            g.color_intensity[1] = ls->color.g;
+            g.color_intensity[2] = ls->color.b;
+            g.color_intensity[3] = ls->intensity;
+            g.params[0] = ls->range;
+            constexpr float kDegToRad = 0.017453292519943295f;
+            g.params[1] = std::cos(ls->cone_inner_deg * kDegToRad);
+            g.params[2] = std::cos(ls->cone_outer_deg * kDegToRad);
+            lights.push_back(g);
+        }
+    }
+
+    uint64_t lights_addr = 0;
+    if (!lights.empty()) {
+        lights_addr = ctx.frame_buffer->write(
+            lights.data(), lights.size() * sizeof(GpuLight));
+    }
+
     // Environment: must register its material BEFORE compiling the pipeline
     // so its fill snippet is composed in.
     uint32_t env_mat_id = 0;
@@ -410,7 +560,8 @@ void RayTracer::build_passes(ViewEntry& entry,
     }
 
     std::sort(frame_materials_.begin(), frame_materials_.end());
-    uint64_t rt_pipeline_key = ensure_pipeline(frame_materials_, ctx);
+    std::sort(frame_shadow_techs_.begin(), frame_shadow_techs_.end());
+    uint64_t rt_pipeline_key = ensure_pipeline(frame_materials_, frame_shadow_techs_, ctx);
     if (rt_pipeline_key == 0) {
         return;
     }
@@ -499,8 +650,13 @@ void RayTracer::build_passes(ViewEntry& entry,
         uint32_t _env_pad1;
         uint64_t shapes_addr;
         uint64_t env_data_addr;
+        // Lights appended for the hybrid-lighting compositor. light_count
+        // = 0 means no dynamic lights; env-based lighting still applies.
+        uint64_t lights_addr;
+        uint32_t light_count;
+        uint32_t _lights_pad;
     };
-    static_assert(sizeof(PushC) == 128, "PushC layout mismatch");
+    static_assert(sizeof(PushC) == 144, "PushC layout mismatch");
 
     PushC pc{};
     std::memcpy(pc.inv_vp, inv_vp.m, sizeof(pc.inv_vp));
@@ -517,6 +673,8 @@ void RayTracer::build_passes(ViewEntry& entry,
     pc.frame_counter = static_cast<uint32_t>(ctx.present_counter);
     pc.shapes_addr = shapes_addr;
     pc.env_data_addr = env_data_addr;
+    pc.lights_addr = lights_addr;
+    pc.light_count = static_cast<uint32_t>(lights.size());
 
     RenderPass pass;
     pass.kind = PassKind::ComputeBlit;

@@ -15,6 +15,7 @@
 #include "material/gradient_material.h"
 #include "renderer/renderer.h"
 #include "scene.h"
+#include "trait/light.h"
 #include "transform/look_at.h"
 #include "transform/matrix.h"
 #include "transform/orbit.h"
@@ -48,6 +49,7 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<impl::RenderCache>(velk);
     rv &= register_type<GradientMaterial>(velk);
     rv &= register_type<impl::Camera>(velk);
+    rv &= register_type<impl::Light>(velk);
     rv &= register_type<Trs>(velk);
     rv &= register_type<Matrix>(velk);
     rv &= register_type<LookAt>(velk);

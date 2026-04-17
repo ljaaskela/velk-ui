@@ -9,11 +9,13 @@
 
 #include <velk-render/api/material/standard.h>
 #include <velk-render/api/render_context.h>
+#include <velk-render/api/shadow_technique.h>
 #include <velk-runtime/api/application.h>
 #include <velk-ui/api/camera.h>
 #include <velk-ui/api/element.h>
 #include <velk-ui/api/scene.h>
 #include <velk-ui/api/trait/fixed_size.h>
+#include <velk-ui/api/trait/light.h>
 #include <velk-ui/api/trait/orbit.h>
 #include <velk-ui/api/trait/trs.h>
 #include <velk-ui/api/visual/cube.h>
@@ -138,6 +140,23 @@ int main(int /*argc*/, char* /*argv*/[])
         }
 
         build_mirror_grid(scene, grid_root);
+    }
+
+    // Sun: directional light above-and-ahead of the grid, casting
+    // ray-traced shadows onto the floor + tiles. Direction is the
+    // light element's forward axis (-Z), so the Trs rotation below
+    // tilts the sun to a nice angle.
+    {
+        auto sun_light = velk::ui::trait::render::create_directional_light(
+            velk::color{1.f, 0.96f, 0.88f, 1.f}, /*intensity=*/2.5f);
+        sun_light.add_technique(velk::technique::create_rt_shadow());
+
+        auto sun = velk::ui::create_element();
+        auto sun_trs = velk::ui::trait::transform::create_trs();
+        sun_trs.set_rotation({35.f, 25.f, 0.f}); // pitch down (+Y forward) + yaw right
+        sun.add_trait(sun_trs);
+        sun.add_trait(sun_light);
+        scene.add(scene.root(), sun);
     }
 
     // Animated 3D accents in front of the mirror grid. Cube + sphere,

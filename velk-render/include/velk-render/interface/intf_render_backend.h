@@ -89,8 +89,12 @@ struct ComputePipelineDesc
     IShader::Ptr compute; ///< Compute shader (SPIR-V).
 };
 
-/// Maximum push constant size in bytes (Vulkan guaranteed minimum).
-inline constexpr size_t kMaxRootConstantsSize = 128;
+/// Maximum push constant size in bytes. Vulkan's guaranteed minimum is
+/// 128; 256 is supported by every modern desktop GPU (NVIDIA Turing+,
+/// AMD RDNA2+, Intel Gen12+) and all tested AMD/NVIDIA mobile parts.
+/// Bumped so the RT push constants can carry both the shape buffer and
+/// the per-frame light buffer addresses in one dispatch.
+inline constexpr size_t kMaxRootConstantsSize = 256;
 
 /// A single draw call submitted to the backend.
 struct DrawCall

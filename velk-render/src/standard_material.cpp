@@ -77,6 +77,40 @@ BrdfSample velk_fill_standard(FillContext ctx)
     float VdotN = max(dot(V, N), 0.0);
     vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotN, 5.0);
 
+    // Direct lighting from scene lights. Each light contributes a
+    // Lambertian diffuse term scaled by its distance / spot attenuation
+    // and modulated by its shadow technique's visibility. Specular
+    // highlight for direct lights is left to the bounce path for now;
+    // once that shows up as a real limitation we can add analytic
+    // GGX specular here too.
+    vec3 direct = vec3(0.0);
+    for (uint li = 0u; li < pc.light_count; ++li) {
+        Light light = pc.lights.data[li];
+        vec3 L;
+        float atten = 1.0;
+        if (light.flags.x == 0u) {
+            // Directional light: L = -forward axis, no distance falloff.
+            L = -light.direction.xyz;
+        } else {
+            vec3 to_light = light.position.xyz - ctx.hit_pos;
+            float dist = length(to_light);
+            L = to_light / max(dist, 1e-6);
+            float range = max(light.params.x, 1e-6);
+            float t = clamp(1.0 - dist / range, 0.0, 1.0);
+            atten = t * t;
+            if (light.flags.x == 2u) {
+                // Spot: smooth cosine falloff between inner and outer.
+                float cos_a = dot(-L, light.direction.xyz);
+                atten *= smoothstep(light.params.z, light.params.y, cos_a);
+            }
+        }
+        float NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0 || atten <= 0.0) continue;
+        float shadow = velk_eval_shadow(light.flags.y, li, ctx.hit_pos, N);
+        vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * atten * shadow;
+        direct += d.base_color.rgb * (1.0 - metallic) * NdotL * radiance;
+    }
+
     // Diffuse term: crude "irradiance at the normal" via a single env sample.
     // TODO: proper diffuse lighting is a cosine-weighted integral of the env
     // over the upper hemisphere at N. A single point sample underestimates
@@ -99,7 +133,7 @@ BrdfSample velk_fill_standard(FillContext ctx)
     vec3 L = reflect(-V, H);
 
     BrdfSample bs;
-    bs.emission = vec4(kD * diffuse, d.base_color.a);
+    bs.emission = vec4(kD * diffuse + direct, d.base_color.a);
     bs.throughput = F;
     bs.next_dir = L;
     bs.terminate = false;

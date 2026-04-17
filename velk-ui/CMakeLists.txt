@@ -3,6 +3,7 @@ add_library(velk_ui SHARED
     src/plugin.cpp
     src/camera.h
     src/camera.cpp
+    src/trait/light.h
     src/element.h
     src/element.cpp
     src/scene.h
@@ -81,6 +82,9 @@ add_library(velk_ui SHARED
     include/velk-ui/interface/trait/intf_hover.h
     include/velk-ui/interface/trait/intf_drag.h
     include/velk-ui/interface/intf_camera.h
+    include/velk-ui/interface/intf_light.h
+    include/velk-ui/api/render_trait.h
+    include/velk-ui/api/trait/light.h
     include/velk-ui/interface/intf_element.h
     include/velk-ui/interface/intf_font.h
     include/velk-ui/interface/intf_renderer.h

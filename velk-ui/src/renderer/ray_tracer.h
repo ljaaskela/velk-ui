@@ -8,6 +8,10 @@
 
 #include "view_renderer.h"
 
+namespace velk {
+class IShadowTechnique;
+} // namespace velk
+
 namespace velk::ui {
 
 /**
@@ -38,19 +42,35 @@ private:
         string_view include_name;
     };
 
+    struct ShadowTechInfo
+    {
+        string_view fn_name;
+        string_view include_name;
+    };
+
     // Material class (low 64 bits of class UID) -> small integer id.
     // id 0 is reserved for "no material"; valid ids start at 1.
     std::unordered_map<uint64_t, uint32_t> material_id_by_class_;
     vector<MaterialInfo> material_info_by_id_;
 
-    // Set of pipeline keys (hashes of material-id sets) we have compiled.
+    // Shadow-technique class (low 64 bits of class UID) -> small integer
+    // id. id 0 is reserved for "no shadow technique" (fully lit).
+    std::unordered_map<uint64_t, uint32_t> shadow_tech_id_by_class_;
+    vector<ShadowTechInfo> shadow_tech_info_by_id_;
+
+    // Set of pipeline keys (hashes of material-id + shadow-tech-id sets)
+    // we have compiled.
     std::unordered_map<uint64_t, bool> compiled_pipelines_;
 
-    // Scratch per-frame set of material ids referenced this view.
+    // Scratch per-frame sets of referenced material / shadow-tech ids.
     vector<uint32_t> frame_materials_;
+    vector<uint32_t> frame_shadow_techs_;
 
     uint32_t register_material(IProgram* prog, FrameContext& ctx);
-    uint64_t ensure_pipeline(const vector<uint32_t>& material_ids, FrameContext& ctx);
+    uint32_t register_shadow_tech(IShadowTechnique* tech, FrameContext& ctx);
+    uint64_t ensure_pipeline(const vector<uint32_t>& material_ids,
+                             const vector<uint32_t>& shadow_tech_ids,
+                             FrameContext& ctx);
 };
 
 } // namespace velk::ui

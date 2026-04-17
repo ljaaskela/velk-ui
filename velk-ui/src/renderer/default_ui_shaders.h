@@ -92,6 +92,19 @@ layout(buffer_reference, std430) readonly buffer ShapeList {
     RtShape data[];
 };
 
+// Scene light. Mirrors the C++ GpuLight struct (80 bytes).
+struct Light {
+    uvec4 flags;           // x = type (0=dir, 1=point, 2=spot), y = shadow_tech_id, zw = _
+    vec4  position;        // xyz = world position (point / spot)
+    vec4  direction;       // xyz = world forward axis (directional / spot)
+    vec4  color_intensity; // rgb = colour, a = intensity multiplier
+    vec4  params;          // x = range, y = cos(inner), z = cos(outer), w = _
+};
+
+layout(buffer_reference, std430) readonly buffer LightList {
+    Light data[];
+};
+
 layout(push_constant) uniform PC {
     mat4 inv_view_projection;
     vec4 cam_pos;
@@ -99,6 +112,9 @@ layout(push_constant) uniform PC {
     uvec4 env;          // x=env_material_id, y=env_texture_id, z=frame_counter, w=_
     ShapeList shapes;
     uint64_t env_data_addr;
+    LightList lights;
+    uint light_count;
+    uint _lights_pad;
 } pc;
 
 // ===== Core ray / hit / fill-context types =====
@@ -378,6 +394,13 @@ bool trace_closest_hit(Ray ray, out RayHit hit) {
 // Forward declaration. The composer emits the actual definition after
 // material #includes. Materials are pure (no recursion into trace_ray).
 BrdfSample velk_resolve_fill(uint mid, FillContext ctx);
+
+// Forward declaration for the shadow-technique dispatch. Emitted by
+// the composer after shadow-technique #includes. Materials that want
+// to attenuate their direct-lighting contribution by occlusion call
+// this with the light's shadow_tech_id; tech_id 0 returns 1.0 (fully
+// lit, no shadow technique attached to that light).
+float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal);
 
 // Sample the environment along a direction (or return black if the
 // camera has no env). Inlined here rather than going through the env
