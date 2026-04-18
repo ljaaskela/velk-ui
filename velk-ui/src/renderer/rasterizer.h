@@ -14,8 +14,10 @@ namespace velk::ui {
  * @brief Per-view renderer that emits classic graphics draw passes.
  *
  * Owns the RenderToTexture (RTT) texture cache used by elements with
- * RenderCache traits. Activated when a view's camera has
- * render_path == RenderPath::Raster (or no camera).
+ * RenderCache traits. Activated for views whose camera has
+ * render_path == RenderPath::Forward or Deferred (i.e. any non-RT
+ * view). For Deferred views the rasterizer additionally emits a
+ * G-buffer fill pass; Forward views skip it.
  *
  * Uses (but does not own) the Renderer-hosted BatchBuilder via the
  * FrameContext; that cache is shared with the GPU-resource-upload pass
@@ -58,6 +60,20 @@ private:
     // Returns the group handle (0 on failure or zero-size viewport).
     RenderTargetGroup ensure_gbuffer(ViewEntry& view, int width, int height,
                                      FrameContext& ctx);
+
+    // Forward path: one surface draw pass. Env batch (prepended in
+    // rebuild) renders first, then scene geometry.
+    void emit_forward_pass(ViewEntry& view, FrameContext& ctx,
+                           uint64_t globals_gpu_addr,
+                           const rect& viewport,
+                           vector<RenderPass>& out_passes);
+
+    // Deferred path: G-buffer fill only. DeferredLighter emits the
+    // compute lighting pass; composite-to-surface is a later milestone.
+    void emit_deferred_gbuffer_pass(ViewEntry& view, FrameContext& ctx,
+                                    int width, int height,
+                                    uint64_t globals_gpu_addr,
+                                    vector<RenderPass>& out_passes);
 };
 
 } // namespace velk::ui

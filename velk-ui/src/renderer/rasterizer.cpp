@@ -75,9 +75,16 @@ void Rasterizer::build_passes(ViewEntry& entry,
         camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
     }
 
+    bool deferred_view = false;
+    if (camera) {
+        if (auto cs = read_state<ICamera>(camera)) {
+            deferred_view = (cs->render_path == RenderPath::Deferred);
+        }
+    }
+
     if (entry.batches_dirty) {
         ctx.batch_builder->rebuild_batches(scene_state, entry.batches);
-        if (camera) {
+        if (camera && !deferred_view) {
             prepend_environment_batch(*camera, entry, ctx);
         }
         entry.batches_dirty = false;
@@ -112,6 +119,22 @@ void Rasterizer::build_passes(ViewEntry& entry,
         globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
     }
 
+    if (deferred_view) {
+        emit_deferred_gbuffer_pass(entry, ctx, static_cast<int>(vp_w),
+                                   static_cast<int>(vp_h), globals_gpu_addr, out_passes);
+    } else {
+        float vp_x = has_viewport ? entry.viewport.x * sw : 0;
+        float vp_y = has_viewport ? entry.viewport.y * sh : 0;
+        emit_forward_pass(entry, ctx, globals_gpu_addr,
+                          {vp_x, vp_y, vp_w, vp_h}, out_passes);
+    }
+}
+
+void Rasterizer::emit_forward_pass(ViewEntry& entry, FrameContext& ctx,
+                                   uint64_t globals_gpu_addr,
+                                   const rect& viewport,
+                                   vector<RenderPass>& out_passes)
+{
     vector<DrawCall> draw_calls;
     ctx.batch_builder->build_draw_calls(entry.batches,
                                         draw_calls,
@@ -124,38 +147,36 @@ void Rasterizer::build_passes(ViewEntry& entry,
 
     RenderPass pass;
     pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
-    float vp_x = has_viewport ? entry.viewport.x * sw : 0;
-    float vp_y = has_viewport ? entry.viewport.y * sh : 0;
-    pass.viewport = {vp_x, vp_y, vp_w, vp_h};
+    pass.viewport = viewport;
     pass.draw_calls = std::move(draw_calls);
     out_passes.push_back(std::move(pass));
+}
 
-    // Deferred G-buffer fill. Run in parallel with the forward surface
-    // pass: reuses the same batches (instance data) but compiles a
-    // deferred pipeline variant per batch against the view's G-buffer
-    // group. The G-buffer is consumed by the compute lighting pass in
-    // the next milestone.
-    auto gbuffer_group = ensure_gbuffer(
-        entry, static_cast<int>(vp_w), static_cast<int>(vp_h), ctx);
-    if (gbuffer_group != 0) {
-        vector<DrawCall> gbuffer_draw_calls;
-        ctx.batch_builder->build_gbuffer_draw_calls(entry.batches,
-                                                    gbuffer_draw_calls,
-                                                    *ctx.frame_buffer,
-                                                    *ctx.resources,
-                                                    globals_gpu_addr,
-                                                    ctx.render_ctx,
-                                                    gbuffer_group,
-                                                    ctx.observer);
+void Rasterizer::emit_deferred_gbuffer_pass(ViewEntry& entry, FrameContext& ctx,
+                                            int width, int height,
+                                            uint64_t globals_gpu_addr,
+                                            vector<RenderPass>& out_passes)
+{
+    auto gbuffer_group = ensure_gbuffer(entry, width, height, ctx);
+    if (gbuffer_group == 0) return;
 
-        RenderPass g_pass;
-        g_pass.kind = PassKind::GBufferFill;
-        g_pass.gbuffer_group = gbuffer_group;
-        g_pass.viewport = {0, 0, static_cast<float>(entry.gbuffer_width),
-                           static_cast<float>(entry.gbuffer_height)};
-        g_pass.draw_calls = std::move(gbuffer_draw_calls);
-        out_passes.push_back(std::move(g_pass));
-    }
+    vector<DrawCall> gbuffer_draw_calls;
+    ctx.batch_builder->build_gbuffer_draw_calls(entry.batches,
+                                                gbuffer_draw_calls,
+                                                *ctx.frame_buffer,
+                                                *ctx.resources,
+                                                globals_gpu_addr,
+                                                ctx.render_ctx,
+                                                gbuffer_group,
+                                                ctx.observer);
+
+    RenderPass g_pass;
+    g_pass.kind = PassKind::GBufferFill;
+    g_pass.gbuffer_group = gbuffer_group;
+    g_pass.viewport = {0, 0, static_cast<float>(entry.gbuffer_width),
+                       static_cast<float>(entry.gbuffer_height)};
+    g_pass.draw_calls = std::move(gbuffer_draw_calls);
+    out_passes.push_back(std::move(g_pass));
 }
 
 void Rasterizer::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out_passes)

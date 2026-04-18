@@ -359,7 +359,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
                 camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
             }
-            RenderPath render_path = RenderPath::Raster;
+            RenderPath render_path = RenderPath::Forward;
             if (camera) {
                 auto cam_state = read_state<ICamera>(camera);
                 if (cam_state) {

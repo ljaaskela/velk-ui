@@ -15,11 +15,25 @@ enum class Projection : uint8_t
     Perspective,
 };
 
-/** @brief How the renderer produces pixels for a view driven by this camera. */
+/**
+ * @brief How the renderer produces pixels for a view driven by this camera.
+ *
+ * The three paths have distinct pipeline shapes:
+ *   - `Forward`  → one forward raster pass, direct to surface. No G-buffer,
+ *                  no deferred lighting. Right fit for 2D UI that doesn't
+ *                  need PBR lighting, shadows, or GI.
+ *   - `Deferred` → raster fills a G-buffer, a compute pass evaluates
+ *                  lighting (direct lighting, shadow techniques, future
+ *                  AO / reflections / GI), a composite pass writes the
+ *                  result to the surface.
+ *   - `RayTrace` → a compute-shader path tracer writes a storage image
+ *                  that's blitted to the surface.
+ */
 enum class RenderPath : uint8_t
 {
-    Raster,   ///< Conventional rasterization pass (default).
-    RayTrace, ///< Compute-dispatch ray tracer writing to a storage image.
+    Forward,   ///< Simple forward raster. Default — cheapest, no lighting.
+    Deferred,  ///< G-buffer + compute lighting. For lit 3D scenes.
+    RayTrace,  ///< Compute-shader path tracer.
 };
 
 /**
@@ -36,7 +50,7 @@ class ICamera : public Interface<ICamera, IRenderTrait>
 public:
     VELK_INTERFACE(
         (PROP, Projection, projection, Projection::Ortho),
-        (PROP, RenderPath, render_path, RenderPath::Raster),
+        (PROP, RenderPath, render_path, RenderPath::Forward),
         (PROP, float, zoom, 1.f),
         (PROP, float, scale, 1.f),
         (PROP, float, fov, 60.f),

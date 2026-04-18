@@ -17,9 +17,9 @@ namespace velk::ui {
  * by a later milestone (B.3.b); today the storage image is written
  * but never read.
  *
- * Runs only for views whose camera uses `RenderPath::Raster` (or has
- * no camera). RT views already produce their final image via the
- * existing compute+blit path in RayTracer.
+ * Runs only for views whose camera uses `RenderPath::Deferred`.
+ * Forward views stay on the plain rasterizer; RT views produce their
+ * final image via the ray-tracer's compute+blit path.
  */
 class DeferredLighter : public IViewRenderer
 {

@@ -35,15 +35,18 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     if (!ctx.backend || !ctx.render_ctx || !ctx.pipeline_map) return;
     if (entry.gbuffer_group == 0) return; // rasterizer hasn't allocated the G-buffer yet
 
-    // Only run on raster-path views. RT views produce their final
-    // image through the ray-tracer's compute+blit pipeline.
+    // Only run for Deferred views. Forward views skip the deferred
+    // pipeline entirely; RT views produce their final image through
+    // the ray-tracer's compute+blit pipeline.
+    bool is_deferred = false;
     if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
         if (auto* cam = interface_cast<ICamera>(storage->find_attachment<ICamera>())) {
             if (auto cs = read_state<ICamera>(cam)) {
-                if (cs->render_path == RenderPath::RayTrace) return;
+                is_deferred = (cs->render_path == RenderPath::Deferred);
             }
         }
     }
+    if (!is_deferred) return;
 
     int w = entry.gbuffer_width;
     int h = entry.gbuffer_height;
