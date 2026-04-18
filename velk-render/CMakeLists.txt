@@ -29,6 +29,7 @@ add_library(velk_render SHARED
     include/velk-render/platform.h
     include/velk-render/render_types.h
     include/velk-render/gpu_data.h
+    include/velk-render/gbuffer.h
     include/velk-render/interface/intf_buffer.h
     include/velk-render/interface/intf_render_backend.h
     include/velk-render/interface/intf_render_context.h

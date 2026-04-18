@@ -351,4 +351,104 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
     }
 }
 
+void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
+                                            vector<DrawCall>& out_calls,
+                                            FrameDataManager& frame_data,
+                                            GpuResourceManager& resources,
+                                            uint64_t globals_gpu_addr,
+                                            IRenderContext* render_ctx,
+                                            RenderTargetGroup target_group,
+                                            IGpuResourceObserver* observer)
+{
+    VELK_PERF_SCOPE("renderer.build_gbuffer_draw_calls");
+
+    if (!render_ctx || target_group == 0) {
+        return;
+    }
+
+    for (auto& batch : batches) {
+        uint64_t instances_addr =
+            frame_data.write(batch.instance_data.data(), batch.instance_data.size());
+        if (!instances_addr) {
+            continue;
+        }
+
+        uint32_t texture_id = 0;
+        if (batch.texture_key != 0) {
+            auto* tex = reinterpret_cast<ISurface*>(batch.texture_key);
+            texture_id = resources.find_texture(tex);
+            if (texture_id == 0) {
+                uint64_t rt_id = get_render_target_id(tex);
+                if (rt_id != 0) {
+                    texture_id = static_cast<uint32_t>(rt_id);
+                }
+            }
+        }
+
+        DrawDataHeader header{};
+        header.globals_address = globals_gpu_addr;
+        header.instances_address = instances_addr;
+        header.texture_id = texture_id;
+        header.instance_count = batch.instance_count;
+
+        size_t mat_size = batch.material ? batch.material->gpu_data_size() : 0;
+        size_t total_size = sizeof(DrawDataHeader) + mat_size;
+
+        auto reservation = frame_data.reserve(total_size);
+        if (!reservation.ptr) {
+            continue;
+        }
+        auto* dst = static_cast<uint8_t*>(reservation.ptr);
+        uint64_t draw_data_addr = reservation.gpu_addr;
+        std::memcpy(dst, &header, sizeof(header));
+        if (mat_size > 0) {
+            if (failed(batch.material->write_gpu_data(dst + sizeof(DrawDataHeader), mat_size))) {
+                continue;
+            }
+        }
+
+        // Resolve the G-buffer pipeline variant. Forward key is stable
+        // (hash on visual class / material), so we reuse it as the key
+        // in the G-buffer pipeline map. Sources come from the material's
+        // deferred overrides if present, else the registered defaults.
+        uint64_t key = batch.pipeline_key;
+        if (key == 0 && batch.material) {
+            key = batch.material->get_pipeline_handle(*render_ctx);
+        }
+        if (key == 0) {
+            continue;
+        }
+
+        PipelineId gpid = 0;
+        auto& gmap = render_ctx->gbuffer_pipeline_map();
+        auto git = gmap.find(key);
+        if (git != gmap.end()) {
+            gpid = git->second;
+        } else {
+            string_view vsrc;
+            string_view fsrc;
+            if (batch.material) {
+                vsrc = batch.material->get_gbuffer_vertex_src();
+                fsrc = batch.material->get_gbuffer_fragment_src();
+            }
+            gpid = render_ctx->compile_gbuffer_pipeline(fsrc, vsrc, key, target_group);
+        }
+        if (gpid == 0) {
+            continue;
+        }
+
+        (void)resources; // reserved for future per-resource registration
+        (void)observer;
+
+        DrawCall call{};
+        call.pipeline = gpid;
+        call.vertex_count = 4;
+        call.instance_count = batch.instance_count;
+        call.root_constants_size = sizeof(uint64_t);
+        std::memcpy(call.root_constants, &draw_data_addr, sizeof(uint64_t));
+
+        out_calls.push_back(call);
+    }
+}
+
 } // namespace velk::ui

@@ -52,6 +52,8 @@ add_library(velk_ui SHARED
     src/renderer/rasterizer.cpp
     src/renderer/ray_tracer.h
     src/renderer/ray_tracer.cpp
+    src/renderer/deferred_lighter.h
+    src/renderer/deferred_lighter.cpp
     src/renderer/renderer.h
     src/renderer/renderer.cpp
     src/import/align_type_extension.h

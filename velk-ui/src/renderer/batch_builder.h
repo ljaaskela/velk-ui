@@ -73,6 +73,23 @@ public:
                           IRenderContext* render_ctx,
                           IGpuResourceObserver* observer);
 
+    /**
+     * @brief Same as build_draw_calls, but emits deferred-pipeline draw
+     *        calls targeting a G-buffer render target group.
+     *
+     * Compiles G-buffer pipeline variants on demand (one per forward
+     * pipeline_key) using the material's `get_gbuffer_*_src()` when a
+     * material is present, otherwise the registered default G-buffer
+     * shaders. Variants are cached in `render_ctx->gbuffer_pipeline_map()`
+     * and reused across views (group render passes are format-compatible).
+     */
+    void build_gbuffer_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
+                                  FrameDataManager& frame_data, GpuResourceManager& resources,
+                                  uint64_t globals_gpu_addr,
+                                  IRenderContext* render_ctx,
+                                  RenderTargetGroup target_group,
+                                  IGpuResourceObserver* observer);
+
     /** @brief Removes an element from the cache. */
     void evict(IElement* element) { element_cache_.erase(element); }
 

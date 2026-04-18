@@ -1,0 +1,48 @@
+#ifndef VELK_UI_DEFERRED_LIGHTER_H
+#define VELK_UI_DEFERRED_LIGHTER_H
+
+#include "view_renderer.h"
+
+namespace velk::ui {
+
+/**
+ * @brief Per-view compute pass that consumes the G-buffer and produces
+ *        a fully shaded storage image.
+ *
+ * The Rasterizer emits a `PassKind::GBufferFill` that populates the
+ * per-view G-buffer (albedo / normal / world-pos / material-params).
+ * DeferredLighter runs a compute shader immediately after that pass,
+ * sampling the G-buffer and writing per-pixel shaded color into a
+ * storage image also owned on `ViewEntry`. Blit-to-surface is handled
+ * by a later milestone (B.3.b); today the storage image is written
+ * but never read.
+ *
+ * Runs only for views whose camera uses `RenderPath::Raster` (or has
+ * no camera). RT views already produce their final image via the
+ * existing compute+blit path in RayTracer.
+ */
+class DeferredLighter : public IViewRenderer
+{
+public:
+    void build_passes(ViewEntry& view,
+                      const SceneState& scene_state,
+                      FrameContext& ctx,
+                      vector<RenderPass>& out_passes) override;
+
+    void on_view_removed(ViewEntry& view, FrameContext& ctx) override;
+    void shutdown(FrameContext& ctx) override;
+
+private:
+    // Compiled compute pipeline key (single pipeline reused across views,
+    // since all view G-buffer groups are format-compatible).
+    uint64_t pipeline_key_ = 0;
+
+    // Fullscreen composite pipeline that samples the deferred output
+    // texture and alpha-blends it onto the surface. Compiled lazily on
+    // first use; shared across views (surface render passes are compatible).
+    uint64_t composite_pipeline_key_ = 0;
+};
+
+} // namespace velk::ui
+
+#endif // VELK_UI_DEFERRED_LIGHTER_H

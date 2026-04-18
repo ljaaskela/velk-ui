@@ -24,18 +24,36 @@ public:
     IShader::Ptr compile_shader(string_view source, ShaderStage stage,
                                 uint64_t key = 0) override;
     uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
-                             uint64_t key = 0) override;
+                             uint64_t key = 0,
+                             RenderTargetGroup target_group = 0) override;
     uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
-                              uint64_t key = 0) override;
+                              uint64_t key = 0,
+                              RenderTargetGroup target_group = 0) override;
     uint64_t create_compute_pipeline(const IShader::Ptr& compute, uint64_t key = 0) override;
     uint64_t compile_compute_pipeline(string_view compute_source, uint64_t key = 0) override;
 
     void set_default_vertex_shader(const IShader::Ptr& shader) override;
     void set_default_fragment_shader(const IShader::Ptr& shader) override;
 
+    void set_default_gbuffer_vertex_shader(const IShader::Ptr& shader) override;
+    void set_default_gbuffer_fragment_shader(const IShader::Ptr& shader) override;
+
+    IShader::Ptr get_default_gbuffer_vertex_shader() const override { return default_gbuffer_vertex_shader_; }
+    IShader::Ptr get_default_gbuffer_fragment_shader() const override { return default_gbuffer_fragment_shader_; }
+
     void register_shader_include(string_view name, string_view content) override;
 
     const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const override { return pipeline_map_; }
+
+    const std::unordered_map<uint64_t, PipelineId>& gbuffer_pipeline_map() const override
+    {
+        return gbuffer_pipeline_map_;
+    }
+
+    PipelineId compile_gbuffer_pipeline(string_view fragment_source,
+                                        string_view vertex_source,
+                                        uint64_t key,
+                                        RenderTargetGroup target_group) override;
 
     IRenderBackend::Ptr backend() const override { return backend_; }
 
@@ -46,6 +64,9 @@ private:
     mutable ShaderCache shader_cache_;
     IShader::Ptr default_vertex_shader_;
     IShader::Ptr default_fragment_shader_;
+    IShader::Ptr default_gbuffer_vertex_shader_;
+    IShader::Ptr default_gbuffer_fragment_shader_;
+    std::unordered_map<uint64_t, PipelineId> gbuffer_pipeline_map_;
     uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
     bool initialized_ = false;
 };

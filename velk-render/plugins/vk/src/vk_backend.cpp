@@ -215,6 +215,24 @@ void VkBackend::shutdown()
     }
     pipelines_.clear();
 
+    // Destroy MRT render target groups. Must run before textures_ since
+    // group attachments are regular TextureIds owned by the group; the
+    // group destroyer cascades to destroy_texture on each attachment.
+    for (auto& [id, gd] : render_target_groups_) {
+        if (gd.framebuffer)       vkDestroyFramebuffer(device_, gd.framebuffer, nullptr);
+        if (gd.render_pass)       vkDestroyRenderPass(device_, gd.render_pass, nullptr);
+        if (gd.load_render_pass)  vkDestroyRenderPass(device_, gd.load_render_pass, nullptr);
+        for (auto a : gd.attachments) {
+            auto tit = textures_.find(a);
+            if (tit == textures_.end()) continue;
+            auto& td = tit->second;
+            if (td.view)  vkDestroyImageView(device_, td.view, nullptr);
+            if (td.image) vmaDestroyImage(allocator_, td.image, td.allocation);
+            textures_.erase(tit);
+        }
+    }
+    render_target_groups_.clear();
+
     // Destroy textures
     for (auto& [id, td] : textures_) {
         if (td.is_renderable) {
@@ -912,6 +930,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
             case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
         }
     }
+    const bool is_color_attachment = (desc.usage == TextureUsage::ColorAttachment);
 
     VkImageCreateInfo img_ci{};
     img_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -923,7 +942,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
     img_ci.samples = VK_SAMPLE_COUNT_1_BIT;
     img_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     img_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    if (desc.usage == TextureUsage::RenderTarget) {
+    if (desc.usage == TextureUsage::RenderTarget || is_color_attachment) {
         img_ci.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         td.is_renderable = true;
     }
@@ -999,8 +1018,10 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
         vkUpdateDescriptorSets(device_, 1, &storage_write, 0, nullptr);
     }
 
-    // Create render pass and framebuffer for render target textures
-    if (td.is_renderable) {
+    // Create a standalone render pass and framebuffer for single-attachment
+    // render target textures (RTT path). MRT group attachments share their
+    // group's render pass + framebuffer and skip this.
+    if (td.is_renderable && !is_color_attachment) {
         VkAttachmentDescription color_att{};
         color_att.format = vk_format;
         color_att.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1142,7 +1163,8 @@ void VkBackend::upload_texture(TextureId texture, const uint8_t* pixels, int wid
 // Pipelines
 // ============================================================================
 
-PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
+PipelineId VkBackend::create_pipeline(const PipelineDesc& desc,
+                                      RenderTargetGroup target_group)
 {
     if (!default_render_pass_) {
         VELK_LOG(E, "VkBackend: cannot create pipeline without a render pass");
@@ -1150,6 +1172,16 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
     }
     VELK_PERF_SCOPE("vk.create_pipeline");
     VkRenderPass render_pass = default_render_pass_;
+    uint32_t color_attachment_count = 1;
+    if (target_group != 0) {
+        auto git = render_target_groups_.find(target_group);
+        if (git == render_target_groups_.end()) {
+            VELK_LOG(E, "VkBackend: create_pipeline: unknown render target group");
+            return 0;
+        }
+        render_pass = git->second.render_pass;
+        color_attachment_count = static_cast<uint32_t>(git->second.attachments.size());
+    }
 
     // Shader modules
     VkShaderModuleCreateInfo vert_ci{};
@@ -1212,7 +1244,7 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineColorBlendAttachmentState blend_att{};
-    blend_att.blendEnable = VK_TRUE;
+    blend_att.blendEnable = (target_group == 0) ? VK_TRUE : VK_FALSE;
     blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blend_att.colorBlendOp = VK_BLEND_OP_ADD;
@@ -1222,10 +1254,14 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc)
     blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
+    // For MRT groups (G-buffer fills) we want opaque writes on all
+    // attachments. Replicate the single blend_att across N attachments.
+    vector<VkPipelineColorBlendAttachmentState> blend_atts(color_attachment_count, blend_att);
+
     VkPipelineColorBlendStateCreateInfo blend{};
     blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    blend.attachmentCount = 1;
-    blend.pAttachments = &blend_att;
+    blend.attachmentCount = color_attachment_count;
+    blend.pAttachments = blend_atts.data();
 
     VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamic{};
@@ -1359,6 +1395,7 @@ void VkBackend::begin_frame()
     present_surface_id_ = 0;
     surface_has_clear_ = false;
     cleared_textures_.clear();
+    cleared_render_target_groups_.clear();
 }
 
 void VkBackend::begin_pass(uint64_t target_id)
@@ -1366,6 +1403,59 @@ void VkBackend::begin_pass(uint64_t target_id)
     auto& sync = frame_sync_[frame_sync_index_];
     VkRenderPass rp = VK_NULL_HANDLE;
     VkFramebuffer fb = VK_NULL_HANDLE;
+    uint32_t group_attachment_count = 0;
+
+    // MRT group dispatch: high bit set => RenderTargetGroup handle.
+    if (is_render_target_group(target_id)) {
+        auto git = render_target_groups_.find(target_id);
+        if (git == render_target_groups_.end()) {
+            return;
+        }
+        auto& gd = git->second;
+        current_surface_ = 0;
+
+        bool already_cleared = false;
+        for (auto id : cleared_render_target_groups_) {
+            if (id == target_id) { already_cleared = true; break; }
+        }
+        rp = already_cleared ? gd.load_render_pass : gd.render_pass;
+        fb = gd.framebuffer;
+        current_target_width_ = gd.width;
+        current_target_height_ = gd.height;
+        group_attachment_count = static_cast<uint32_t>(gd.attachments.size());
+
+        if (!already_cleared) {
+            cleared_render_target_groups_.push_back(target_id);
+        }
+
+        VkRenderPassBeginInfo rp_begin{};
+        rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp_begin.renderPass = rp;
+        rp_begin.framebuffer = fb;
+        rp_begin.renderArea.extent = {static_cast<uint32_t>(current_target_width_),
+                                      static_cast<uint32_t>(current_target_height_)};
+
+        // One zero-clear per attachment — the CLEAR render pass needs
+        // one VkClearValue per VK_ATTACHMENT_LOAD_OP_CLEAR attachment.
+        vector<VkClearValue> clear_values(group_attachment_count);
+        for (auto& cv : clear_values) {
+            cv.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        }
+        rp_begin.clearValueCount = group_attachment_count;
+        rp_begin.pClearValues = clear_values.data();
+
+        vkCmdBeginRenderPass(sync.command_buffer, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindDescriptorSets(sync.command_buffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline_layout_,
+                                0,
+                                1,
+                                &descriptor_set_,
+                                0,
+                                nullptr);
+        return;
+    }
 
     // Try surface
     auto sit = surfaces_.find(target_id);
@@ -1848,6 +1938,149 @@ void VkBackend::transition_image_layout(VkCommandBuffer cb, VkImage image, VkIma
     }
 
     vkCmdPipelineBarrier(cb, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+
+RenderTargetGroup VkBackend::create_render_target_group(
+    array_view<const PixelFormat> formats, int width, int height)
+{
+    if (formats.size() == 0 || width <= 0 || height <= 0) {
+        return 0;
+    }
+
+    RenderTargetGroupData gd{};
+    gd.width = width;
+    gd.height = height;
+    gd.attachments.reserve(formats.size());
+    gd.vk_formats.reserve(formats.size());
+
+    // Create each attachment as a renderable+sampleable texture using
+    // ColorAttachment, which preserves the declared format (unlike
+    // TextureUsage::RenderTarget which forces the surface's format so
+    // single-attachment RTT composites are swapchain-compatible).
+    for (auto f : formats) {
+        TextureDesc td{};
+        td.width = width;
+        td.height = height;
+        td.format = f;
+        td.usage = TextureUsage::ColorAttachment;
+        TextureId t = create_texture(td);
+        if (t == 0) {
+            // Roll back attachments on partial failure.
+            for (auto a : gd.attachments) destroy_texture(a);
+            VELK_LOG(E, "VkBackend: create_render_target_group: attachment create failed");
+            return 0;
+        }
+        gd.attachments.push_back(t);
+
+        VkFormat vk_f = VK_FORMAT_R8G8B8A8_UNORM;
+        switch (f) {
+            case PixelFormat::R8:         vk_f = VK_FORMAT_R8_UNORM; break;
+            case PixelFormat::RGBA8:      vk_f = VK_FORMAT_R8G8B8A8_UNORM; break;
+            case PixelFormat::RGBA8_SRGB: vk_f = VK_FORMAT_R8G8B8A8_SRGB; break;
+            case PixelFormat::RGBA16F:    vk_f = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+        }
+        gd.vk_formats.push_back(vk_f);
+    }
+
+    // Build the multi-attachment render pass. One subpass, all attachments
+    // are color attachments, no depth yet (added in a later milestone).
+    vector<VkAttachmentDescription> atts(formats.size());
+    vector<VkAttachmentReference> refs(formats.size());
+    for (size_t i = 0; i < formats.size(); ++i) {
+        atts[i] = {};
+        atts[i].format = gd.vk_formats[i];
+        atts[i].samples = VK_SAMPLE_COUNT_1_BIT;
+        atts[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        atts[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        atts[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        atts[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        atts[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        atts[i].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        refs[i] = {};
+        refs[i].attachment = static_cast<uint32_t>(i);
+        refs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = static_cast<uint32_t>(refs.size());
+    subpass.pColorAttachments = refs.data();
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo rp_ci{};
+    rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rp_ci.attachmentCount = static_cast<uint32_t>(atts.size());
+    rp_ci.pAttachments = atts.data();
+    rp_ci.subpassCount = 1;
+    rp_ci.pSubpasses = &subpass;
+    rp_ci.dependencyCount = 1;
+    rp_ci.pDependencies = &dep;
+
+    if (vkCreateRenderPass(device_, &rp_ci, nullptr, &gd.render_pass) != VK_SUCCESS) {
+        for (auto a : gd.attachments) destroy_texture(a);
+        return 0;
+    }
+    // LOAD variant for re-entry in the same frame.
+    for (auto& a : atts) {
+        a.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        a.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+    if (vkCreateRenderPass(device_, &rp_ci, nullptr, &gd.load_render_pass) != VK_SUCCESS) {
+        vkDestroyRenderPass(device_, gd.render_pass, nullptr);
+        for (auto a : gd.attachments) destroy_texture(a);
+        return 0;
+    }
+
+    // Framebuffer binds all N attachment views in declaration order.
+    vector<VkImageView> views(formats.size());
+    for (size_t i = 0; i < formats.size(); ++i) {
+        views[i] = textures_[gd.attachments[i]].view;
+    }
+    VkFramebufferCreateInfo fb_ci{};
+    fb_ci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fb_ci.renderPass = gd.render_pass;
+    fb_ci.attachmentCount = static_cast<uint32_t>(views.size());
+    fb_ci.pAttachments = views.data();
+    fb_ci.width = static_cast<uint32_t>(width);
+    fb_ci.height = static_cast<uint32_t>(height);
+    fb_ci.layers = 1;
+
+    if (vkCreateFramebuffer(device_, &fb_ci, nullptr, &gd.framebuffer) != VK_SUCCESS) {
+        vkDestroyRenderPass(device_, gd.render_pass, nullptr);
+        vkDestroyRenderPass(device_, gd.load_render_pass, nullptr);
+        for (auto a : gd.attachments) destroy_texture(a);
+        return 0;
+    }
+
+    RenderTargetGroup id = kRenderTargetGroupTag | next_render_target_group_id_++;
+    render_target_groups_[id] = std::move(gd);
+    return id;
+}
+
+void VkBackend::destroy_render_target_group(RenderTargetGroup group)
+{
+    auto it = render_target_groups_.find(group);
+    if (it == render_target_groups_.end()) return;
+    auto& gd = it->second;
+    if (gd.framebuffer)       vkDestroyFramebuffer(device_, gd.framebuffer, nullptr);
+    if (gd.render_pass)       vkDestroyRenderPass(device_, gd.render_pass, nullptr);
+    if (gd.load_render_pass)  vkDestroyRenderPass(device_, gd.load_render_pass, nullptr);
+    for (auto a : gd.attachments) destroy_texture(a);
+    render_target_groups_.erase(it);
+}
+
+TextureId VkBackend::get_render_target_group_attachment(
+    RenderTargetGroup group, uint32_t index) const
+{
+    auto it = render_target_groups_.find(group);
+    if (it == render_target_groups_.end()) return 0;
+    if (index >= it->second.attachments.size()) return 0;
+    return it->second.attachments[index];
 }
 
 } // namespace velk::vk

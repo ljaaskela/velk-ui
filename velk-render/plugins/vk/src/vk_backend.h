@@ -36,7 +36,14 @@ public:
     void destroy_texture(TextureId texture) override;
     void upload_texture(TextureId texture, const uint8_t* pixels, int width, int height) override;
 
-    PipelineId create_pipeline(const PipelineDesc& desc) override;
+    RenderTargetGroup create_render_target_group(
+        array_view<const PixelFormat> formats, int width, int height) override;
+    void destroy_render_target_group(RenderTargetGroup group) override;
+    TextureId get_render_target_group_attachment(
+        RenderTargetGroup group, uint32_t index) const override;
+
+    PipelineId create_pipeline(const PipelineDesc& desc,
+                               RenderTargetGroup target_group = 0) override;
     PipelineId create_compute_pipeline(const ComputePipelineDesc& desc) override;
     void destroy_pipeline(PipelineId pipeline) override;
 
@@ -125,6 +132,7 @@ private:
     int current_target_width_ = 0;         ///< Width of the current render pass target.
     int current_target_height_ = 0;        ///< Height of the current render pass target.
     vector<TextureId> cleared_textures_;   ///< Textures that have been cleared this frame.
+    vector<RenderTargetGroup> cleared_render_target_groups_; ///< MRT groups already cleared this frame.
 
     // Buffers
     struct BufferData
@@ -155,6 +163,24 @@ private:
     };
 
     std::unordered_map<TextureId, TextureData> textures_;
+
+    // MRT render target groups: N sampleable attachments sharing one
+    // render pass + framebuffer. Individual attachments are regular
+    // TextureIds (also tracked in textures_) so shaders can sample
+    // them after the group's pass ends.
+    struct RenderTargetGroupData
+    {
+        vector<TextureId> attachments;
+        vector<VkFormat> vk_formats;
+        VkRenderPass render_pass = VK_NULL_HANDLE;      ///< loadOp=CLEAR
+        VkRenderPass load_render_pass = VK_NULL_HANDLE; ///< loadOp=LOAD
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        int width = 0;
+        int height = 0;
+    };
+
+    std::unordered_map<RenderTargetGroup, RenderTargetGroupData> render_target_groups_;
+    uint64_t next_render_target_group_id_ = 1;
 
     // Pipelines
     struct PipelineEntry

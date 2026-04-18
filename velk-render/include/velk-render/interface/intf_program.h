@@ -105,6 +105,31 @@ public:
      * for each dependency. Idempotent.
      */
     virtual void register_fill_includes(IRenderContext& /*ctx*/) const {}
+
+    /**
+     * @brief Returns the vertex shader source used for the deferred
+     *        G-buffer fill pass. Empty means "use the registered default
+     *        G-buffer vertex shader".
+     *
+     * Layout contract: the G-buffer vertex shader emits any varyings the
+     * G-buffer fragment shader consumes (world_pos, world_normal, plus
+     * the material's usual per-surface varyings). See velk-render/gbuffer.h
+     * for the attachment layout.
+     */
+    virtual string_view get_gbuffer_vertex_src() const { return {}; }
+
+    /**
+     * @brief Returns the fragment shader source used for the deferred
+     *        G-buffer fill pass. Empty means "use the registered default
+     *        G-buffer fragment shader".
+     *
+     * Writes to the four canonical G-buffer attachments (velk-render/gbuffer.h):
+     *   location 0: albedo (RGBA8)
+     *   location 1: world normal (RGBA16F)
+     *   location 2: world position (RGBA16F)
+     *   location 3: material params (RGBA8: metallic, roughness, lighting_mode, _)
+     */
+    virtual string_view get_gbuffer_fragment_src() const { return {}; }
 };
 
 } // namespace velk

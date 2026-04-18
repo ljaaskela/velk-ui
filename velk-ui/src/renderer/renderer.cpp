@@ -77,6 +77,15 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     ctx->set_default_vertex_shader(ctx->compile_shader(default_vertex_src, ShaderStage::Vertex));
     ctx->set_default_fragment_shader(ctx->compile_shader(default_fragment_src, ShaderStage::Fragment));
 
+    // Deferred G-buffer defaults. Used by the deferred pipeline when a
+    // material doesn't override get_gbuffer_{vertex,fragment}_src(). The
+    // default emits the instance colour as albedo with LightingMode::Unlit
+    // so UI visuals composite through compute lighting unchanged.
+    ctx->set_default_gbuffer_vertex_shader(
+        ctx->compile_shader(default_gbuffer_vertex_src, ShaderStage::Vertex));
+    ctx->set_default_gbuffer_fragment_shader(
+        ctx->compile_shader(default_gbuffer_fragment_src, ShaderStage::Fragment));
+
     frame_buffer_.init();
     for (auto& slot : frame_slots_) {
         frame_buffer_.init_slot(slot.buffer, *backend_);
@@ -117,6 +126,7 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
                 FrameContext ctx = make_frame_context();
                 rasterizer_.on_view_removed(*it, ctx);
                 ray_tracer_.on_view_removed(*it, ctx);
+                deferred_lighter_.on_view_removed(*it, ctx);
                 backend_->destroy_surface(get_render_target_id(it->surface));
             }
             views_.erase(it);
@@ -361,6 +371,11 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 ray_tracer_.build_passes(entry, sit->second, ctx, view_passes);
             } else {
                 rasterizer_.build_passes(entry, sit->second, ctx, view_passes);
+                // Deferred lighting consumes the G-buffer filled by the
+                // rasterizer. Must appear after in the pass list so the
+                // G-buffer attachments have been written + transitioned
+                // to SHADER_READ_ONLY_OPTIMAL before the compute samples.
+                deferred_lighter_.build_passes(entry, sit->second, ctx, view_passes);
             }
         }
 
@@ -484,14 +499,47 @@ void Renderer::present(Frame frame)
             auto& pass = target->passes[i];
 
             if (pass.kind == PassKind::ComputeBlit) {
-                // Ray-traced view: dispatch compute then blit output texture
-                // onto the swapchain image for the surface.
+                // Ray-traced view or deferred lighting: dispatch compute
+                // then blit output texture onto the swapchain image.
+                // Barrier target is ComputeShader because this pass
+                // reads prior texture writes from compute, not fragment.
                 if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
                     had_texture_pass = false;
                 }
                 backend_->dispatch({&pass.compute, 1});
                 backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
+                continue;
+            }
+
+            if (pass.kind == PassKind::Compute) {
+                // Pure compute dispatch (e.g. deferred lighting). Output
+                // consumed by a later pass via sampled image / storage;
+                // no surface blit here.
+                if (had_texture_pass) {
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
+                    had_texture_pass = false;
+                }
+                backend_->dispatch({&pass.compute, 1});
+                continue;
+            }
+
+            if (pass.kind == PassKind::GBufferFill) {
+                // Deferred G-buffer fill: raster-draw into an MRT group.
+                // Produces no surface output on its own; the compute
+                // lighting pass samples these attachments later.
+                if (had_texture_pass) {
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
+                    had_texture_pass = false;
+                }
+                backend_->begin_pass(pass.gbuffer_group);
+                backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
+                backend_->end_pass();
+                // Attachments transition to SHADER_READ_ONLY_OPTIMAL via
+                // the group's render pass finalLayout; a sampling pass
+                // can read them immediately once a pipeline barrier is
+                // inserted (done by the lighting pass in B.3).
+                had_texture_pass = true;
                 continue;
             }
 
@@ -582,9 +630,11 @@ void Renderer::shutdown()
             for (auto& entry : views_) {
                 rasterizer_.on_view_removed(entry, ctx);
                 ray_tracer_.on_view_removed(entry, ctx);
+                deferred_lighter_.on_view_removed(entry, ctx);
             }
             rasterizer_.shutdown(ctx);
             ray_tracer_.shutdown(ctx);
+            deferred_lighter_.shutdown(ctx);
         }
 
         for (auto& entry : views_) {

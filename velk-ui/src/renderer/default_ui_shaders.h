@@ -56,6 +56,211 @@ void main()
 }
 )";
 
+// Default vertex shader for the deferred G-buffer fill. Mirrors
+// default_vertex_src but additionally emits world_pos and world_normal
+// varyings that G-buffer fragment shaders need to populate attachments
+// 1 (normal) and 2 (world pos). Normal is the +Z axis of the instance's
+// world matrix (rect convention: normal is the third column); for cube
+// / sphere shapes this only matches for flat faces, and those primitives
+// are expected to provide their own G-buffer vertex shader.
+[[maybe_unused]] constexpr string_view default_gbuffer_vertex_src = R"(
+#version 450
+#include "velk.glsl"
+#include "velk-ui.glsl"
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    VELK_DRAW_DATA(RectInstanceData)
+};
+
+layout(push_constant) uniform PC { DrawData root; };
+
+layout(location = 0) out vec4 v_color;
+layout(location = 1) out vec2 v_local_uv;
+layout(location = 2) flat out vec2 v_size;
+layout(location = 3) out vec3 v_world_pos;
+layout(location = 4) out vec3 v_world_normal;
+
+void main()
+{
+    vec2 q = velk_unit_quad(gl_VertexIndex);
+    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
+    vec4 local_pos = vec4(inst.pos + q * inst.size, 0.0, 1.0);
+    vec4 world_pos = inst.world_matrix * local_pos;
+    gl_Position = root.global_data.view_projection * world_pos;
+    v_color = inst.color;
+    v_local_uv = q;
+    v_size = inst.size;
+    v_world_pos = world_pos.xyz;
+    // Rect convention: +Z axis of world matrix is the surface normal.
+    v_world_normal = normalize(vec3(inst.world_matrix[2]));
+}
+)";
+
+// Default fragment shader for the deferred G-buffer fill. Writes the
+// instance color straight through to albedo, marks the fragment as
+// "unlit" so the compute lighting pass passes albedo through unchanged.
+// Materials that want lighting (StandardMaterial) override this.
+[[maybe_unused]] constexpr string_view default_gbuffer_fragment_src = R"(
+#version 450
+
+layout(location = 0) in vec4 v_color;
+layout(location = 1) in vec2 v_local_uv;
+layout(location = 2) flat in vec2 v_size;
+layout(location = 3) in vec3 v_world_pos;
+layout(location = 4) in vec3 v_world_normal;
+
+// Canonical G-buffer attachments (see velk-render/gbuffer.h).
+layout(location = 0) out vec4 g_albedo;         // rgba: surface albedo
+layout(location = 1) out vec4 g_normal;         // xyz: world normal
+layout(location = 2) out vec4 g_world_pos;      // xyz: world position
+layout(location = 3) out vec4 g_material;       // r: metallic, g: roughness, b: lighting_mode, a: _
+
+void main()
+{
+    g_albedo      = v_color;
+    g_normal      = vec4(normalize(v_world_normal), 0.0);
+    g_world_pos   = vec4(v_world_pos, 0.0);
+    g_material    = vec4(0.0, 0.5, 0.0 /*Unlit*/, 0.0);
+}
+)";
+
+// Default compute shader for the deferred lighting pass. Samples the
+// G-buffer attachments + light buffer and writes the shaded color to
+// the per-view output storage image.
+//
+// Shader-side responsibilities:
+//   - Unlit path: pass albedo through unchanged.
+//   - Standard path: evaluate Lambertian diffuse from each analytic
+//     light (directional / point / spot) with distance + cone falloff.
+//   - Shadow modulation lands in a later slice (B.3.d) alongside the
+//     shared `velk_eval_shadow` composer.
+[[maybe_unused]] constexpr string_view default_deferred_compute_src = R"(
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D velk_textures[];
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D gStorageImages[];
+
+// Mirrors C++ GpuLight (80 bytes) in ray_tracer.cpp / deferred_lighter.cpp.
+struct Light {
+    uvec4 flags;           // x = type (0 dir, 1 point, 2 spot), y = shadow_tech_id, zw = _
+    vec4  position;        // xyz world position (point / spot)
+    vec4  direction;       // xyz world forward (dir / spot)
+    vec4  color_intensity; // rgb colour, a intensity
+    vec4  params;          // x range, y cos(inner), z cos(outer), w _
+};
+
+layout(buffer_reference, std430) readonly buffer LightList { Light data[]; };
+
+layout(push_constant) uniform PC {
+    uint output_image_id;
+    uint albedo_tex_id;
+    uint normal_tex_id;
+    uint worldpos_tex_id;
+    uint material_tex_id;
+    uint width;
+    uint height;
+    uint light_count;
+    LightList lights;
+} pc;
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(pc.width) || coord.y >= int(pc.height)) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(float(pc.width), float(pc.height));
+    vec4 albedo    = texture(velk_textures[nonuniformEXT(pc.albedo_tex_id)], uv);
+    vec3 world_n   = texture(velk_textures[nonuniformEXT(pc.normal_tex_id)], uv).xyz;
+    vec3 world_pos = texture(velk_textures[nonuniformEXT(pc.worldpos_tex_id)], uv).xyz;
+    vec4 mat       = texture(velk_textures[nonuniformEXT(pc.material_tex_id)], uv);
+
+    // LightingMode encoded in mat.b (0 = Unlit, 1 = Standard, ...).
+    uint lighting_mode = uint(mat.b * 255.0 + 0.5);
+    float metallic  = mat.r;
+
+    vec3 rgb;
+    if (lighting_mode == 0u) {
+        // Unlit: emit albedo as-is.
+        rgb = albedo.rgb;
+    } else {
+        vec3 N = normalize(world_n);
+        vec3 direct = vec3(0.0);
+        for (uint i = 0u; i < pc.light_count; ++i) {
+            Light light = pc.lights.data[i];
+            vec3 L;
+            float atten = 1.0;
+            if (light.flags.x == 0u) {
+                // Directional
+                L = -light.direction.xyz;
+            } else {
+                vec3 to_light = light.position.xyz - world_pos;
+                float dist = length(to_light);
+                L = to_light / max(dist, 1e-6);
+                float range = max(light.params.x, 1e-6);
+                float t = clamp(1.0 - dist / range, 0.0, 1.0);
+                atten = t * t;
+                if (light.flags.x == 2u) {
+                    // Spot cone falloff.
+                    float cos_a = dot(-L, light.direction.xyz);
+                    atten *= smoothstep(light.params.z, light.params.y, cos_a);
+                }
+            }
+            float NdotL = max(dot(N, L), 0.0);
+            if (NdotL <= 0.0 || atten <= 0.0) continue;
+            vec3 radiance = light.color_intensity.rgb * light.color_intensity.a * atten;
+            direct += albedo.rgb * (1.0 - metallic) * NdotL * radiance;
+        }
+        rgb = direct;
+    }
+
+    imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord, vec4(rgb, albedo.a));
+}
+)";
+
+// Fullscreen composite pipeline: samples the deferred output texture
+// and alpha-blends it onto the surface. One triangle covering NDC
+// [-1, 3]; viewport-scaled by the view's subrect so the pass only
+// writes where that view owns pixels. Push constants carry the source
+// bindless texture id.
+[[maybe_unused]] constexpr string_view deferred_composite_vertex_src = R"(
+#version 450
+
+layout(location = 0) out vec2 v_uv;
+
+void main()
+{
+    // Standard fullscreen-triangle trick.
+    vec2 pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2) * 2.0 - 1.0;
+    gl_Position = vec4(pos, 0.0, 1.0);
+    v_uv = (pos + 1.0) * 0.5;
+}
+)";
+
+[[maybe_unused]] constexpr string_view deferred_composite_fragment_src = R"(
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(set = 0, binding = 0) uniform sampler2D velk_textures[];
+
+layout(push_constant) uniform PC {
+    uint src_tex_id;
+} pc;
+
+layout(location = 0) in vec2 v_uv;
+layout(location = 0) out vec4 frag_color;
+
+void main()
+{
+    frag_color = texture(velk_textures[nonuniformEXT(pc.src_tex_id)], v_uv);
+}
+)";
+
 // Compute ray tracer prelude. Fixed header that precedes all material
 // snippets. Declares extensions, storage-image binding, shape struct,
 // push constants, intersect_rect, and the full stochastic-RT toolkit

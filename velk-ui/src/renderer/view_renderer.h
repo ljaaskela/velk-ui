@@ -42,8 +42,10 @@ struct ViewRenderTarget
 /** @brief Discriminator for the kind of pass a sub-renderer produces. */
 enum class PassKind
 {
-    Raster,      ///< Classic vkCmdBeginRenderPass + draw calls.
-    ComputeBlit, ///< Compute dispatch writing to a storage image, then blit to a surface.
+    Raster,       ///< Classic vkCmdBeginRenderPass + draw calls against a surface or RTT texture.
+    ComputeBlit,  ///< Compute dispatch writing to a storage image, then blit to a surface.
+    GBufferFill,  ///< Raster draws into a multi-attachment G-buffer group (no surface blit).
+    Compute,      ///< Pure compute dispatch, no blit. Result consumed by a later pass via sampled image / storage.
 };
 
 /**
@@ -61,6 +63,11 @@ struct RenderPass
     ViewRenderTarget target;
     rect viewport;
     vector<DrawCall> draw_calls;
+
+    // GBufferFill fields (PassKind::GBufferFill). When kind ==
+    // GBufferFill, `gbuffer_group` is the target instead of `target`,
+    // and `draw_calls` + `viewport` above apply as usual.
+    RenderTargetGroup gbuffer_group = 0;
 
     // ComputeBlit fields
     DispatchCall compute{};
@@ -94,6 +101,20 @@ struct ViewEntry
     TextureId rt_output_tex = 0;
     int rt_width = 0;
     int rt_height = 0;
+
+    // Deferred G-buffer (raster-scoped). Allocated once per view at the
+    // current viewport size, reallocated on resize. Attachments follow
+    // the canonical layout in velk-render/gbuffer.h. 0 = not yet created.
+    RenderTargetGroup gbuffer_group = 0;
+    int gbuffer_width = 0;
+    int gbuffer_height = 0;
+
+    // Deferred lighting output (DeferredLighter-scoped). Storage image
+    // the compute lighting pass writes shaded color into; subsequently
+    // blitted to the surface. Reallocated on viewport resize. 0 = unset.
+    TextureId deferred_output_tex = 0;
+    int deferred_width = 0;
+    int deferred_height = 0;
 };
 
 /**

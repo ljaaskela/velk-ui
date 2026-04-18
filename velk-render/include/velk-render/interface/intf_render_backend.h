@@ -18,6 +18,19 @@ namespace velk {
 using GpuBuffer = uint64_t;
 using TextureId = uint32_t; ///< Also the bindless shader index.
 using PipelineId = uint64_t;
+
+/// Handle for a multi-attachment render target group (MRT).
+/// Wraps a set of sampleable `TextureId`s sharing one Vulkan render
+/// pass + framebuffer. Produced by `create_render_target_group`.
+/// Encoding: high bit set to disambiguate from surface / texture IDs
+/// in `begin_pass` dispatch.
+using RenderTargetGroup = uint64_t;
+
+inline constexpr uint64_t kRenderTargetGroupTag = 0x4000000000000000ULL;
+inline constexpr bool is_render_target_group(uint64_t id)
+{
+    return (id & kRenderTargetGroupTag) != 0;
+}
 /// @}
 
 /// Pixel format for textures.
@@ -39,9 +52,10 @@ struct GpuBufferDesc
 /// Texture usage hint.
 enum class TextureUsage : uint8_t
 {
-    Sampled,      ///< Uploadable and samplable in shaders (default).
-    RenderTarget, ///< Renderable via begin_pass() and samplable in shaders.
-    Storage       ///< Writable from compute (imageStore) and samplable in shaders.
+    Sampled,         ///< Uploadable and samplable in shaders (default).
+    RenderTarget,    ///< Renderable via begin_pass() and samplable. Format forced to match the surface so RTT passes can composite to the swapchain.
+    Storage,         ///< Writable from compute (imageStore) and samplable in shaders.
+    ColorAttachment  ///< Renderable with the explicit format. Used as an MRT group attachment; not swapchain-compatible.
 };
 
 /// Describes a texture to create.
@@ -202,11 +216,57 @@ public:
     virtual void upload_texture(TextureId texture, const uint8_t* pixels, int width, int height) = 0;
 
     /// @}
+    /// @name Multi-attachment render targets (MRT)
+    /// @{
+
+    /**
+     * @brief Creates a multi-attachment render target group.
+     *
+     * Allocates one sampleable `TextureId` per entry in @p formats at
+     * `width × height`, and a shared Vulkan render pass + framebuffer
+     * binding all of them in the declared order. Shaders that draw to
+     * the group declare `layout(location = N) out vec4` for each
+     * attachment.
+     *
+     * The returned handle is the target passed to `begin_pass`. Each
+     * attachment's `TextureId` is available via
+     * `get_render_target_group_attachment(group, i)` — sample them
+     * like any other bindless texture once the pass has ended.
+     *
+     * @return a `RenderTargetGroup` handle (high bit set), or 0 on failure.
+     */
+    virtual RenderTargetGroup create_render_target_group(
+        array_view<const PixelFormat> formats, int width, int height) = 0;
+
+    /** @brief Destroys a render target group, its attachments, render pass, and framebuffer. */
+    virtual void destroy_render_target_group(RenderTargetGroup group) = 0;
+
+    /**
+     * @brief Returns the `TextureId` of attachment `index` in the group.
+     *
+     * The texture is sampleable in shaders (bindless) once the group's
+     * render pass has ended and the attachment has been transitioned
+     * to `SHADER_READ_ONLY_OPTIMAL` (done automatically by `end_pass`).
+     *
+     * @return 0 if the group or index is invalid.
+     */
+    virtual TextureId get_render_target_group_attachment(
+        RenderTargetGroup group, uint32_t index) const = 0;
+
+    /// @}
     /// @name Pipelines
     /// @{
 
-    /** @brief Creates a graphics pipeline from SPIR-V shaders. Returns a handle. */
-    virtual PipelineId create_pipeline(const PipelineDesc& desc) = 0;
+    /**
+     * @brief Creates a graphics pipeline from SPIR-V shaders. Returns a handle.
+     *
+     * @param target_group If non-zero, the pipeline is compiled against
+     *        the render pass of the given group (so its fragment shader
+     *        can write multiple color outputs). Defaults to the single-
+     *        attachment swapchain render pass.
+     */
+    virtual PipelineId create_pipeline(const PipelineDesc& desc,
+                                       RenderTargetGroup target_group = 0) = 0;
 
     /** @brief Creates a compute pipeline from a compute shader. Returns a handle. */
     virtual PipelineId create_compute_pipeline(const ComputePipelineDesc& desc) = 0;

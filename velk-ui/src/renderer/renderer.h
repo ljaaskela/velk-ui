@@ -8,6 +8,7 @@
 #include "batch_builder.h"
 #include "frame_data_manager.h"
 #include "gpu_resource_manager.h"
+#include "deferred_lighter.h"
 #include "ray_tracer.h"
 #include "rasterizer.h"
 #include "view_renderer.h"
@@ -91,6 +92,7 @@ private:
     // Sub-renderers; one per render path.
     Rasterizer rasterizer_;
     RayTracer ray_tracer_;
+    DeferredLighter deferred_lighter_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

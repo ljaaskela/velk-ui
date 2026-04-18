@@ -6,6 +6,7 @@
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <velk-render/gbuffer.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_material.h>
 #include <velk-render/interface/intf_surface.h>
@@ -126,6 +127,33 @@ void Rasterizer::build_passes(ViewEntry& entry,
     pass.viewport = {vp_x, vp_y, vp_w, vp_h};
     pass.draw_calls = std::move(draw_calls);
     out_passes.push_back(std::move(pass));
+
+    // Deferred G-buffer fill. Run in parallel with the forward surface
+    // pass: reuses the same batches (instance data) but compiles a
+    // deferred pipeline variant per batch against the view's G-buffer
+    // group. The G-buffer is consumed by the compute lighting pass in
+    // the next milestone.
+    auto gbuffer_group = ensure_gbuffer(
+        entry, static_cast<int>(vp_w), static_cast<int>(vp_h), ctx);
+    if (gbuffer_group != 0) {
+        vector<DrawCall> gbuffer_draw_calls;
+        ctx.batch_builder->build_gbuffer_draw_calls(entry.batches,
+                                                    gbuffer_draw_calls,
+                                                    *ctx.frame_buffer,
+                                                    *ctx.resources,
+                                                    globals_gpu_addr,
+                                                    ctx.render_ctx,
+                                                    gbuffer_group,
+                                                    ctx.observer);
+
+        RenderPass g_pass;
+        g_pass.kind = PassKind::GBufferFill;
+        g_pass.gbuffer_group = gbuffer_group;
+        g_pass.viewport = {0, 0, static_cast<float>(entry.gbuffer_width),
+                           static_cast<float>(entry.gbuffer_height)};
+        g_pass.draw_calls = std::move(gbuffer_draw_calls);
+        out_passes.push_back(std::move(g_pass));
+    }
 }
 
 void Rasterizer::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out_passes)
@@ -206,11 +234,43 @@ void Rasterizer::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out_
     }
 }
 
-void Rasterizer::on_view_removed(ViewEntry& /*view*/, FrameContext& /*ctx*/)
+RenderTargetGroup Rasterizer::ensure_gbuffer(ViewEntry& view, int width, int height,
+                                             FrameContext& ctx)
+{
+    if (width <= 0 || height <= 0 || !ctx.backend) {
+        return 0;
+    }
+    if (view.gbuffer_group != 0 &&
+        view.gbuffer_width == width && view.gbuffer_height == height) {
+        return view.gbuffer_group;
+    }
+    // Size changed or first allocation: drop the old group and build anew.
+    if (view.gbuffer_group != 0) {
+        ctx.backend->destroy_render_target_group(view.gbuffer_group);
+        view.gbuffer_group = 0;
+    }
+    view.gbuffer_group = ctx.backend->create_render_target_group(
+        array_view<const PixelFormat>(kGBufferFormats,
+                                      static_cast<uint32_t>(GBufferAttachment::Count)),
+        width, height);
+    if (view.gbuffer_group != 0) {
+        view.gbuffer_width = width;
+        view.gbuffer_height = height;
+    }
+    return view.gbuffer_group;
+}
+
+void Rasterizer::on_view_removed(ViewEntry& view, FrameContext& ctx)
 {
     // Raster per-view state (batches vector) lives on ViewEntry and is
-    // released when the entry itself is destroyed. Nothing RTT-related to
-    // release per view: RTT textures are keyed by element, not view.
+    // released when the entry itself is destroyed. The G-buffer group is
+    // Rasterizer-owned per view, so release it here.
+    if (view.gbuffer_group != 0 && ctx.backend) {
+        ctx.backend->destroy_render_target_group(view.gbuffer_group);
+        view.gbuffer_group = 0;
+        view.gbuffer_width = 0;
+        view.gbuffer_height = 0;
+    }
 }
 
 void Rasterizer::on_element_removed(IElement* elem, FrameContext& ctx)

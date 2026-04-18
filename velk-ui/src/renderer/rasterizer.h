@@ -53,6 +53,12 @@ private:
     // camera has an environment. Relies on ensure_env_ready to do the
     // texture upload.
     void prepend_environment_batch(ICamera& camera, ViewEntry& view, FrameContext& ctx);
+
+    // Ensures the view's G-buffer render target group exists at exactly
+    // `width x height`. Creates on first call; reallocates on resize.
+    // Returns the group handle (0 on failure or zero-size viewport).
+    RenderTargetGroup ensure_gbuffer(ViewEntry& view, int width, int height,
+                                     FrameContext& ctx);
 };
 
 } // namespace velk::ui
