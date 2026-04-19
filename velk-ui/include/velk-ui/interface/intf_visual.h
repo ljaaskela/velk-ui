@@ -43,6 +43,19 @@ public:
     virtual vector<DrawEntry> get_draw_entries(const rect& bounds) = 0;
 
     /**
+     * @brief Returns the local-space bounds of what this visual
+     *        actually renders within @p bounds.
+     *
+     * Most visuals render inside the element's layout box and return
+     * the same rect. Visuals whose output can extend past that box
+     * (text with overflowing glyphs, drop shadows, outline strokes)
+     * return the true extent so the element's world_aabb — used for
+     * culling, hit-testing, and ray-traced shadow casting — covers
+     * everything the visual draws.
+     */
+    virtual aabb get_local_bounds(const rect& bounds) const = 0;
+
+    /**
      * @brief Returns GPU resources used by this visual that need uploading
      *        and lifetime tracking by the renderer.
      *
@@ -54,7 +67,7 @@ public:
      * The default returns an empty vector for visuals that have no GPU
      * resources (rect, rounded rect, gradient, etc.).
      */
-    virtual vector<IBuffer::Ptr> get_gpu_resources() const { return {}; }
+    virtual vector<IBuffer::Ptr> get_gpu_resources() const = 0;
 
     // Shader provision and analytic-shape dispatch live on separate
     // role interfaces (`IRasterShader`, `IAnalyticShape`). A visual

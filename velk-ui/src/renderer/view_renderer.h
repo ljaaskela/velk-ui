@@ -31,6 +31,16 @@ struct FrameContext
     IGpuResourceObserver* observer = nullptr; ///< Renderer as observer of GPU resources.
     uint64_t present_counter = 0;
     uint64_t latency_frames = 0;
+
+    // Scene-wide BVH built once per frame in build_frame_passes before
+    // any view renders; consumed by sub-renderers when they stamp out
+    // FrameGlobals. Zero when the view's scene has no BVH (or BVH build
+    // failed). See scene_collector::build_scene_bvh.
+    uint64_t bvh_nodes_addr = 0;
+    uint64_t bvh_shapes_addr = 0;
+    uint32_t bvh_root = 0;
+    uint32_t bvh_node_count = 0;
+    uint32_t bvh_shape_count = 0;
 };
 
 /** @brief Bundles a render target owned by a pass. */
@@ -116,6 +126,12 @@ struct ViewEntry
     TextureId deferred_output_tex = 0;
     int deferred_width = 0;
     int deferred_height = 0;
+
+    // Transient: GPU address of this view's FrameGlobals block for the
+    // current frame. Written by the Rasterizer's raster-pass build and
+    // read by DeferredLighter so its compute shader can reach scene-wide
+    // state (inv_vp, BVH) via the canonical GlobalData layout.
+    uint64_t frame_globals_addr = 0;
 };
 
 /**

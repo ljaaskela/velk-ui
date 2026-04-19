@@ -116,8 +116,16 @@ void Rasterizer::build_passes(ViewEntry& entry,
         globals.viewport[1] = vp_h;
         globals.viewport[2] = 1.0f / vp_w;
         globals.viewport[3] = 1.0f / vp_h;
+        globals.bvh_root = ctx.bvh_root;
+        globals.bvh_node_count = ctx.bvh_node_count;
+        globals.bvh_shape_count = ctx.bvh_shape_count;
+        globals.bvh_nodes_addr = ctx.bvh_nodes_addr;
+        globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
     }
+    // Stash so the DeferredLighter (and any future sub-renderer) can
+    // reach the canonical GlobalData for this view via a pointer.
+    entry.frame_globals_addr = globals_gpu_addr;
 
     if (deferred_view) {
         emit_deferred_gbuffer_pass(entry, ctx, static_cast<int>(vp_w),
@@ -236,6 +244,11 @@ void Rasterizer::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out_
         rt_globals.viewport[1] = static_cast<float>(rte.height);
         rt_globals.viewport[2] = 1.0f / static_cast<float>(rte.width);
         rt_globals.viewport[3] = 1.0f / static_cast<float>(rte.height);
+        rt_globals.bvh_root = ctx.bvh_root;
+        rt_globals.bvh_node_count = ctx.bvh_node_count;
+        rt_globals.bvh_shape_count = ctx.bvh_shape_count;
+        rt_globals.bvh_nodes_addr = ctx.bvh_nodes_addr;
+        rt_globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         uint64_t globals_gpu_addr = ctx.frame_buffer->write(&rt_globals, sizeof(rt_globals));
 
         vector<DrawCall> draw_calls;

@@ -275,7 +275,6 @@ void RayTracer::build_passes(ViewEntry& entry,
     }
 
     vector<RtShape> shapes;
-    shapes.reserve(scene_state.visual_list.size());
     frame_materials_.clear();
 
     // Cache of paint-program -> (material_id, material_data_addr). The

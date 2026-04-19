@@ -88,6 +88,21 @@ public:
     /** @brief Default: `PipelineKey::Default`. Override for custom shader pipelines. */
     uint64_t get_raster_pipeline_key() const override { return PipelineKey::Default; }
 
+    /**
+     * @brief Default local-space bounds = the element's own @p bounds.
+     * Overridden by visuals whose render extent can exceed the layout
+     * box (text overflow, shadows, outlines).
+     */
+    aabb get_local_bounds(const rect& bounds) const override
+    {
+        aabb out;
+        out.position = {bounds.x, bounds.y, 0.f};
+        out.extent = {bounds.width, bounds.height, 0.f};
+        return out;
+    }
+
+    vector<IBuffer::Ptr> get_gpu_resources() const override { return {}; }
+
 protected:
     void invoke_trait_dirty(DirtyFlags flags = DirtyFlags::Visual)
     {

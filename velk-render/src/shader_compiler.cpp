@@ -16,12 +16,52 @@ const char* kVelkGlsl = R"(
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-// Frame globals: projection matrix, its inverse, and viewport dimensions.
+// Scene shape record: rect / cube / sphere with a pointer to material
+// data. Used by the BVH shape buffer and (duplicated today) by RT.
+struct RtShape {
+    vec4 origin;
+    vec4 u_axis;
+    vec4 v_axis;
+    vec4 w_axis;
+    vec4 color;
+    vec4 params;
+    uint material_id;
+    uint texture_id;
+    uint shape_param;
+    uint shape_kind;  // 0 = rect, 1 = cube, 2 = sphere
+    uint64_t material_data_addr;
+    uint64_t _tail_pad;
+};
+
+layout(buffer_reference, std430) readonly buffer RtShapeList { RtShape data[]; };
+
+// Scene-wide BVH node. Built CPU-side from the element tree in
+// scene_collector; referenced from GlobalData so every shader sees the
+// same acceleration structure.
+struct BvhNode {
+    vec4 aabb_min;      // .w padding
+    vec4 aabb_max;      // .w padding
+    uint first_shape;   // index into the scene's RtShape buffer
+    uint shape_count;
+    uint first_child;   // index of the first child BvhNode
+    uint child_count;
+};
+
+layout(buffer_reference, std430) readonly buffer BvhNodeList { BvhNode data[]; };
+
+// Frame globals: projection matrix, its inverse, viewport, BVH metadata.
 layout(buffer_reference, std430) readonly buffer GlobalData {
     mat4 view_projection;
     mat4 inverse_view_projection;
-    vec4 viewport; // width, height, 1/width, 1/height
+    vec4 viewport;          // width, height, 1/width, 1/height
+    uint bvh_root;
+    uint bvh_node_count;
+    uint bvh_shape_count;
+    uint _pad0;
+    BvhNodeList bvh_nodes;
+    RtShapeList bvh_shapes;
 };
 
 // Generic 8-byte buffer_reference placeholder. Use it wherever the

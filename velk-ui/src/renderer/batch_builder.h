@@ -68,8 +68,8 @@ public:
     struct RenderTargetPassData
     {
         IElement* element = nullptr;
-        vector<VisualListEntry> before_entries;
-        vector<VisualListEntry> after_entries;
+        vector<IElement*> before_entries;  // pre-order
+        vector<IElement*> after_entries;   // post-order
         vector<Batch> batches;
     };
 

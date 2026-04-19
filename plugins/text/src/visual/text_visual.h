@@ -34,6 +34,7 @@ public:
 
     // IVisual
     vector<DrawEntry> get_draw_entries(const rect& bounds) override;
+    aabb get_local_bounds(const rect& bounds) const override;
     vector<IBuffer::Ptr> get_gpu_resources() const override;
 
     // IShaderSnippet: deferred `velk_visual_discard` that drops
@@ -69,9 +70,17 @@ private:
     void ensure_default_font();
     void bind_font_material();
 
+    // Populates `layout_result_` lazily based on the current state and
+    // `bounds.width`. Returns the font used (nullptr if none available).
+    // Shared by get_draw_entries (which emits glyph quads) and
+    // get_local_bounds (which reports the laid-out extent to the
+    // layout solver). Cached via ChangeCache so repeated calls with
+    // identical inputs are free.
+    IFont* ensure_layout(const rect& bounds) const;
+
     Font font_;
-    IFont::TextLayoutResult layout_result_;
-    ChangeCache<CacheKey> cache_;
+    mutable IFont::TextLayoutResult layout_result_;
+    mutable ChangeCache<CacheKey> cache_;
 };
 
 } // namespace velk::ui

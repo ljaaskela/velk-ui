@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include "default_ui_shaders.h"
+#include "scene_collector.h"
 
 #include <velk/api/any.h>
 #include <velk/api/perf.h>
@@ -346,6 +347,37 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
 
         FrameContext ctx = make_frame_context();
 
+        // Build scene-wide BVHs once per unique scene. Every view on
+        // that scene reads the same BVH addr/count/root via ctx, so
+        // FrameGlobals writes land consistent values across views. The
+        // shape callback is a no-op today; RtShape material fields stay
+        // zero, which is all shadow rays need. When RT primary rays
+        // move to this buffer we'll need a non-null callback here.
+        struct SceneBvh {
+            uint64_t nodes_addr = 0;
+            uint64_t shapes_addr = 0;
+            uint32_t root = 0;
+            uint32_t node_count = 0;
+            uint32_t shape_count = 0;
+        };
+        std::unordered_map<IScene*, SceneBvh> scene_bvhs;
+        for (auto& [scene, state] : consumed_scenes) {
+            auto build = build_scene_bvh(scene, [](ShapeSite&) {});
+            SceneBvh info;
+            info.root = build.root_index;
+            info.node_count = static_cast<uint32_t>(build.nodes.size());
+            info.shape_count = static_cast<uint32_t>(build.shapes.size());
+            if (!build.nodes.empty()) {
+                info.nodes_addr = frame_buffer_.write(
+                    build.nodes.data(), build.nodes.size() * sizeof(GpuBvhNode));
+            }
+            if (!build.shapes.empty()) {
+                info.shapes_addr = frame_buffer_.write(
+                    build.shapes.data(), build.shapes.size() * sizeof(RtShape));
+            }
+            scene_bvhs[scene] = info;
+        }
+
         // Per-view passes go into a temp so the shared passes (RTT, etc.)
         // can be emitted first into slot.passes; shared must render before
         // any view pass that samples their output.
@@ -364,6 +396,21 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             auto sit = consumed_scenes.find(scene);
             if (sit == consumed_scenes.end()) {
                 continue;
+            }
+
+            auto bit = scene_bvhs.find(scene);
+            if (bit != scene_bvhs.end()) {
+                ctx.bvh_nodes_addr = bit->second.nodes_addr;
+                ctx.bvh_shapes_addr = bit->second.shapes_addr;
+                ctx.bvh_root = bit->second.root;
+                ctx.bvh_node_count = bit->second.node_count;
+                ctx.bvh_shape_count = bit->second.shape_count;
+            } else {
+                ctx.bvh_nodes_addr = 0;
+                ctx.bvh_shapes_addr = 0;
+                ctx.bvh_root = 0;
+                ctx.bvh_node_count = 0;
+                ctx.bvh_shape_count = 0;
             }
 
             // Pick the sub-renderer based on the camera's render_path.

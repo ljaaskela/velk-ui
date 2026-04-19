@@ -89,14 +89,6 @@ enum class RenderMode : uint8_t
     TraitOnly   ///< Render only to render-to-texture traits; skip surface.
 };
 
-/** @brief Entry type in the visual list stream. */
-enum class VisualEntry : uint8_t
-{
-    Element,          ///< Regular element to draw.
-    PushRenderTarget, ///< Begin render-to-texture subtree.
-    PopRenderTarget   ///< End render-to-texture subtree.
-};
-
 enum class BlendMode : uint8_t
 {
     Opaque,    ///< No blending, overwrite destination.

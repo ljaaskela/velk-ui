@@ -17,12 +17,25 @@ namespace velk {
 #define VELK_GPU_STRUCT struct alignas(16)
 
 /// Per-frame global data written by the renderer, read by all shaders.
+///
+/// Layout must match the `GlobalData` buffer_reference block in velk.glsl
+/// (std430). Scene-wide state (BVH nodes + shapes, BVH metadata) lives
+/// here so every view sees the same acceleration structure after
+/// Renderer::build_frame_passes builds it once per scene per frame.
 struct FrameGlobals
 {
-    float view_projection[16];         ///< Combined view-projection matrix from the camera.
-    float inverse_view_projection[16]; ///< Inverse of view_projection (for reconstructing world-space directions).
-    float viewport[4];                 ///< width, height, 1/width, 1/height.
+    float    view_projection[16];          ///< Combined view-projection matrix from the camera.
+    float    inverse_view_projection[16];  ///< Inverse of view_projection.
+    float    viewport[4];                  ///< width, height, 1/width, 1/height.
+    uint32_t bvh_root;                     ///< Index of the root BvhNode; 0 if no BVH.
+    uint32_t bvh_node_count;               ///< Total BvhNodes; 0 if no BVH.
+    uint32_t bvh_shape_count;              ///< Total RtShapes the BVH indexes.
+    uint32_t _pad0;
+    uint64_t bvh_nodes_addr;               ///< GPU pointer to the BvhNode array.
+    uint64_t bvh_shapes_addr;              ///< GPU pointer to the scene's RtShape array.
 };
+
+static_assert(sizeof(FrameGlobals) == 176, "FrameGlobals layout must match velk.glsl");
 
 /**
  * @brief Standard draw data header at the start of every draw's GPU data.

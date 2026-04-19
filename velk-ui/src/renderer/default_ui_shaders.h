@@ -165,29 +165,8 @@ layout(buffer_reference, std430) readonly buffer _EnvParamsBuf {
     vec4 params; // x = intensity, y = rotation_rad, zw = _
 };
 
-layout(buffer_reference, std430) readonly buffer _InvVpBuf {
-    mat4 inv_vp;
-};
-
-// Mirrors the RT prelude's RtShape (128 bytes). Only geometric fields
-// are populated by DeferredLighter; material_id / _data_addr / texture_id
-// stay zero because shadow rays don't consult them.
-struct RtShape {
-    vec4 origin;
-    vec4 u_axis;
-    vec4 v_axis;
-    vec4 w_axis;
-    vec4 color;
-    vec4 params;
-    uint material_id;
-    uint texture_id;
-    uint shape_param;
-    uint shape_kind;
-    uint64_t material_data_addr;
-    uint64_t _tail_pad;
-};
-
-layout(buffer_reference, std430) readonly buffer ShapeList { RtShape data[]; };
+// GlobalData / RtShape / RtShapeList / BvhNode / BvhNodeList come from velk.glsl.
+// GlobalData carries inverse_view_projection + scene BVH (nodes + shapes).
 
 layout(push_constant) uniform PC {
     vec4 cam_pos;              // offset 0
@@ -200,13 +179,10 @@ layout(push_constant) uniform PC {
     uint height;               // 40
     uint light_count;          // 44
     uint env_texture_id;       // 48
-    uint _env_pad;             // 52
-    uint shape_count;          // 56
-    uint _shape_pad;           // 60
-    LightList lights;          // 64
-    _EnvParamsBuf env_params;  // 72
-    _InvVpBuf inv_vp_buf;      // 80
-    ShapeList shapes;          // 88
+    uint _pad0;                // 52
+    LightList lights;          // 56
+    _EnvParamsBuf env_params;  // 64
+    GlobalData globals;        // 72
 } pc;
 
 // ===== Shadow ray support (duplicated from rt_compute_prelude_src) =====
@@ -312,22 +288,52 @@ bool intersect_shape_d(Ray ray, RtShape shape, out RayHit hit)
     return intersect_rect_d(ray, shape, hit);
 }
 
-bool trace_closest_hit_d(Ray ray, out RayHit hit)
+// Ray-vs-AABB slab test. Returns true if ray intersects the box within
+// [0, t_max] and writes t_near (clamped to >= 0) to t_hit.
+bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit)
 {
-    hit.t = 1e30;
-    hit.shape_index = 0xffffffffu;
-    for (uint i = 0u; i < pc.shape_count; ++i) {
-        RtShape s = pc.shapes.data[i];
-        RayHit h;
-        if (intersect_shape_d(ray, s, h)) {
-            if (h.t < hit.t) { hit = h; hit.shape_index = i; }
-        }
-    }
-    return hit.shape_index != 0xffffffffu;
+    vec3 inv_d = 1.0 / ray.dir;
+    vec3 t0 = (bmin - ray.origin) * inv_d;
+    vec3 t1 = (bmax - ray.origin) * inv_d;
+    vec3 tmn = min(t0, t1);
+    vec3 tmx = max(t0, t1);
+    float tnear = max(max(tmn.x, tmn.y), tmn.z);
+    float tfar  = min(min(tmx.x, tmx.y), tmx.z);
+    if (tfar < max(tnear, 0.0) || tnear > t_max) return false;
+    t_hit = max(tnear, 0.0);
+    return true;
 }
 
-// RT shadow: one occlusion ray against the scene's shape buffer.
-// Mirrors rt_shadow.cpp's velk_shadow_rt.
+// Any-hit BVH traversal for shadow rays: early-exit on the first
+// confirmed blocker within t_max. Stack-depth 32 comfortably covers
+// any realistic UI scene depth.
+bool trace_any_hit_bvh(Ray ray, float t_max)
+{
+    if (pc.globals.bvh_node_count == 0u) return false;
+    uint stack[32];
+    int sp = 0;
+    stack[sp++] = pc.globals.bvh_root;
+    while (sp > 0) {
+        uint ni = stack[--sp];
+        BvhNode node = pc.globals.bvh_nodes.data[ni];
+        float t_hit;
+        if (!ray_aabb(ray, node.aabb_min.xyz, node.aabb_max.xyz, t_max, t_hit)) continue;
+
+        for (uint i = 0u; i < node.shape_count; ++i) {
+            RtShape s = pc.globals.bvh_shapes.data[node.first_shape + i];
+            RayHit h;
+            if (intersect_shape_d(ray, s, h) && h.t > 0.0 && h.t < t_max) return true;
+        }
+
+        for (uint i = 0u; i < node.child_count; ++i) {
+            if (sp < 32) stack[sp++] = node.first_child + i;
+        }
+    }
+    return false;
+}
+
+// RT shadow: one occlusion ray against the scene BVH. Mirrors
+// rt_shadow.cpp's velk_shadow_rt but walks the acceleration structure.
 float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
 {
     Light light = pc.lights.data[light_idx];
@@ -346,9 +352,7 @@ float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
     Ray r;
     r.origin = world_pos + n * 0.5;
     r.dir    = L;
-    RayHit hit;
-    if (!trace_closest_hit_d(r, hit)) return 1.0;
-    return (hit.t >= t_max) ? 1.0 : 0.0;
+    return trace_any_hit_bvh(r, t_max) ? 0.0 : 1.0;
 }
 
 // Shadow dispatch. Currently only tech_id = 1 (rt_shadow) is wired; any
@@ -416,7 +420,7 @@ void main()
     // the environment. Falls back to black when the view has no env.
     if (dot(world_n, world_n) < 1e-6) {
         vec2 ndc = uv * 2.0 - 1.0;
-        mat4 inv_vp = pc.inv_vp_buf.inv_vp;
+        mat4 inv_vp = pc.globals.inverse_view_projection;
         vec4 near_h = inv_vp * vec4(ndc, 0.0, 1.0);
         vec4 far_h  = inv_vp * vec4(ndc, 1.0, 1.0);
         vec3 near_w = near_h.xyz / near_h.w;
@@ -554,25 +558,6 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2D gStorageImages[];
 
-struct RtShape {
-    vec4 origin;        // xyz = world origin (corner for rect/cube, AABB corner for sphere)
-    vec4 u_axis;        // xyz = local x axis, scaled by width
-    vec4 v_axis;        // xyz = local y axis, scaled by height
-    vec4 w_axis;        // xyz = local z axis, scaled by depth (cube only; zero otherwise)
-    vec4 color;         // rgba base color (used when material_id == 0)
-    vec4 params;        // x = corner radius (rect) or sphere radius; yzw reserved
-    uint material_id;   // 0 = no material, use color; otherwise dispatched via switch
-    uint texture_id;    // bindless texture index, 0 when unused
-    uint shape_param;   // per-shape material data (e.g. glyph index for text)
-    uint shape_kind;    // 0 = rect, 1 = cube, 2 = sphere
-    uint64_t material_data_addr;
-    uint64_t _tail_pad;
-};
-
-layout(buffer_reference, std430) readonly buffer ShapeList {
-    RtShape data[];
-};
-
 // Scene light. Mirrors the C++ GpuLight struct (80 bytes).
 struct Light {
     uvec4 flags;           // x = type (0=dir, 1=point, 2=spot), y = shadow_tech_id, zw = _
@@ -591,7 +576,7 @@ layout(push_constant) uniform PC {
     vec4 cam_pos;
     uvec4 extras;       // x=image_index, y=width, z=height, w=shape_count
     uvec4 env;          // x=env_material_id, y=env_texture_id, z=frame_counter, w=_
-    ShapeList shapes;
+    RtShapeList shapes;
     uint64_t env_data_addr;
     LightList lights;
     uint light_count;

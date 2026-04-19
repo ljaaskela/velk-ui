@@ -99,18 +99,9 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     auto material_id = ctx.backend->get_render_target_group_attachment(
         entry.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::MaterialParams));
 
-    // Shadow-caster geometry: mirror the RT shape buffer so the shadow
-    // ray cast can reuse the intersect_* helpers. Material fields stay
-    // zero because shadow rays don't consult them.
-    vector<RtShape> shapes;
-    shapes.reserve(scene_state.visual_list.size());
-    enumerate_scene_shapes(scene_state, [&](ShapeSite& site) {
-        shapes.push_back(site.geometry);
-    });
-    uint64_t shapes_addr = 0;
-    if (!shapes.empty() && ctx.frame_buffer) {
-        shapes_addr = ctx.frame_buffer->write(shapes.data(), shapes.size() * sizeof(RtShape));
-    }
+    // Shadow-caster geometry lives in the scene-wide BVH now, reached
+    // through globals_addr -> GlobalData.bvh_{nodes,shapes}. See the
+    // Renderer's per-frame BVH build.
 
     // Scene lights. Deferred compute only hardcodes rt_shadow (tech
     // id 1); any other technique maps to 0 (no shadow) rather than
@@ -159,25 +150,13 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     }
 
     // Camera world position for view direction V in PBR shading.
+    // Inverse view-projection comes from the view's FrameGlobals
+    // (stashed on entry by the Rasterizer), so no separate upload here.
     float cam_px = 0.f, cam_py = 0.f, cam_pz = 0.f;
-    mat4 cam_world = mat4::identity();
     if (auto es = read_state<IElement>(entry.camera_element)) {
         cam_px = es->world_matrix(0, 3);
         cam_py = es->world_matrix(1, 3);
         cam_pz = es->world_matrix(2, 3);
-        cam_world = es->world_matrix;
-    }
-
-    // Inverse view-projection: needed by the compute shader to reconstruct
-    // world-space ray directions for pixels with no G-buffer coverage
-    // (sky path). Written into the frame buffer and referenced by the
-    // shader via buffer_reference to keep push-constant footprint small.
-    uint64_t inv_vp_addr = 0;
-    if (camera && ctx.frame_buffer) {
-        mat4 vp_mat = camera->get_view_projection(
-            cam_world, static_cast<float>(w), static_cast<float>(h));
-        mat4 inv_vp = mat4::inverse(vp_mat);
-        inv_vp_addr = ctx.frame_buffer->write(inv_vp.m, sizeof(inv_vp.m));
     }
 
     // Layout mirrors std430 in the shader: vec4 first for 16-byte
@@ -193,15 +172,12 @@ void DeferredLighter::build_passes(ViewEntry& entry,
         uint32_t height;           // 40
         uint32_t light_count;      // 44
         uint32_t env_texture_id;   // 48
-        uint32_t _env_pad;         // 52
-        uint32_t shape_count;      // 56
-        uint32_t _shape_pad;       // 60
-        uint64_t lights_addr;      // 64
-        uint64_t env_data_addr;    // 72
-        uint64_t inv_vp_addr;      // 80
-        uint64_t shapes_addr;      // 88
+        uint32_t _pad0;            // 52
+        uint64_t lights_addr;      // 56
+        uint64_t env_data_addr;    // 64
+        uint64_t globals_addr;     // 72 - pointer to GlobalData (carries inv_vp + BVH)
     };
-    static_assert(sizeof(PushC) == 96, "Deferred PushC layout mismatch");
+    static_assert(sizeof(PushC) == 80, "Deferred PushC layout mismatch");
 
     PushC pc{};
     pc.cam_pos[0] = cam_px;
@@ -217,11 +193,9 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     pc.height = static_cast<uint32_t>(h);
     pc.light_count = static_cast<uint32_t>(lights.size());
     pc.env_texture_id = env_texture_id;
-    pc.shape_count = static_cast<uint32_t>(shapes.size());
     pc.lights_addr = lights_addr;
     pc.env_data_addr = env_data_addr;
-    pc.inv_vp_addr = inv_vp_addr;
-    pc.shapes_addr = shapes_addr;
+    pc.globals_addr = entry.frame_globals_addr;
 
     // Compute + blit: evaluate lighting into deferred_output_tex, then
     // blit to the surface subrect. Same pattern as RayTracer — a single

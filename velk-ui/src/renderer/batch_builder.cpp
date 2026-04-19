@@ -10,8 +10,10 @@
 #include <velk-render/interface/intf_raster_shader.h>
 #include <velk-ui/interface/intf_visual.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <velk/string.h>
 
 namespace {
@@ -138,28 +140,20 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
         return phase == VisualPhase::AfterChildren ? cache.after_visuals : cache.before_visuals;
     };
 
-    auto emit_visuals = [&](const vector<VisualListEntry>& entries, VisualPhase phase,
+    auto emit_visuals = [&](const vector<IElement*>& entries, VisualPhase phase,
                             vector<Batch>& target_batches,
                             float offset_x = 0.f, float offset_y = 0.f) {
         uint64_t last_bkey = 0;
         size_t max_visuals = 0;
-        for (auto& ve : entries) {
-            if (ve.type != VisualEntry::Element) {
-                continue;
-            }
-            auto it = element_cache_.find(ve.element.get());
+        for (auto* elem : entries) {
+            auto it = element_cache_.find(elem);
             if (it != element_cache_.end()) {
                 max_visuals = std::max(max_visuals, get_visuals(it->second, phase).size());
             }
         }
 
         for (size_t pass = 0; pass < max_visuals; ++pass) {
-            for (auto& ve : entries) {
-                if (ve.type != VisualEntry::Element) {
-                    continue;
-                }
-
-                auto* elem = ve.element.get();
+            for (auto* elem : entries) {
                 auto it = element_cache_.find(elem);
                 if (it == element_cache_.end()) {
                     continue;
@@ -222,57 +216,69 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
         }
     };
 
-    // Pre-filter: partition visual list entries into main and render target lists.
-    auto filter_render_targets = [&](const vector<VisualListEntry>& entries,
-                                     vector<VisualListEntry>& main_out,
-                                     VisualPhase phase) {
-        int depth = 0;
-        IElement* active_rt_elem = nullptr;
-        RenderTargetPassData* active_pass = nullptr;
+    // Walk the scene tree and route elements into main vs RTT subtree
+    // lists. `main_*` keeps top-level elements; each RenderTarget-marked
+    // subtree produces its own RenderTargetPassData with pre- and post-
+    // order element lists. Sibling z-sort matches the previous Scene-
+    // side visual_list build.
+    vector<IElement*> main_before;
+    vector<IElement*> main_after;
 
-        for (auto& ve : entries) {
-            if (ve.type == VisualEntry::PushRenderTarget) {
-                if (depth == 0) {
-                    active_rt_elem = ve.element.get();
-                    active_pass = nullptr;
-                    for (auto& rtp : render_target_passes_) {
-                        if (rtp.element == active_rt_elem) {
-                            active_pass = &rtp;
-                            break;
-                        }
-                    }
-                    if (!active_pass) {
-                        render_target_passes_.push_back({active_rt_elem, {}, {}, {}});
-                        active_pass = &render_target_passes_.back();
-                    }
-                }
-                depth++;
-                continue;
-            }
+    auto* scene = state.scene;
 
-            if (ve.type == VisualEntry::PopRenderTarget) {
-                depth--;
-                if (depth == 0) {
-                    active_rt_elem = nullptr;
-                    active_pass = nullptr;
-                }
-                continue;
-            }
-
-            if (depth > 0 && active_pass) {
-                auto& list = (phase == VisualPhase::BeforeChildren)
-                                 ? active_pass->before_entries
-                                 : active_pass->after_entries;
-                list.push_back(ve);
-            }
-            main_out.push_back(ve);
+    auto find_or_make_pass = [&](IElement* rt_elem) -> RenderTargetPassData& {
+        for (auto& rtp : render_target_passes_) {
+            if (rtp.element == rt_elem) return rtp;
         }
+        render_target_passes_.push_back({rt_elem, {}, {}, {}});
+        return render_target_passes_.back();
     };
 
-    vector<VisualListEntry> main_before;
-    vector<VisualListEntry> main_after;
-    filter_render_targets(state.visual_list, main_before, VisualPhase::BeforeChildren);
-    filter_render_targets(state.after_visual_list, main_after, VisualPhase::AfterChildren);
+    // Every element is recorded in the ambient (main) lists. An
+    // element inside an active RTT subtree is ALSO recorded into that
+    // pass's lists so the subtree renders into the target texture.
+    // An element carrying a RenderCache trait starts its own pass that
+    // covers itself + all descendants, so a textured rect sampling its
+    // own RTT renders correctly into both.
+    std::function<void(const IObject::Ptr&,
+                       vector<IElement*>&, vector<IElement*>&,
+                       RenderTargetPassData*)> walk;
+    walk = [&](const IObject::Ptr& obj,
+               vector<IElement*>& ambient_before,
+               vector<IElement*>& ambient_after,
+               RenderTargetPassData* active_pass) {
+        auto elem_ptr = interface_pointer_cast<IElement>(obj);
+        if (!elem_ptr) return;
+        auto* elem = elem_ptr.get();
+
+        RenderTargetPassData* inner_pass =
+            elem->has_render_traits() ? &find_or_make_pass(elem) : active_pass;
+
+        ambient_before.push_back(elem);
+        if (inner_pass) inner_pass->before_entries.push_back(elem);
+
+        if (scene) {
+            auto kids = scene->children_of(obj);
+            std::sort(kids.begin(), kids.end(),
+                [](const IObject::Ptr& a, const IObject::Ptr& b) {
+                    auto ra = read_state<IElement>(a);
+                    auto rb = read_state<IElement>(b);
+                    int32_t za = ra ? ra->z_index : 0;
+                    int32_t zb = rb ? rb->z_index : 0;
+                    return za < zb;
+                });
+            for (auto& kid : kids) {
+                walk(kid, ambient_before, ambient_after, inner_pass);
+            }
+        }
+
+        ambient_after.push_back(elem);
+        if (inner_pass) inner_pass->after_entries.push_back(elem);
+    };
+
+    if (scene) {
+        walk(scene->root(), main_before, main_after, nullptr);
+    }
 
     // Batch render target passes (offset by the element's world position)
     for (auto& rtp : render_target_passes_) {
