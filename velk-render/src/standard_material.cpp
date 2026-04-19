@@ -226,6 +226,10 @@ BrdfSample velk_fill_standard(FillContext ctx)
     bs.throughput = F;
     bs.next_dir = L;
     bs.terminate = false;
+    // Sample count scales with GGX lobe width: 1 at mirror, up to 16 at
+    // fully rough. The tracer clamps against its own budget (kSppCap),
+    // so this is a preference, not an imposition.
+    bs.sample_count_hint = uint(1.0 + roughness * roughness * 15.0);
     return bs;
 }
 )";

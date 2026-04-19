@@ -124,7 +124,7 @@ uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
         src += mi.fn_name;
         append_literal("(ctx);\n");
     }
-    append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; return bs; }\n");
+    append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; bs.sample_count_hint = 1u; return bs; }\n");
     append_literal("    }\n");
     append_literal("}\n");
 

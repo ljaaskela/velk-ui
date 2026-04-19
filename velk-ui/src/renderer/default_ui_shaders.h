@@ -634,11 +634,15 @@ struct FillContext {
 //   next_dir    world-space direction of the next ray (ignored if
 //               terminate == true).
 //   terminate   true = no further bounces (flat UI material, text, env).
+//   sample_count_hint  material's preferred number of bounce samples at
+//               this hit (e.g. 1 for a mirror, higher for rough GGX).
+//               Tracer caps against a global per-bounce budget.
 struct BrdfSample {
     vec4 emission;
     vec3 throughput;
     vec3 next_dir;
     bool terminate;
+    uint sample_count_hint;
 };
 
 // ===== Shape intersection =====
@@ -1069,19 +1073,24 @@ void main()
 
         vec3 shape_rgb = bs.emission.rgb;
         if (!bs.terminate) {
-            const int kSpp = 4;
+            // Per-hit sample count: material's preferred count (scales
+            // with roughness / lobe width), clamped by the tracer's
+            // global cap. Mirror surfaces collapse to 1; rough surfaces
+            // spend the budget to flatten GGX noise.
+            const uint kSppCap = 8u;
+            uint spp = clamp(bs.sample_count_hint, 1u, kSppCap);
             vec3 bounce = vec3(0.0);
             Ray refl;
             refl.origin = ctx.hit_pos + hit.normal * 1e-3;
             refl.dir = bs.next_dir;
             bounce += trace_bounce(refl, bs.throughput);
-            for (int sp = 1; sp < kSpp; ++sp) {
+            for (uint sp = 1u; sp < spp; ++sp) {
                 BrdfSample bs2 = velk_resolve_fill(s.material_id, ctx);
                 refl.origin = ctx.hit_pos + hit.normal * 1e-3;
                 refl.dir = bs2.next_dir;
                 bounce += trace_bounce(refl, bs2.throughput);
             }
-            shape_rgb += bounce * (1.0 / float(kSpp));
+            shape_rgb += bounce * (1.0 / float(spp));
         }
         float a = clamp(bs.emission.a, 0.0, 1.0);
         accum = shape_rgb * a + accum * (1.0 - a);

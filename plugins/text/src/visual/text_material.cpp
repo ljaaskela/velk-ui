@@ -263,6 +263,7 @@ BrdfSample velk_fill_text(FillContext ctx)
     bs.throughput = vec3(0.0);
     bs.next_dir = vec3(0.0);
     bs.terminate = true;
+    bs.sample_count_hint = 1u;
     return bs;
 }
 )";
