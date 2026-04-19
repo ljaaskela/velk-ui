@@ -4,7 +4,9 @@
 #include <velk/api/change.h>
 #include <velk/api/object.h>
 
+#include <velk-render/interface/intf_analytic_shape.h>
 #include <velk-render/interface/intf_buffer.h>
+#include <velk-render/interface/intf_shader_snippet.h>
 #include <velk-ui/ext/trait.h>
 #include <velk-ui/interface/intf_font.h>
 #include <velk-ui/plugins/text/api/font.h>
@@ -23,7 +25,9 @@ namespace velk::ui {
  * Layout is performed lazily in get_draw_entries() and cached via
  * ChangeCache so it only re-runs when inputs change.
  */
-class TextVisual : public ext::Visual<TextVisual, ITextVisual>
+class TextVisual : public ext::Visual<TextVisual, ITextVisual,
+                                       ::velk::IAnalyticShape,
+                                       ::velk::IShaderSnippet>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::Text, "TextVisual");
@@ -33,7 +37,23 @@ public:
 
     // IVisual
     vector<DrawEntry> get_draw_entries(const rect& bounds) override;
+    aabb get_local_bounds(const rect& bounds) const override;
     vector<IBuffer::Ptr> get_gpu_resources() const override;
+
+    // IShaderSnippet: deferred `velk_visual_discard` that drops
+    // fragments whose glyph coverage is below threshold. Assumes the
+    // material is TextMaterial (whose deferred fragment provides v_uv,
+    // v_glyph_index, and `root.material.*` in scope).
+    string_view get_snippet_fn_name() const override;
+    string_view get_snippet_source() const override;
+
+    // IAnalyticShape: glyph-shaped shape intersect. Rect-based (kind 0)
+    // with a custom intersect that does rect test + slug coverage, so
+    // shadow rays hit the glyph silhouette instead of the quad.
+    uint32_t get_shape_kind() const override { return 0; }
+    string_view get_shape_intersect_source() const override;
+    string_view get_shape_intersect_fn_name() const override;
+    void register_shape_intersect_includes(::velk::IRenderContext& ctx) const override;
 
 protected:
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;
@@ -61,9 +81,17 @@ private:
     void ensure_default_font();
     void bind_font_material();
 
+    // Populates `layout_result_` lazily based on the current state and
+    // `bounds.width`. Returns the font used (nullptr if none available).
+    // Shared by get_draw_entries (which emits glyph quads) and
+    // get_local_bounds (which reports the laid-out extent to the
+    // layout solver). Cached via ChangeCache so repeated calls with
+    // identical inputs are free.
+    IFont* ensure_layout(const rect& bounds) const;
+
     Font font_;
-    IFont::TextLayoutResult layout_result_;
-    ChangeCache<CacheKey> cache_;
+    mutable IFont::TextLayoutResult layout_result_;
+    mutable ChangeCache<CacheKey> cache_;
 };
 
 } // namespace velk::ui

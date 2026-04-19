@@ -1,3 +1,5 @@
+#include "velk-ui/plugins/text/api/text_visual.h"
+
 #include <velk/api/any.h>
 #include <velk/api/callback.h>
 #include <velk/api/velk.h>
@@ -5,14 +7,27 @@
 #include <velk-render/api/material/shader.h>
 #include <velk-render/api/render_context.h>
 #include <velk-runtime/api/application.h>
+#include <velk-ui/api/camera.h>
 #include <velk-ui/api/element.h>
 #include <velk-ui/api/input/click.h>
 #include <velk-ui/api/material/gradient.h>
 #include <velk-ui/api/scene.h>
+#include <velk-ui/api/trait/fixed_size.h>
 #include <velk-ui/api/trait/orbit.h>
+#include <velk-ui/api/trait/trs.h>
 #include <velk-ui/api/visual/rect.h>
 #include <velk-ui/api/visual/visual.h>
-#include <velk-ui/interface/intf_camera.h>
+#include <velk-render/interface/intf_camera.h>
+
+constexpr velk::string_view ipsum = R"(
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Proin tortor purus platea sit eu id nisi litora libero. Neque vulputate consequat ac amet augue blandit maximus aliquet congue.
+Pharetra vestibulum posuere ornare faucibus fusce dictumst orci aenean eu facilisis ut volutpat commodo senectus purus himenaeos fames primis convallis nisi.
+Phasellus fermentum malesuada phasellus netus dictum aenean placerat egestas amet. Ornare taciti semper dolor tristique morbi. Sem leo tincidunt aliquet semper eu lectus scelerisque quis. Sagittis vivamus mollis nisi mollis enim fermentum laoreet.
+Curabitur semper venenatis lectus viverra ex dictumst nulla maximus. Primis iaculis elementum conubia feugiat venenatis dolor augue ac blandit nullam ac phasellus turpis feugiat mollis.
+Duis lectus porta mattis imperdiet vivamus augue litora lectus arcu. Justo torquent pharetra volutpat ad blandit bibendum accumsan nec elit cras luctus primis ipsum gravida class congue.
+Vehicula etiam elementum finibus enim duis feugiat commodo adipiscing tortor tempor elit. Et mollis consectetur habitant turpis tortor consectetur adipiscing vulputate dolor lectus iaculis convallis adipiscing.
+Nam hendrerit dignissim condimentum ullamcorper diam morbi eget consectetur odio in sagittis.
+)";
 
 int main(int argc, char* argv[])
 {
@@ -25,6 +40,7 @@ int main(int argc, char* argv[])
     wc.width = kWidth;
     wc.height = kHeight;
     wc.title = "velk-ui";
+    // wc.update_rate = velk::UpdateRate::Unlimited;
 
     auto app = velk::create_app(config);
     auto window = app.create_window(wc);
@@ -33,20 +49,25 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    velk::instance().plugin_registry().load_plugin_from_path("velk_tracy.dll");
+
+    VELK_LOG(E, "ipsum: %zu", ipsum.size());
+
     // Load scene
     auto scene = velk::ui::create_scene("app://scenes/dashboard.json");
     scene.set_geometry(velk::aabb::from_size({static_cast<float>(kWidth), static_cast<float>(kHeight)}));
 
     // The dashboard scene has two cameras: an ortho camera (no orbit trait)
     // and a perspective camera with an orbit trait. Find them by trait.
-    auto camera = scene.find_first<velk::ui::ICamera>();   // first camera in pre-order = ortho
+    auto camera = scene.find_first<velk::ICamera>();   // first camera in pre-order = ortho
     auto camera_3d = scene.find_first<velk::ui::IOrbit>(); // only the perspective one has orbit
 
     if (camera) {
-        app.add_view(window, camera, {0, 0, 0.5f, 1.0f});
+        app.add_view(window, camera, {0.5f, 0, 0.5f, 1.0f});
     }
     if (camera_3d) {
-        app.add_view(window, camera_3d, {.5f, 0, .5f, 1.0f});
+        velk::ui::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::RayTrace);
+        app.add_view(window, camera_3d, {0, 0, .5f, 1.0f});
     }
 
     // Orbit camera control via input dispatcher events.
@@ -110,6 +131,29 @@ int main(int argc, char* argv[])
         root.add_trait(click);
     }
 
+    {
+        float offset = -100;
+        float c = 0.f;
+        /*for (auto i = 0; i < 10; i++) {
+            auto root = velk::ui::create_element();
+            auto sz =
+                velk::ui::trait::layout::create_fixed_size(velk::ui::dim::px(640), velk::ui::dim::px(1080));
+            auto tr = velk::ui::trait::transform::create_trs();
+            tr.set_translate({offset, offset, 0});
+            auto vis = velk::ui::trait::visual::create_text();
+            vis.set_text(ipsum);
+            vis.set_color({1.f - c, c, (c * 2.f) / 2.f, 1});
+            vis.set_font_size(28 - (1.f - c) * 14);
+            vis.set_layout(velk::ui::TextLayout::WordWrap);
+            root.add_trait(sz);
+            root.add_trait(tr);
+            root.add_trait(vis);
+            scene.add(scene.root(), root);
+            offset += 10;
+            c += .1f;
+        }*/
+    }
+
     // Custom shader material: checkerboard pattern on the first card
     {
         auto ctx = app.render_context();
@@ -119,11 +163,15 @@ int main(int argc, char* argv[])
 #include "velk.glsl"
 #include "velk-ui.glsl"
 
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
+layout(buffer_reference, std430) readonly buffer CheckerParams {
     vec4 color_a;
     vec4 color_b;
     float scale;
+};
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    VELK_DRAW_DATA(RectInstanceData)
+    CheckerParams material;
 };
 
 layout(push_constant) uniform PC { DrawData root; };
@@ -134,8 +182,8 @@ void main()
 {
     vec2 q = velk_unit_quad(gl_VertexIndex);
     RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec2 world_pos = inst.pos + q * inst.size;
-    gl_Position = root.global_data.view_projection * vec4(world_pos, 0.0, 1.0);
+    vec4 local_pos = vec4(inst.pos + q * inst.size, 0.0, 1.0);
+    gl_Position = root.global_data.view_projection * inst.world_matrix * local_pos;
     v_local_uv = q;
 }
 )";
@@ -144,11 +192,15 @@ void main()
 #version 450
 #include "velk.glsl"
 
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(Ptr64)
+layout(buffer_reference, std430) readonly buffer CheckerParams {
     vec4 color_a;
     vec4 color_b;
     float scale;
+};
+
+layout(buffer_reference, std430) readonly buffer DrawData {
+    VELK_DRAW_DATA(OpaquePtr)
+    CheckerParams material;
 };
 
 layout(push_constant) uniform PC { DrawData root; };
@@ -158,10 +210,10 @@ layout(location = 0) out vec4 frag_color;
 
 void main()
 {
-    float s = root.scale;
+    float s = root.material.scale;
     vec2 cell = floor(v_local_uv * s);
     float checker = mod(cell.x + cell.y, 2.0);
-    frag_color = mix(root.color_a, root.color_b, checker);
+    frag_color = mix(root.material.color_a, root.material.color_b, checker);
 }
 )";
 

@@ -1,12 +1,20 @@
 #include "batch_builder.h"
 
+#include "default_ui_shaders.h"
+
 #include <velk/api/perf.h>
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
 #include <velk-render/gpu_data.h>
+#include <velk-render/interface/intf_draw_data.h>
+#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-ui/interface/intf_visual.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <velk/string.h>
 
 namespace {
 
@@ -49,13 +57,16 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
 
         // Ensure the visual's built-in pipeline is compiled. Empty shader
         // sources on the visual fall back to the renderer's registered
-        // defaults (see IRenderContext::compile_pipeline).
+        // defaults (see IRenderContext::compile_pipeline). Visuals that
+        // don't contribute their own shader (TextureVisual, cube/sphere)
+        // simply don't implement IRasterShader.
         if (render_ctx) {
-            uint64_t key = visual->get_pipeline_key();
-            if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
-                render_ctx->compile_pipeline(visual->get_fragment_src(),
-                                             visual->get_vertex_src(),
-                                             key);
+            if (auto* rs = interface_cast<IRasterShader>(visual)) {
+                uint64_t key = rs->get_raster_pipeline_key();
+                if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
+                    auto src = rs->get_raster_source(IRasterShader::Target::Forward);
+                    render_ctx->compile_pipeline(src.fragment, src.vertex, key);
+                }
             }
         }
 
@@ -63,6 +74,21 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         {
             VELK_PERF_SCOPE("renderer.get_draw_entries");
             vc.entries = visual->get_draw_entries(local_rect);
+        }
+
+        // Capture an optional per-visual `velk_visual_discard` snippet.
+        // Deferred gbuffer fragments call this at the top of main(); the
+        // composer in build_gbuffer_draw_calls splices the snippet in.
+        // The key perturbation is folded from the visual's class uid so
+        // two visuals sharing a material still get distinct pipelines.
+        if (auto* snippet = interface_cast<IShaderSnippet>(visual)) {
+            if (!snippet->get_snippet_source().empty()) {
+                vc.visual_discard = interface_pointer_cast<IShaderSnippet>(att);
+                if (auto* obj = interface_cast<IObject>(visual)) {
+                    Uid uid = obj->get_class_uid();
+                    vc.discard_key_perturb = uid.lo ^ uid.hi;
+                }
+            }
         }
 
         auto vstate = read_state<IVisual>(visual);
@@ -114,28 +140,20 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
         return phase == VisualPhase::AfterChildren ? cache.after_visuals : cache.before_visuals;
     };
 
-    auto emit_visuals = [&](const vector<VisualListEntry>& entries, VisualPhase phase,
+    auto emit_visuals = [&](const vector<IElement*>& entries, VisualPhase phase,
                             vector<Batch>& target_batches,
                             float offset_x = 0.f, float offset_y = 0.f) {
         uint64_t last_bkey = 0;
         size_t max_visuals = 0;
-        for (auto& ve : entries) {
-            if (ve.type != VisualEntry::Element) {
-                continue;
-            }
-            auto it = element_cache_.find(ve.element.get());
+        for (auto* elem : entries) {
+            auto it = element_cache_.find(elem);
             if (it != element_cache_.end()) {
                 max_visuals = std::max(max_visuals, get_visuals(it->second, phase).size());
             }
         }
 
         for (size_t pass = 0; pass < max_visuals; ++pass) {
-            for (auto& ve : entries) {
-                if (ve.type != VisualEntry::Element) {
-                    continue;
-                }
-
-                auto* elem = ve.element.get();
+            for (auto* elem : entries) {
                 auto it = element_cache_.find(elem);
                 if (it == element_cache_.end()) {
                     continue;
@@ -151,8 +169,15 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                     continue;
                 }
 
-                float wx = elem_state->world_matrix(0, 3) - offset_x;
-                float wy = elem_state->world_matrix(1, 3) - offset_y;
+                // Every instance layout begins with a mat4 world_matrix
+                // (see instance_types.h). We copy the element's transform
+                // here and — for RTT sub-passes — subtract the RTT root's
+                // world translation so children render in target-local
+                // space. Everything downstream (rotation, 3D z) comes for
+                // free because the full matrix is passed through.
+                mat4 world = elem_state->world_matrix;
+                world(0, 3) -= offset_x;
+                world(1, 3) -= offset_y;
 
                 auto& vc = visuals[pass];
                 for (auto& de : vc.entries) {
@@ -167,6 +192,8 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                         batch.texture_key = texture;
                         batch.instance_stride = de.instance_size;
                         batch.material = vc.material;
+                        batch.visual_discard = vc.visual_discard;
+                        batch.discard_key_perturb = vc.discard_key_perturb;
                         target_batches.push_back(std::move(batch));
                         last_bkey = bkey;
                     }
@@ -178,9 +205,10 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                     std::memcpy(batch.instance_data.data() + data_offset, de.instance_data,
                                 de.instance_size);
 
-                    float* inst = reinterpret_cast<float*>(batch.instance_data.data() + data_offset);
-                    inst[0] += wx;
-                    inst[1] += wy;
+                    // Overwrite the leading mat4 world_matrix slot. The
+                    // visual leaves it zero-initialised; we fill it per
+                    // instance so shaders get the correct transform.
+                    std::memcpy(batch.instance_data.data() + data_offset, world.m, sizeof(world.m));
 
                     batch.instance_count++;
                 }
@@ -188,57 +216,69 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
         }
     };
 
-    // Pre-filter: partition visual list entries into main and render target lists.
-    auto filter_render_targets = [&](const vector<VisualListEntry>& entries,
-                                     vector<VisualListEntry>& main_out,
-                                     VisualPhase phase) {
-        int depth = 0;
-        IElement* active_rt_elem = nullptr;
-        RenderTargetPassData* active_pass = nullptr;
+    // Walk the scene tree and route elements into main vs RTT subtree
+    // lists. `main_*` keeps top-level elements; each RenderTarget-marked
+    // subtree produces its own RenderTargetPassData with pre- and post-
+    // order element lists. Sibling z-sort matches the previous Scene-
+    // side visual_list build.
+    vector<IElement*> main_before;
+    vector<IElement*> main_after;
 
-        for (auto& ve : entries) {
-            if (ve.type == VisualEntry::PushRenderTarget) {
-                if (depth == 0) {
-                    active_rt_elem = ve.element.get();
-                    active_pass = nullptr;
-                    for (auto& rtp : render_target_passes_) {
-                        if (rtp.element == active_rt_elem) {
-                            active_pass = &rtp;
-                            break;
-                        }
-                    }
-                    if (!active_pass) {
-                        render_target_passes_.push_back({active_rt_elem, {}, {}, {}});
-                        active_pass = &render_target_passes_.back();
-                    }
-                }
-                depth++;
-                continue;
-            }
+    auto* scene = state.scene;
 
-            if (ve.type == VisualEntry::PopRenderTarget) {
-                depth--;
-                if (depth == 0) {
-                    active_rt_elem = nullptr;
-                    active_pass = nullptr;
-                }
-                continue;
-            }
-
-            if (depth > 0 && active_pass) {
-                auto& list = (phase == VisualPhase::BeforeChildren)
-                                 ? active_pass->before_entries
-                                 : active_pass->after_entries;
-                list.push_back(ve);
-            }
-            main_out.push_back(ve);
+    auto find_or_make_pass = [&](IElement* rt_elem) -> RenderTargetPassData& {
+        for (auto& rtp : render_target_passes_) {
+            if (rtp.element == rt_elem) return rtp;
         }
+        render_target_passes_.push_back({rt_elem, {}, {}, {}});
+        return render_target_passes_.back();
     };
 
-    vector<VisualListEntry> main_before;
-    vector<VisualListEntry> main_after;
-    filter_render_targets(state.visual_list, main_before, VisualPhase::BeforeChildren);
-    filter_render_targets(state.after_visual_list, main_after, VisualPhase::AfterChildren);
+    // Every element is recorded in the ambient (main) lists. An
+    // element inside an active RTT subtree is ALSO recorded into that
+    // pass's lists so the subtree renders into the target texture.
+    // An element carrying a RenderCache trait starts its own pass that
+    // covers itself + all descendants, so a textured rect sampling its
+    // own RTT renders correctly into both.
+    std::function<void(const IObject::Ptr&,
+                       vector<IElement*>&, vector<IElement*>&,
+                       RenderTargetPassData*)> walk;
+    walk = [&](const IObject::Ptr& obj,
+               vector<IElement*>& ambient_before,
+               vector<IElement*>& ambient_after,
+               RenderTargetPassData* active_pass) {
+        auto elem_ptr = interface_pointer_cast<IElement>(obj);
+        if (!elem_ptr) return;
+        auto* elem = elem_ptr.get();
+
+        RenderTargetPassData* inner_pass =
+            elem->has_render_traits() ? &find_or_make_pass(elem) : active_pass;
+
+        ambient_before.push_back(elem);
+        if (inner_pass) inner_pass->before_entries.push_back(elem);
+
+        if (scene) {
+            auto kids = scene->children_of(obj);
+            std::sort(kids.begin(), kids.end(),
+                [](const IObject::Ptr& a, const IObject::Ptr& b) {
+                    auto ra = read_state<IElement>(a);
+                    auto rb = read_state<IElement>(b);
+                    int32_t za = ra ? ra->z_index : 0;
+                    int32_t zb = rb ? rb->z_index : 0;
+                    return za < zb;
+                });
+            for (auto& kid : kids) {
+                walk(kid, ambient_before, ambient_after, inner_pass);
+            }
+        }
+
+        ambient_after.push_back(elem);
+        if (inner_pass) inner_pass->after_entries.push_back(elem);
+    };
+
+    if (scene) {
+        walk(scene->root(), main_before, main_after, nullptr);
+    }
 
     // Batch render target passes (offset by the element's world position)
     for (auto& rtp : render_target_passes_) {
@@ -287,14 +327,10 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         header.texture_id = texture_id;
         header.instance_count = batch.instance_count;
 
-        size_t mat_size = batch.material ? batch.material->gpu_data_size() : 0;
-        if (mat_size > 0 && (mat_size % 16) != 0) {
-            VELK_LOG(E,
-                     "Renderer: material gpu_data_size (%zu) is not 16-byte aligned. "
-                     "Use VELK_GPU_STRUCT for your material data.",
-                     mat_size);
-        }
-        size_t total_size = sizeof(DrawDataHeader) + mat_size;
+        uint64_t material_addr = write_material_once(batch.material.get(), frame_data);
+
+        constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
+        size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
 
         auto reservation = frame_data.reserve(total_size);
         if (!reservation.ptr) {
@@ -305,12 +341,7 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         uint64_t draw_data_addr = reservation.gpu_addr;
 
         std::memcpy(dst, &header, sizeof(header));
-        if (mat_size > 0) {
-            if (failed(batch.material->write_gpu_data(dst + sizeof(DrawDataHeader), mat_size))) {
-                VELK_LOG(E, "Renderer: material write_gpu_data failed");
-                continue;
-            }
-        }
+        std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
 
         if (!pipeline_map) {
             continue;
@@ -341,6 +372,158 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
 
         out_calls.push_back(call);
     }
+}
+
+void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
+                                            vector<DrawCall>& out_calls,
+                                            FrameDataManager& frame_data,
+                                            GpuResourceManager& resources,
+                                            uint64_t globals_gpu_addr,
+                                            IRenderContext* render_ctx,
+                                            RenderTargetGroup target_group,
+                                            IGpuResourceObserver* observer)
+{
+    VELK_PERF_SCOPE("renderer.build_gbuffer_draw_calls");
+
+    if (!render_ctx || target_group == 0) {
+        return;
+    }
+
+    for (auto& batch : batches) {
+        uint64_t instances_addr =
+            frame_data.write(batch.instance_data.data(), batch.instance_data.size());
+        if (!instances_addr) {
+            continue;
+        }
+
+        uint32_t texture_id = 0;
+        if (batch.texture_key != 0) {
+            auto* tex = reinterpret_cast<ISurface*>(batch.texture_key);
+            texture_id = resources.find_texture(tex);
+            if (texture_id == 0) {
+                uint64_t rt_id = get_render_target_id(tex);
+                if (rt_id != 0) {
+                    texture_id = static_cast<uint32_t>(rt_id);
+                }
+            }
+        }
+
+        DrawDataHeader header{};
+        header.globals_address = globals_gpu_addr;
+        header.instances_address = instances_addr;
+        header.texture_id = texture_id;
+        header.instance_count = batch.instance_count;
+
+        uint64_t material_addr = write_material_once(batch.material.get(), frame_data);
+
+        constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
+        size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
+
+        auto reservation = frame_data.reserve(total_size);
+        if (!reservation.ptr) {
+            continue;
+        }
+        auto* dst = static_cast<uint8_t*>(reservation.ptr);
+        uint64_t draw_data_addr = reservation.gpu_addr;
+        std::memcpy(dst, &header, sizeof(header));
+        std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
+
+        // Resolve the G-buffer pipeline variant. Base key is the forward
+        // pipeline key (stable hash on visual class / material); perturb
+        // by the visual's discard-snippet class so two visuals sharing
+        // the same material still get distinct gbuffer pipelines with
+        // the right `velk_visual_discard` spliced in.
+        uint64_t forward_key = batch.pipeline_key;
+        if (forward_key == 0 && batch.material) {
+            forward_key = batch.material->get_pipeline_handle(*render_ctx);
+        }
+        if (forward_key == 0) {
+            continue;
+        }
+        uint64_t gbuffer_key = forward_key ^ batch.discard_key_perturb;
+
+        PipelineId gpid = 0;
+        auto& gmap = render_ctx->gbuffer_pipeline_map();
+        auto git = gmap.find(gbuffer_key);
+        if (git != gmap.end()) {
+            gpid = git->second;
+        } else {
+            string_view vsrc;
+            string_view base_fsrc;
+            if (batch.material) {
+                if (auto* rs = interface_cast<IRasterShader>(batch.material.get())) {
+                    auto src = rs->get_raster_source(IRasterShader::Target::Deferred);
+                    vsrc = src.vertex;
+                    base_fsrc = src.fragment;
+                }
+            }
+            if (base_fsrc.empty()) {
+                base_fsrc = default_gbuffer_fragment_src;
+            }
+
+            // Compose fragment = material's (or default) source + the
+            // visual's discard snippet body, OR an empty stub when the
+            // visual opts out. Every deferred fragment forward-declares
+            // `void velk_visual_discard()` and calls it at the top of
+            // main; the composer supplies the definition here.
+            string composed;
+            composed.append(base_fsrc);
+            composed.append(string_view("\n", 1));
+            if (batch.visual_discard) {
+                composed.append(batch.visual_discard->get_snippet_source());
+            } else {
+                composed.append(string_view("void velk_visual_discard() {}\n", 30));
+            }
+
+            gpid = render_ctx->compile_gbuffer_pipeline(
+                string_view(composed), vsrc, gbuffer_key, target_group);
+        }
+        if (gpid == 0) {
+            continue;
+        }
+
+        (void)resources; // reserved for future per-resource registration
+        (void)observer;
+
+        DrawCall call{};
+        call.pipeline = gpid;
+        call.vertex_count = 4;
+        call.instance_count = batch.instance_count;
+        call.root_constants_size = sizeof(uint64_t);
+        std::memcpy(call.root_constants, &draw_data_addr, sizeof(uint64_t));
+
+        out_calls.push_back(call);
+    }
+}
+
+uint64_t BatchBuilder::write_material_once(IProgram* prog, FrameDataManager& frame_data)
+{
+    if (!prog) return 0;
+    auto it = frame_material_addrs_.find(prog);
+    if (it != frame_material_addrs_.end()) return it->second;
+
+    uint64_t addr = 0;
+    if (auto* dd = interface_cast<IDrawData>(prog)) {
+        size_t sz = dd->get_draw_data_size();
+        if (sz > 0 && (sz % 16) != 0) {
+            VELK_LOG(E,
+                     "Renderer: material get_draw_data_size (%zu) is not 16-byte aligned. "
+                     "Use VELK_GPU_STRUCT for your material data.",
+                     sz);
+        }
+        if (sz > 0) {
+            void* scratch = std::malloc(sz);
+            if (scratch) {
+                std::memset(scratch, 0, sz);
+                if (dd->write_draw_data(scratch, sz) == ReturnValue::Success) {
+                    addr = frame_data.write(scratch, sz);
+                }
+                std::free(scratch);
+            }
+        }
+    }
+    frame_material_addrs_[prog] = addr;
+    return addr;
 }
 
 } // namespace velk::ui

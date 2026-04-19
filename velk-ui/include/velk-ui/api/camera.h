@@ -3,8 +3,8 @@
 
 #include <velk/api/state.h>
 
-#include <velk-ui/api/trait.h>
-#include <velk-ui/interface/intf_camera.h>
+#include <velk-render/interface/intf_camera.h>
+#include <velk-ui/api/render_trait.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {
@@ -14,13 +14,14 @@ namespace velk::ui {
  *
  *   auto cam = create_camera();
  *   element.add_trait(cam);
+ *   cam.add_technique(create_rt_reflection());   // render-config attachment
  */
-class Camera : public Trait
+class Camera : public RenderTrait
 {
 public:
     Camera() = default;
-    explicit Camera(IObject::Ptr obj) : Trait(check_object<ICamera>(obj)) {}
-    explicit Camera(ICamera::Ptr c) : Trait(as_object(c)) {}
+    explicit Camera(IObject::Ptr obj) : RenderTrait(check_object<ICamera>(obj)) {}
+    explicit Camera(ICamera::Ptr c) : RenderTrait(as_object(c)) {}
 
     operator ICamera::Ptr() const { return as_ptr<ICamera>(); }
 

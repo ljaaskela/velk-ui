@@ -8,6 +8,7 @@
 #include <velk/interface/intf_hierarchy.h>
 #include <velk/interface/intf_store.h>
 
+#include <velk-render/interface/intf_bvh.h>
 #include <velk-ui/interface/intf_element.h>
 #include <velk-ui/types.h>
 
@@ -25,13 +26,6 @@ struct ElementQuery
     vector<Uid> traits; ///< Interface UIDs the element's attachments must implement (AND).
 };
 
-/** @brief A single entry in the visual list stream. */
-struct VisualListEntry
-{
-    VisualEntry type{VisualEntry::Element};
-    IElement::Ptr element;
-};
-
 /**
  * @brief Holds element and visual change information for one frame.
  *
@@ -41,15 +35,15 @@ struct VisualListEntry
  */
 struct SceneState
 {
-    /** @brief Pre-order (depth-first) visual list for BeforeChildren visuals. */
-    vector<VisualListEntry> visual_list;
-    /** @brief Post-order visual list for AfterChildren visuals. */
-    vector<VisualListEntry> after_visual_list;
-    /** @brief Elements whose visual state has changed since the last update. Elements on this list are
-     *         guaranteed to be either on visual_list or removed_list. */
+    /** @brief Elements whose visual state has changed since the last update.
+     *         Populated on layout / draw-order changes. */
     vector<IElement*> redraw_list;
-    /** @brief Elements that were detached from the scene since last update. */
+    /** @brief Elements that were detached from the scene since the last update. */
     vector<IElement::Ptr> removed_list;
+    /** @brief Non-owning pointer to the originating scene. Valid for the lifetime
+     *         of this SceneState; consumers walk the element tree directly
+     *         (BVH build, batch builder, ray-cast). */
+    IScene* scene = nullptr;
 };
 
 /**
@@ -117,6 +111,18 @@ public:
      */
     virtual vector<IElement::Ptr> find_elements(const ElementQuery& query,
                                                 size_t max_count = 0) const = 0;
+
+    /**
+     * @brief Returns the scene's default (primary) BVH, or nullptr if
+     *        no BVH is currently attached.
+     *
+     * Scenes may carry multiple IBvh attachments (render BVH, picking
+     * BVH, etc.). This accessor returns the first IBvh attached to the
+     * scene root, which is by convention the primary render BVH. For
+     * multi-BVH consumers, iterate `IObjectStorage` attachments on the
+     * scene root directly.
+     */
+    virtual ::velk::IBvh::Ptr get_default_bvh() const = 0;
 };
 
 } // namespace velk::ui

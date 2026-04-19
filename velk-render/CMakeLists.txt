@@ -18,6 +18,12 @@ add_library(velk_render SHARED
     src/shader_compiler.cpp
     src/shader_material.h
     src/shader_material.cpp
+    src/standard_material.h
+    src/standard_material.cpp
+    src/program_data_buffer.h
+    src/program_data_buffer.cpp
+    src/rt_shadow.h
+    src/rt_shadow.cpp
     src/spirv_material_reflect.h
     src/spirv_material_reflect.cpp
     src/surface.h
@@ -25,6 +31,7 @@ add_library(velk_render SHARED
     include/velk-render/platform.h
     include/velk-render/render_types.h
     include/velk-render/gpu_data.h
+    include/velk-render/gbuffer.h
     include/velk-render/interface/intf_buffer.h
     include/velk-render/interface/intf_render_backend.h
     include/velk-render/interface/intf_render_context.h
@@ -33,6 +40,8 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_material_internal.h
     include/velk-render/interface/intf_shader.h
     include/velk-render/interface/intf_shader_material.h
+    include/velk-render/interface/intf_standard.h
+    include/velk-render/api/material/standard.h
     include/velk-render/interface/intf_window_surface.h
     include/velk-render/ext/material.h
     include/velk-render/ext/gpu_resource.h
@@ -42,6 +51,16 @@ add_library(velk_render SHARED
     include/velk-render/detail/intf_renderer_internal.h
     include/velk-render/api/render_context.h
     include/velk-render/api/material/shader.h
+    include/velk-render/interface/intf_analytic_shape.h
+    include/velk-render/interface/intf_bvh.h
+    include/velk-render/interface/intf_program_data_buffer.h
+    include/velk-render/interface/intf_draw_data.h
+    include/velk-render/interface/intf_raster_shader.h
+    include/velk-render/interface/intf_shader_snippet.h
+    include/velk-render/interface/intf_render_technique.h
+    include/velk-render/interface/intf_shadow_technique.h
+    include/velk-render/api/render_technique.h
+    include/velk-render/api/shadow_technique.h
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

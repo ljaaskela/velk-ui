@@ -14,6 +14,9 @@
 #include <velk/plugins/importer/api/importer.h>
 
 #include <algorithm>
+#include <functional>
+
+#include <algorithm>
 
 #ifdef VELK_LAYOUT_DEBUG
 #define LAYOUT_LOG(...) VELK_LOG(I, __VA_ARGS__)
@@ -152,18 +155,27 @@ void Scene::update(const UpdateInfo& info)
     }
     dirty_elements_.clear();
 
-    if ((dirty_ & DirtyFlags::DrawOrder) != DirtyFlags::None) {
-        rebuild_visual_list();
-    }
-
     if ((dirty_ & DirtyFlags::Layout) != DirtyFlags::None) {
         solver_.solve(*h, geometry_);
-        // Layout changed, all elements need redraw
+    }
+
+    // Layout or draw-order change: mark every element for redraw so
+    // the renderer rebuilds its batches with the new positions / z-
+    // order. The batch builder walks the tree on its own each frame,
+    // so there is no flat visual list to rebuild here anymore.
+    if ((dirty_ & (DirtyFlags::Layout | DirtyFlags::DrawOrder)) != DirtyFlags::None) {
         redraw_list_.clear();
-        for (auto& entry : visual_list_) {
-            if (entry.type == VisualEntry::Element) {
-                redraw_list_.push_back(entry.element.get());
+        std::function<void(const IObject::Ptr&)> walk_all;
+        walk_all = [&](const IObject::Ptr& obj) {
+            auto elem = interface_pointer_cast<IElement>(obj);
+            if (!elem) return;
+            redraw_list_.push_back(elem.get());
+            for (auto& kid : logical_.children_of(obj)) {
+                walk_all(kid);
             }
+        };
+        if (auto r = logical_.root()) {
+            walk_all(r);
         }
     }
 
@@ -175,14 +187,13 @@ SceneState Scene::consume_state()
     std::unique_lock lock(state_mutex_);
 
     SceneState state;
-    state.visual_list = visual_list_;
-    state.after_visual_list = after_visual_list_;
     state.redraw_list = std::move(redraw_list_);
     state.removed_list = std::move(removed_list_);
+    state.scene = this;
     return state;
 }
 
-void Scene::notify_dirty(IElement& element, DirtyFlags)
+void Scene::notify_dirty(IElement& element, DirtyFlags flags)
 {
     std::unique_lock lock(state_mutex_);
     dirty_elements_.push_back(&element);
@@ -192,21 +203,38 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
 {
     std::shared_lock lock(state_mutex_);
 
+    // Walk the tree once to produce a pre-order list (same order as
+    // the old flat visual_list). Siblings are z-sorted so reverse
+    // iteration visits the topmost element first, matching the
+    // previous hit-testing semantics.
+    vector<IElement::Ptr> flat;
+    std::function<void(const IObject::Ptr&)> collect;
+    collect = [&](const IObject::Ptr& obj) {
+        auto elem = interface_pointer_cast<IElement>(obj);
+        if (!elem) return;
+        flat.push_back(elem);
+        auto kids = logical_.children_of(obj);
+        std::sort(kids.begin(), kids.end(), [](const IObject::Ptr& a, const IObject::Ptr& b) {
+            auto ra = read_state<IElement>(a);
+            auto rb = read_state<IElement>(b);
+            int32_t za = ra ? ra->z_index : 0;
+            int32_t zb = rb ? rb->z_index : 0;
+            return za < zb;
+        });
+        for (auto& kid : kids) {
+            collect(kid);
+        }
+    };
+    if (auto r = logical_.root()) {
+        collect(r);
+    }
+
     vector<IElement::Ptr> hits;
+    for (size_t i = flat.size(); i > 0; --i) {
+        auto& elem = flat[i - 1];
 
-    // Walk in reverse z-order (topmost first)
-    for (size_t i = visual_list_.size(); i > 0; --i) {
-        auto& entry = visual_list_[i - 1];
-        if (entry.type != VisualEntry::Element) {
-            continue;
-        }
-        auto& elem = entry.element;
-
-        // Only elements with an input trait participate in hit testing
         auto* storage = interface_cast<IObjectStorage>(elem);
-        if (!storage) {
-            continue;
-        }
+        if (!storage) continue;
         bool has_trait = false;
         for (size_t j = 0; j < storage->attachment_count(); ++j) {
             if (interface_cast<IInputTrait>(storage->get_attachment(j))) {
@@ -214,15 +242,10 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
                 break;
             }
         }
-        if (!has_trait) {
-            continue;
-        }
+        if (!has_trait) continue;
 
-        // 2D AABB test against the ray origin (x, y)
         auto reader = read_state<IElement>(elem);
-        if (!reader) {
-            continue;
-        }
+        if (!reader) continue;
         float wx = reader->world_matrix.m[12];
         float wy = reader->world_matrix.m[13];
         float w = reader->size.width;
@@ -231,9 +254,7 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
         if (origin.x >= wx && origin.x < wx + w &&
             origin.y >= wy && origin.y < wy + h) {
             hits.push_back(elem);
-            if (max_count > 0 && hits.size() >= max_count) {
-                break;
-            }
+            if (max_count > 0 && hits.size() >= max_count) break;
         }
     }
 
@@ -290,6 +311,11 @@ vector<IElement::Ptr> Scene::find_elements(const ElementQuery& query, size_t max
     }
 
     return matches;
+}
+
+::velk::IBvh::Ptr Scene::get_default_bvh() const
+{
+    return ::velk::find_attachment<::velk::IBvh>(logical_.root().object());
 }
 
 void Scene::ensure_hierarchy()
@@ -464,56 +490,6 @@ size_t Scene::size() const
 IHierarchy::Node Scene::node_of(const IObject::Ptr& object) const
 {
     return logical_.node_of(object).hierarchy_node();
-}
-
-void Scene::rebuild_visual_list()
-{
-    VELK_PERF_SCOPE("scene.rebuild_visual_list");
-    visual_list_.clear();
-    after_visual_list_.clear();
-    if (auto r = root()) {
-        collect_visual_list(r);
-    }
-}
-
-void Scene::collect_visual_list(const IObject::Ptr& obj)
-{
-    auto elem = interface_pointer_cast<IElement>(obj);
-    if (!elem) {
-        return;
-    }
-
-    // Check for RenderToTexture trait
-    bool has_rtt = elem->has_render_traits();
-    if (has_rtt) {
-        visual_list_.push_back({VisualEntry::PushRenderTarget, elem});
-        after_visual_list_.push_back({VisualEntry::PushRenderTarget, elem});
-    }
-    visual_list_.push_back({VisualEntry::Element, elem});
-
-    auto* h = get_hierarchy(logical_);
-    if (!h) {
-        return;
-    }
-
-    auto kids = h->children_of(obj);
-    std::sort(kids.begin(), kids.end(), [](const IObject::Ptr& a, const IObject::Ptr& b) {
-        auto ra = read_state<IElement>(a);
-        auto rb = read_state<IElement>(b);
-        int32_t za = ra ? ra->z_index : 0;
-        int32_t zb = rb ? rb->z_index : 0;
-        return za < zb;
-    });
-
-    for (auto& kid : kids) {
-        collect_visual_list(kid);
-    }
-
-    after_visual_list_.push_back({VisualEntry::Element, elem});
-    if (has_rtt) {
-        visual_list_.push_back({VisualEntry::PopRenderTarget, elem});
-        after_visual_list_.push_back({VisualEntry::PopRenderTarget, elem});
-    }
 }
 
 } // namespace velk::ui

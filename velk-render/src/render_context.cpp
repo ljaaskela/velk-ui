@@ -135,7 +135,7 @@ IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage s
 }
 
 uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
-                                            uint64_t key)
+                                            uint64_t key, RenderTargetGroup target_group)
 {
     if (!initialized_ || !backend_) {
         return 0;
@@ -156,14 +156,10 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
     }
 
     PipelineDesc desc;
-    /*desc.vertex_spirv = vert_data.begin();
-    desc.vertex_spirv_size = vert_data.size() * sizeof(uint32_t);
-    desc.fragment_spirv = frag_data.begin();
-    desc.fragment_spirv_size = frag_data.size() * sizeof(uint32_t);*/
     desc.vertex = vert_shader;
     desc.fragment = frag_shader;
 
-    PipelineId pid = backend_->create_pipeline(desc);
+    PipelineId pid = backend_->create_pipeline(desc, target_group);
     if (!pid) {
         return 0;
     }
@@ -176,11 +172,11 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
 }
 
 uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string_view vertex_source,
-                                             uint64_t key)
+                                             uint64_t key, RenderTargetGroup target_group)
 {
     auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
     auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
-    return create_pipeline(vert, frag, key);
+    return create_pipeline(vert, frag, key, target_group);
 }
 
 uint64_t RenderContextImpl::create_compute_pipeline(const IShader::Ptr& compute, uint64_t key)
@@ -214,6 +210,53 @@ uint64_t RenderContextImpl::compile_compute_pipeline(string_view compute_source,
         return 0;
     }
     return create_compute_pipeline(compute, key);
+}
+
+PipelineId RenderContextImpl::compile_gbuffer_pipeline(string_view fragment_source,
+                                                       string_view vertex_source,
+                                                       uint64_t key,
+                                                       RenderTargetGroup target_group)
+{
+    if (!initialized_ || !backend_ || key == 0 || target_group == 0) {
+        return 0;
+    }
+    auto it = gbuffer_pipeline_map_.find(key);
+    if (it != gbuffer_pipeline_map_.end()) {
+        return it->second;
+    }
+
+    auto vert = vertex_source.empty()
+                    ? default_gbuffer_vertex_shader_
+                    : compile_shader(vertex_source, ShaderStage::Vertex);
+    auto frag = fragment_source.empty()
+                    ? default_gbuffer_fragment_shader_
+                    : compile_shader(fragment_source, ShaderStage::Fragment);
+    if (!vert || !frag) {
+        VELK_LOG(E, "compile_gbuffer_pipeline: missing vertex or fragment shader for key %llu",
+                 static_cast<unsigned long long>(key));
+        return 0;
+    }
+
+    PipelineDesc desc;
+    desc.vertex = vert;
+    desc.fragment = frag;
+
+    PipelineId pid = backend_->create_pipeline(desc, target_group);
+    if (!pid) {
+        return 0;
+    }
+    gbuffer_pipeline_map_[key] = pid;
+    return pid;
+}
+
+void RenderContextImpl::set_default_gbuffer_vertex_shader(const IShader::Ptr& shader)
+{
+    default_gbuffer_vertex_shader_ = shader;
+}
+
+void RenderContextImpl::set_default_gbuffer_fragment_shader(const IShader::Ptr& shader)
+{
+    default_gbuffer_fragment_shader_ = shader;
 }
 
 void RenderContextImpl::set_default_vertex_shader(const IShader::Ptr& shader)

@@ -3,6 +3,7 @@ add_library(velk_ui SHARED
     src/plugin.cpp
     src/camera.h
     src/camera.cpp
+    src/trait/light.h
     src/element.h
     src/element.cpp
     src/scene.h
@@ -17,6 +18,10 @@ add_library(velk_ui SHARED
     src/visual/rect_visual.cpp
     src/visual/rounded_rect_visual.h
     src/visual/rounded_rect_visual.cpp
+    src/visual/cube_visual.h
+    src/visual/cube_visual.cpp
+    src/visual/sphere_visual.h
+    src/visual/sphere_visual.cpp
     src/visual/texture_visual.h
     src/visual/texture_visual.cpp
     src/visual/texture_material.h
@@ -29,6 +34,8 @@ add_library(velk_ui SHARED
     src/renderer/gpu_resource_manager.cpp
     src/renderer/batch_builder.h
     src/renderer/batch_builder.cpp
+    src/renderer/frame_snippet_registry.h
+    src/renderer/frame_snippet_registry.cpp
     src/transform/trs.h
     src/transform/trs.cpp
     src/transform/look_at.h
@@ -40,8 +47,19 @@ add_library(velk_ui SHARED
     src/material/gradient_material.h
     src/material/gradient_material.cpp
     src/renderer/default_ui_shaders.h
+    src/renderer/view_renderer.h
+    src/renderer/env_helper.h
+    src/renderer/env_helper.cpp
+    src/renderer/rasterizer.h
+    src/renderer/rasterizer.cpp
+    src/renderer/ray_tracer.h
+    src/renderer/ray_tracer.cpp
+    src/renderer/deferred_lighter.h
+    src/renderer/deferred_lighter.cpp
     src/renderer/renderer.h
     src/renderer/renderer.cpp
+    src/renderer/scene_bvh.h
+    src/renderer/scene_bvh.cpp
     src/import/align_type_extension.h
     src/import/align_type_extension.cpp
     src/import/dim_type_extension.h
@@ -69,7 +87,8 @@ add_library(velk_ui SHARED
     include/velk-ui/interface/trait/intf_click.h
     include/velk-ui/interface/trait/intf_hover.h
     include/velk-ui/interface/trait/intf_drag.h
-    include/velk-ui/interface/intf_camera.h
+    include/velk-ui/api/render_trait.h
+    include/velk-ui/api/trait/light.h
     include/velk-ui/interface/intf_element.h
     include/velk-ui/interface/intf_font.h
     include/velk-ui/interface/intf_renderer.h
@@ -99,6 +118,8 @@ add_library(velk_ui SHARED
     include/velk-ui/api/visual/visual.h
     include/velk-ui/api/visual/rect.h
     include/velk-ui/api/visual/rounded_rect.h
+    include/velk-ui/api/visual/cube.h
+    include/velk-ui/api/visual/sphere.h
     include/velk-ui/interface/intf_gradient.h
     include/velk-ui/interface/intf_trait.h
     include/velk-ui/plugin.h

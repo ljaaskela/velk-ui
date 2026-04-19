@@ -60,15 +60,20 @@ public:
      * Returns the pipeline key, or 0 on failure.
      */
     virtual uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
-                                     uint64_t key = 0) = 0;
+                                     uint64_t key = 0,
+                                     RenderTargetGroup target_group = 0) = 0;
 
     /**
      * @brief Convenience: compiles GLSL shaders and creates the pipeline in one call.
      *
-     * Empty sources are substituted with the registered defaults.
+     * Empty sources are substituted with the registered defaults. If
+     * @p target_group is non-zero, the pipeline is compiled against that
+     * MRT group's render pass (for G-buffer fills); otherwise against
+     * the single-attachment swapchain render pass.
      */
     virtual uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
-                                      uint64_t key = 0) = 0;
+                                      uint64_t key = 0,
+                                      RenderTargetGroup target_group = 0) = 0;
 
     /**
      * @brief Creates a compute pipeline from a compiled compute shader.
@@ -91,8 +96,53 @@ public:
     /** @brief Registers a default fragment shader used when create_pipeline receives nullptr. */
     virtual void set_default_fragment_shader(const IShader::Ptr& shader) = 0;
 
+    /**
+     * @brief Registers the default deferred G-buffer vertex shader.
+     *
+     * Used by the deferred pipeline when a material's
+     * `IProgram::get_gbuffer_vertex_src()` is empty.
+     */
+    virtual void set_default_gbuffer_vertex_shader(const IShader::Ptr& shader) = 0;
+
+    /**
+     * @brief Registers the default deferred G-buffer fragment shader.
+     *
+     * Used by the deferred pipeline when a material's
+     * `IProgram::get_gbuffer_fragment_src()` is empty.
+     */
+    virtual void set_default_gbuffer_fragment_shader(const IShader::Ptr& shader) = 0;
+
+    /** @brief Returns the default G-buffer vertex shader (may be null). */
+    virtual IShader::Ptr get_default_gbuffer_vertex_shader() const = 0;
+
+    /** @brief Returns the default G-buffer fragment shader (may be null). */
+    virtual IShader::Ptr get_default_gbuffer_fragment_shader() const = 0;
+
     /** @brief Returns the mapping from pipeline keys to backend PipelineId handles. */
     virtual const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const = 0;
+
+    /**
+     * @brief Returns the parallel mapping from pipeline keys to G-buffer
+     *        PipelineId handles. Populated by compile_gbuffer_pipeline().
+     *
+     * G-buffer variants are compiled on-demand once per (forward key,
+     * target group) combination — render passes of distinct groups are
+     * compatible (same formats) so a single pipeline works across views.
+     */
+    virtual const std::unordered_map<uint64_t, PipelineId>& gbuffer_pipeline_map() const = 0;
+
+    /**
+     * @brief Compiles a G-buffer pipeline variant for the given pipeline
+     *        key, targeting the supplied MRT group's render pass.
+     *
+     * Empty sources fall back to the registered default G-buffer shaders.
+     * Registers the result under @p key in gbuffer_pipeline_map().
+     * Idempotent: returns the existing PipelineId on a repeat call.
+     */
+    virtual PipelineId compile_gbuffer_pipeline(string_view fragment_source,
+                                                string_view vertex_source,
+                                                uint64_t key,
+                                                RenderTargetGroup target_group) = 0;
 
     /**
      * @brief Registers a virtual shader include.

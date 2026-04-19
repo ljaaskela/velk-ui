@@ -1,6 +1,8 @@
 #ifndef VELK_UI_ROUNDED_RECT_VISUAL_H
 #define VELK_UI_ROUNDED_RECT_VISUAL_H
 
+#include <velk-render/interface/intf_analytic_shape.h>
+#include <velk-render/interface/intf_shader_snippet.h>
 #include <velk-ui/ext/trait.h>
 #include <velk-ui/plugin.h>
 
@@ -12,15 +14,31 @@ namespace velk::ui {
  * Produces a single FillRoundedRect draw command. The renderer uses
  * an SDF fragment shader to clip corners with antialiasing.
  */
-class RoundedRectVisual : public ext::Visual<RoundedRectVisual>
+class RoundedRectVisual : public ext::Visual<RoundedRectVisual,
+                                              ::velk::IAnalyticShape,
+                                              ::velk::IShaderSnippet>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::RoundedRect, "RoundedRectVisual");
 
     vector<DrawEntry> get_draw_entries(const rect& bounds) override;
-    uint64_t get_pipeline_key() const override;
-    string_view get_fragment_src() const override;
-    string_view get_intersect_src() const override;
+
+    // IRasterShader overrides: custom fragment for SDF corners;
+    // vertex stays default.
+    ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target t) const override;
+    uint64_t get_raster_pipeline_key() const override;
+
+    // IAnalyticShape: reports shape_kind 0 (a rect) with a non-empty
+    // intersect source, so scene_collector knows to enable the corner
+    // radius on emitted shadow/RT shapes.
+    uint32_t get_shape_kind() const override { return 0; }
+    string_view get_shape_intersect_source() const override;
+    string_view get_shape_intersect_fn_name() const override;
+
+    // IShaderSnippet: provides the deferred `velk_visual_discard`
+    // implementation that clips the rect's rounded corners.
+    string_view get_snippet_fn_name() const override;
+    string_view get_snippet_source() const override;
 };
 
 } // namespace velk::ui

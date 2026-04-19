@@ -24,7 +24,6 @@ add_subdirectory("${VELK_SOURCE_DIR}/velk/plugins/animator"  "${CMAKE_BINARY_DIR
 # =============================================================================
 # Subdirectories
 # =============================================================================
-add_subdirectory(test)
 add_subdirectory(velk-render)
 add_subdirectory(velk-render/plugins/vk)
 add_subdirectory(velk-ui)
@@ -32,4 +31,4 @@ add_subdirectory(plugins/text)
 add_subdirectory(plugins/image)
 add_subdirectory(velk-runtime)
 add_subdirectory(velk-runtime/plugins/glfw)
-add_subdirectory(app)
+add_subdirectory(samples)

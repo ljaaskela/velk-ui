@@ -3,7 +3,9 @@
 
 #include <velk-render/ext/material.h>
 #include <velk-render/interface/intf_buffer.h>
+#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_context.h>
+#include <velk-render/interface/intf_shader_snippet.h>
 #include <velk-ui/plugins/text/plugin.h>
 
 namespace velk::ui {
@@ -40,7 +42,10 @@ public:
  * (`velk_text.glsl`, defining the slug coverage function) is registered
  * with the render context just before compilation.
  */
-class TextMaterial : public ::velk::ext::Material<TextMaterial, ITextMaterialInternal>
+class TextMaterial : public ::velk::ext::Material<TextMaterial,
+                                                   ITextMaterialInternal,
+                                                   ::velk::IShaderSnippet,
+                                                   ::velk::IRasterShader>
 {
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::TextMaterial, "TextMaterial");
@@ -52,8 +57,17 @@ public:
 
     // IMaterial
     uint64_t get_pipeline_handle(IRenderContext& ctx) override;
-    size_t gpu_data_size() const override;
-    ReturnValue write_gpu_data(void* out, size_t size) const override;
+    size_t get_draw_data_size() const override;
+    ReturnValue write_draw_data(void* out, size_t size) const override;
+
+    // IShaderSnippet (RT fill)
+    string_view get_snippet_fn_name() const override;
+    string_view get_snippet_source() const override;
+    void register_snippet_includes(IRenderContext& ctx) const override;
+
+    // IRasterShader: deferred vertex/fragment. Forward path uses the
+    // default ensure_pipeline wiring (returns empty).
+    ShaderSource get_raster_source(IRasterShader::Target t) const override;
 
 private:
     IBuffer::Ptr curves_;

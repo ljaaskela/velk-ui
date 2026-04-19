@@ -7,7 +7,12 @@
 #include <unordered_map>
 #include "batch_builder.h"
 #include "frame_data_manager.h"
+#include "frame_snippet_registry.h"
 #include "gpu_resource_manager.h"
+#include "deferred_lighter.h"
+#include "ray_tracer.h"
+#include "rasterizer.h"
+#include "view_renderer.h"
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_gpu_resource.h>
@@ -17,10 +22,11 @@
 #include <velk-render/interface/intf_window_surface.h>
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
-#include <velk-ui/interface/intf_camera.h>
+#include <velk-render/interface/intf_camera.h>
 #include <velk-ui/interface/intf_render_to_texture.h>
 #include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
+#include "scene_bvh.h"
 
 #include <condition_variable>
 #include <mutex>
@@ -46,55 +52,16 @@ public:
     void present(Frame frame) override;
     void render() override;
     void set_max_frames_in_flight(uint32_t count) override;
+    void add_debug_overlay(const IWindowSurface::Ptr& surface,
+                           TextureId texture_id,
+                           const rect& dst_rect) override;
+    void clear_debug_overlays() override;
+    TextureId get_gbuffer_attachment(const IElement::Ptr& camera_element,
+                                     const IWindowSurface::Ptr& surface,
+                                     uint32_t attachment_index) const override;
     void shutdown() override;
 
 private:
-    struct ViewEntry
-    {
-        IElement::Ptr camera_element;
-        IWindowSurface::Ptr surface;
-        rect viewport;
-        bool batches_dirty = true;
-        int cached_width = 0;
-        int cached_height = 0;
-        vector<BatchBuilder::Batch> batches;
-
-        // Ray-traced output texture (only allocated when camera is in RayTrace
-        // path). Sized to the surface; reallocated on size change.
-        TextureId rt_output_tex = 0;
-        int rt_width = 0;
-        int rt_height = 0;
-    };
-
-    struct RenderTarget
-    {
-        IRenderTarget::Ptr target;
-    };
-
-    enum class PassKind
-    {
-        Raster,
-        ComputeBlit,
-    };
-
-    struct RenderPass
-    {
-        PassKind kind = PassKind::Raster;
-
-        // Raster fields
-        RenderTarget target;
-        rect viewport;
-        vector<DrawCall> draw_calls;
-
-        // ComputeBlit fields: compute writes to blit_source, then blit
-        // copies it into blit_dst_rect of the swapchain image for
-        // blit_surface_id.
-        DispatchCall compute{};
-        uint64_t blit_surface_id = 0;
-        TextureId blit_source = 0;
-        rect blit_dst_rect{};
-    };
-
     struct FrameSlot
     {
         uint64_t id = 0;
@@ -104,22 +71,13 @@ private:
         FrameDataManager::Slot buffer;
     };
 
-    struct RenderTargetEntry
-    {
-        IRenderTarget::Ptr target;
-        TextureId texture_id = 0;
-        int width = 0;
-        int height = 0;
-        bool dirty = true;
-    };
-
     FrameSlot* claim_frame_slot();
     std::unordered_map<IScene*, SceneState> consume_scenes(const FrameDesc& desc);
     void build_frame_passes(const FrameDesc& desc,
                             std::unordered_map<IScene*, SceneState>& consumed_scenes,
                             FrameSlot& slot);
-    void prepend_environment_batch(ICamera& camera, ViewEntry& entry);
     bool view_matches(const ViewEntry& entry, const FrameDesc& desc) const;
+    FrameContext make_frame_context();
 
     IRenderBackend::Ptr backend_;
     IRenderContext* render_ctx_ = nullptr;
@@ -132,18 +90,38 @@ private:
     vector<ViewEntry> views_;
     const std::unordered_map<uint64_t, PipelineId>* pipeline_map_ = nullptr;
 
+    struct DebugOverlay {
+        IWindowSurface::Ptr surface;
+        TextureId texture_id = 0;
+        rect dst_rect{};
+    };
+    vector<DebugOverlay> debug_overlays_;
+
+    // Shared visual-command / gpu-resource cache. Both the dirty-resource
+    // upload in consume_scenes and the Rasterizer path read from it, so it
+    // lives here rather than inside a single sub-renderer.
     BatchBuilder batch_builder_;
     FrameDataManager frame_buffer_;
 
     FrameSlot* active_slot_ = nullptr;
-    uint64_t globals_gpu_addr_ = 0;
-    vector<DrawCall> draw_calls_;
 
-    std::unordered_map<IElement*, RenderTargetEntry> render_target_entries_;
+    // Shared per-frame scene snippet registry (materials + shadow
+    // techniques). Owned here so both the scene-wide BVH build and
+    // the sub-renderers (RayTracer composer, DeferredLighter light
+    // resolution) read from the same stable ids.
+    FrameSnippetRegistry snippets_;
 
-    // Compute pipeline key for the phase-1.1 RT test shader. Compiled lazily
-    // on first RT view.
-    uint64_t rt_test_pipeline_key_ = 0;
+    // Per-scene concrete SceneBvh pointer cache. The attachment on the
+    // scene root owns the lifetime; we just cache the typed pointer so
+    // rebuild() can be called without a round-trip through IBvh. Stale
+    // entries for dead scenes are harmless because we only touch entries
+    // whose scene is currently in `consumed_scenes`.
+    std::unordered_map<IScene*, impl::SceneBvh*> scene_bvh_cache_;
+
+    // Sub-renderers; one per render path.
+    Rasterizer rasterizer_;
+    RayTracer ray_tracer_;
+    DeferredLighter deferred_lighter_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

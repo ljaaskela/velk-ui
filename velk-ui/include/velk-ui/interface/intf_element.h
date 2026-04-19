@@ -25,6 +25,7 @@ public:
         (PROP, vec3, position, {}),                           ///< Position in parent-local space.
         (PROP, ::velk::size, size, {}),                       ///< Element size (width, height).
         (RPROP, mat4, world_matrix, {}),                      ///< Computed world-space transform. Written by solver.
+        (RPROP, aabb, world_aabb, {}),                        ///< World-space bounds = own_box ∪ children.world_aabb. Written by solver.
         (PROP, int32_t, z_index, 0),                          ///< Draw order among siblings. Higher draws on top.
         (PROP, BlendMode, blend_mode, BlendMode::SrcAlpha),   ///< Blend mode when compositing.
         (PROP, RenderMode, render_mode, RenderMode::Default)  ///< Controls surface vs trait rendering.

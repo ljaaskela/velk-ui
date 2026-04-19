@@ -37,6 +37,7 @@ public:
                                    size_t max_count = 0) const override;
     vector<IElement::Ptr> find_elements(const ElementQuery& query,
                                         size_t max_count = 0) const override;
+    ::velk::IBvh::Ptr get_default_bvh() const override;
 
     // IHierarchy forwarding
     ReturnValue set_root(const IObject::Ptr& root) override;
@@ -66,8 +67,6 @@ private:
     void detach_element(const IObject::Ptr& obj);
     void detach_subtree(const IObject::Ptr& obj);
     void replicate_children(IHierarchy& src, const IObject::Ptr& parent);
-    void rebuild_visual_list();
-    void collect_visual_list(const IObject::Ptr& obj);
 
     Hierarchy logical_;
     LayoutSolver solver_;
@@ -77,8 +76,6 @@ private:
 
     mutable std::shared_mutex state_mutex_;  ///< Protects the lists below.
     vector<IElement*> dirty_elements_;
-    vector<VisualListEntry> visual_list_;        ///< Pre-order (before children).
-    vector<VisualListEntry> after_visual_list_;  ///< Post-order (after children).
     vector<IElement*> redraw_list_;
     vector<IElement::Ptr> removed_list_;
 

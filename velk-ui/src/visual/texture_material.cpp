@@ -19,52 +19,68 @@ constexpr string_view texture_vertex_src = R"(
 #include "velk.glsl"
 #include "velk-ui.glsl"
 
+layout(buffer_reference, std430) readonly buffer TextureParams { vec4 tint; };
+
 layout(buffer_reference, std430) readonly buffer DrawData {
     VELK_DRAW_DATA(RectInstanceData)
-    vec4 tint;
+    TextureParams material;
 };
 
 layout(push_constant) uniform PC { DrawData root; };
 
 layout(location = 0) out vec2 v_uv;
-layout(location = 1) flat out uint v_texture_id;
-layout(location = 2) out vec4 v_tint;
 
 void main()
 {
     vec2 q = velk_unit_quad(gl_VertexIndex);
     RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec2 world_pos = inst.pos + q * inst.size;
-    gl_Position = root.global_data.view_projection * vec4(world_pos, 0.0, 1.0);
+    vec4 local_pos = vec4(inst.pos + q * inst.size, 0.0, 1.0);
+    gl_Position = root.global_data.view_projection * inst.world_matrix * local_pos;
     v_uv = q;
-    v_texture_id = root.texture_id;
-    v_tint = root.tint;
 }
 )";
 
 constexpr string_view texture_fragment_src = R"(
 #version 450
-#extension GL_EXT_nonuniform_qualifier : enable
 #include "velk.glsl"
 
-layout(set = 0, binding = 0) uniform sampler2D velk_textures[];
+layout(buffer_reference, std430) readonly buffer TextureParams { vec4 tint; };
 
 layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(Ptr64)
-    vec4 tint;
+    VELK_DRAW_DATA(OpaquePtr)
+    TextureParams material;
 };
 
 layout(push_constant) uniform PC { DrawData root; };
 
 layout(location = 0) in vec2 v_uv;
-layout(location = 1) flat in uint v_texture_id;
-layout(location = 2) in vec4 v_tint;
 layout(location = 0) out vec4 frag_color;
 
 void main()
 {
-    vec4 sampled = texture(velk_textures[nonuniformEXT(v_texture_id)], v_uv);
-    frag_color = sampled * v_tint;
+    frag_color = velk_texture(root.texture_id, v_uv) * root.material.tint;
+}
+)";
+
+// RT fill snippet. Samples the bindless texture at the hit UV and
+// tints by the material's tint. Terminal (no bounce), mirrors
+// ImageMaterial::velk_fill_image.
+constexpr string_view texture_fill_src = R"(
+layout(buffer_reference, std430) readonly buffer TextureMaterialData {
+    vec4 tint;
+};
+
+BrdfSample velk_fill_texture(FillContext ctx)
+{
+    TextureMaterialData d = TextureMaterialData(ctx.data_addr);
+    vec4 sampled = velk_texture(ctx.texture_id, ctx.uv);
+    BrdfSample bs;
+    bs.emission = sampled * d.tint;
+    bs.throughput = vec3(0.0);
+    bs.next_dir = vec3(0.0);
+    bs.terminate = true;
+    bs.sample_count_hint = 1u;
+    return bs;
 }
 )";
 
@@ -75,12 +91,22 @@ uint64_t TextureMaterial::get_pipeline_handle(IRenderContext& ctx)
     return ensure_pipeline(ctx, texture_fragment_src, texture_vertex_src);
 }
 
-size_t TextureMaterial::gpu_data_size() const
+string_view TextureMaterial::get_snippet_fn_name() const
+{
+    return "velk_fill_texture";
+}
+
+string_view TextureMaterial::get_snippet_source() const
+{
+    return texture_fill_src;
+}
+
+size_t TextureMaterial::get_draw_data_size() const
 {
     return sizeof(TextureParams);
 }
 
-ReturnValue TextureMaterial::write_gpu_data(void* out, size_t size) const
+ReturnValue TextureMaterial::write_draw_data(void* out, size_t size) const
 {
     if (auto state = read_state<ITextureVisual>(this)) {
         return set_material<TextureParams>(out, size, [&](auto& p) {

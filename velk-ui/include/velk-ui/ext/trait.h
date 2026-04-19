@@ -4,6 +4,7 @@
 #include <velk/ext/object.h>
 #include <velk/interface/intf_metadata_observer.h>
 
+#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-ui/interface/intf_layout_trait.h>
 #include <velk-ui/interface/intf_trait.h>
 #include <velk-ui/interface/intf_transform_trait.h>
@@ -68,10 +69,39 @@ protected:
  * @tparam Extra Additional interfaces the visual implements.
  */
 template <class T, class... Extra>
-class Visual : public ::velk::ext::Object<T, IVisual, ITraitNotify, IMetadataObserver, Extra...>
+class Visual : public ::velk::ext::Object<T, IVisual, ::velk::IRasterShader,
+                                          ITraitNotify, IMetadataObserver, Extra...>
 {
 public:
     TraitPhase get_phase() const override { return TraitPhase::Visual; }
+
+    /**
+     * @brief Default: empty vertex+fragment for the requested target
+     *        (renderer substitutes its registered defaults). Visuals
+     *        that supply their own shader override this.
+     */
+    ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target) const override
+    {
+        return {};
+    }
+
+    /** @brief Default: `PipelineKey::Default`. Override for custom shader pipelines. */
+    uint64_t get_raster_pipeline_key() const override { return PipelineKey::Default; }
+
+    /**
+     * @brief Default local-space bounds = the element's own @p bounds.
+     * Overridden by visuals whose render extent can exceed the layout
+     * box (text overflow, shadows, outlines).
+     */
+    aabb get_local_bounds(const rect& bounds) const override
+    {
+        aabb out;
+        out.position = {bounds.x, bounds.y, 0.f};
+        out.extent = {bounds.width, bounds.height, 0.f};
+        return out;
+    }
+
+    vector<IBuffer::Ptr> get_gpu_resources() const override { return {}; }
 
 protected:
     void invoke_trait_dirty(DirtyFlags flags = DirtyFlags::Visual)
@@ -83,22 +113,13 @@ protected:
     void invoke_visual_changed() { invoke_trait_dirty(DirtyFlags::Visual); }
 
     void on_state_changed(string_view, IMetadata&, Uid) override { invoke_trait_dirty(); }
-
-    /** @brief Default pipeline key 1 = "filled rect". */
-    uint64_t get_pipeline_key() const override { return PipelineKey::Default; }
-
-    /** @brief Empty vertex shader = rect */
-    string_view get_vertex_src() const override { return {}; }
-
-    /** @brief Empty fragment shader = fill with IVisual::color */
-    string_view get_fragment_src() const override { return {}; }
-
-    /** @brief Empty intersect shader = intersect AABB. */
-    string_view get_intersect_src() const override { return {}; }
 };
 
 /**
- * @brief CRTP base for Render-phase traits (e.g. Camera, RenderCache).
+ * @brief CRTP base for ITrait implementations running in
+ *        `TraitPhase::Render` (e.g. RenderCache). Not used by
+ *        IRenderTrait-based render traits (Camera, Light) — those
+ *        inherit `ext::Object` directly since they're not ITraits.
  *
  * @tparam T     The concrete class (CRTP parameter).
  * @tparam Extra Additional interfaces (e.g. IRenderToTexture).

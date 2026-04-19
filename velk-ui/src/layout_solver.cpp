@@ -7,6 +7,7 @@
 #include <velk-ui/api/element.h>
 #include <velk-ui/interface/intf_layout_trait.h>
 #include <velk-ui/interface/intf_transform_trait.h>
+#include <velk-ui/interface/intf_visual.h>
 
 #ifdef VELK_LAYOUT_DEBUG
 #define LAYOUT_LOG(...) VELK_LOG(I, __VA_ARGS__)
@@ -84,8 +85,20 @@ void LayoutSolver::solve_element(IHierarchy& hierarchy, const IElement::Ptr& ele
     // Re-read world matrix after transforms
     world = reader->world_matrix;
 
-    // Recurse into children
+    // Recurse into children. Each child writes its own world_aabb
+    // during its solve; we merge them back into this element's
+    // aggregate bounds afterwards. Visuals attached to this element
+    // can extend past the layout box (text overflow, shadows,
+    // outlines), so we query each via get_local_bounds and fold its
+    // world-space bound in too.
     auto children = hierarchy.children_of(as_object(element));
+    rect local_rect{0, 0, reader->size.width, reader->size.height};
+    aabb combined = aabb::from_size(reader->size).transformed(world);
+    for (auto&& vis : e.find_attachments<IVisual>()) {
+        if (auto* v = vis.get()) {
+            combined = aabb::merge(combined, v->get_local_bounds(local_rect).transformed(world));
+        }
+    }
     for (auto& child : children) {
         auto child_elem = interface_pointer_cast<IElement>(child);
         if (!child_elem) {
@@ -107,7 +120,13 @@ void LayoutSolver::solve_element(IHierarchy& hierarchy, const IElement::Ptr& ele
         }
 
         solve_element(hierarchy, child_elem, child_bounds, world);
+
+        if (auto child_state = read_state<IElement>(child_elem)) {
+            combined = aabb::merge(combined, child_state->world_aabb);
+        }
     }
+
+    write_state<IElement>(element, [&](IElement::State& s) { s.world_aabb = combined; });
 }
 
 } // namespace velk::ui

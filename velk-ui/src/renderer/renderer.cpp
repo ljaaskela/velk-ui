@@ -1,6 +1,8 @@
 #include "renderer.h"
 
 #include "default_ui_shaders.h"
+#include "scene_bvh.h"
+#include "scene_collector.h"
 
 #include <velk/api/any.h>
 #include <velk/api/perf.h>
@@ -8,9 +10,11 @@
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <velk-render/interface/intf_material.h>
-#include <velk-ui/interface/intf_camera.h>
+#include <velk-render/interface/intf_camera.h>
 #include <velk-ui/interface/intf_environment.h>
 #include <velk-ui/interface/intf_visual.h>
 
@@ -22,29 +26,27 @@
 
 namespace velk::ui {
 
-namespace {
-
-void build_ortho_projection(float* out, float width, float height)
-{
-    std::memset(out, 0, 16 * sizeof(float));
-    out[0] = 2.0f / width;
-    out[5] = 2.0f / height;
-    out[10] = -1.0f;
-    out[12] = -1.0f;
-    out[13] = -1.0f;
-    out[15] = 1.0f;
-}
-
-} // namespace
-
 constexpr string_view velk_ui_glsl = R"(
+// Minimum viable per-instance record. Carries just the element's world
+// transform; any visual type that fits this schema (no local rect, no
+// extra per-instance fields) can use ElementInstanceData directly.
+struct ElementInstance {
+    mat4 world_matrix;
+};
+
+// Per-instance data for quad-shaped visuals. `world_matrix` is the
+// element's world transform (filled in by the batch builder). (pos,
+// size) is the rect's local-space footprint; vertex shaders compute
+// gl_Position = vp * world_matrix * vec4(pos + q*size, 0, 1).
 struct RectInstance {
+    mat4 world_matrix;
     vec2 pos;
     vec2 size;
     vec4 color;
 };
 
 struct TextInstance {
+    mat4 world_matrix;
     vec2 pos;
     vec2 size;
     vec4 color;
@@ -52,6 +54,10 @@ struct TextInstance {
     uint _pad0;
     uint _pad1;
     uint _pad2;
+};
+
+layout(buffer_reference, std430) readonly buffer ElementInstanceData {
+    ElementInstance data[];
 };
 
 layout(buffer_reference, std430) readonly buffer RectInstanceData {
@@ -84,6 +90,15 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // compiled lazily by batch_builder on first sight of a new visual type.
     ctx->set_default_vertex_shader(ctx->compile_shader(default_vertex_src, ShaderStage::Vertex));
     ctx->set_default_fragment_shader(ctx->compile_shader(default_fragment_src, ShaderStage::Fragment));
+
+    // Deferred G-buffer default vertex. The default fragment isn't
+    // pre-compiled: its standalone source declares a `velk_visual_discard`
+    // forward decl whose definition only arrives when batch_builder's
+    // composer appends the visual's discard snippet (or an empty stub).
+    // The composer always supplies a complete fragment, so the default
+    // fragment slot in IRenderContext stays unused.
+    ctx->set_default_gbuffer_vertex_shader(
+        ctx->compile_shader(default_gbuffer_vertex_src, ShaderStage::Vertex));
 
     frame_buffer_.init();
     for (auto& slot : frame_slots_) {
@@ -122,16 +137,32 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
     for (auto it = views_.begin(); it != views_.end(); ++it) {
         if (it->camera_element == camera_element && it->surface == surface) {
             if (backend_) {
-                if (it->rt_output_tex != 0) {
-                    resources_.defer_texture_destroy(
-                        it->rt_output_tex, present_counter_ + kGpuLatencyFrames);
-                }
+                FrameContext ctx = make_frame_context();
+                rasterizer_.on_view_removed(*it, ctx);
+                ray_tracer_.on_view_removed(*it, ctx);
+                deferred_lighter_.on_view_removed(*it, ctx);
                 backend_->destroy_surface(get_render_target_id(it->surface));
             }
             views_.erase(it);
             return;
         }
     }
+}
+
+FrameContext Renderer::make_frame_context()
+{
+    FrameContext ctx{};
+    ctx.backend = backend_.get();
+    ctx.render_ctx = render_ctx_;
+    ctx.frame_buffer = &frame_buffer_;
+    ctx.resources = &resources_;
+    ctx.batch_builder = &batch_builder_;
+    ctx.snippets = &snippets_;
+    ctx.pipeline_map = pipeline_map_;
+    ctx.observer = this;
+    ctx.present_counter = present_counter_;
+    ctx.latency_frames = kGpuLatencyFrames;
+    return ctx;
 }
 
 bool Renderer::view_matches(const ViewEntry& entry, const FrameDesc& desc) const
@@ -215,15 +246,12 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
         bool has_changes = !state.redraw_list.empty() || !state.removed_list.empty();
 
         // Evict removed elements
-        for (auto& removed : state.removed_list) {
-            batch_builder_.evict(removed.get());
-            auto rit = render_target_entries_.find(removed.get());
-            if (rit != render_target_entries_.end()) {
-                if (rit->second.texture_id != 0 && backend_) {
-                    resources_.defer_texture_destroy(rit->second.texture_id,
-                                                     present_counter_ + kGpuLatencyFrames);
-                }
-                render_target_entries_.erase(rit);
+        {
+            FrameContext ctx = make_frame_context();
+            for (auto& removed : state.removed_list) {
+                batch_builder_.evict(removed.get());
+                rasterizer_.on_element_removed(removed.get(), ctx);
+                ray_tracer_.on_element_removed(removed.get(), ctx);
             }
         }
 
@@ -319,6 +347,90 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         frame_buffer_.begin_frame(slot.buffer);
         slot.passes.clear();
 
+        FrameContext ctx = make_frame_context();
+
+        // Scene-wide BVH. Each scene has a SceneBvh attachment on its
+        // root (installed lazily on first frame); every view on that
+        // scene reads addresses from the same attachment. The shape
+        // callback resolves material + texture + custom intersect via
+        // the shared snippet registry so primary-buffer shapes and
+        // BVH shapes carry identical ids.
+        //
+        // M2: rebuild runs every frame; M3 will skip it when nothing
+        // dirty has changed.
+        std::unordered_map<IScene*, impl::SceneBvh*> scene_bvhs;
+        for (auto& [scene, state] : consumed_scenes) {
+            impl::SceneBvh* bvh = nullptr;
+            auto cit = scene_bvh_cache_.find(scene);
+            if (cit != scene_bvh_cache_.end()) {
+                bvh = cit->second;
+            } else {
+                // First time we see this scene. Create + attach a
+                // SceneBvh on the scene root, then cache the typed
+                // pointer here so future frames skip the interface
+                // round-trip.
+                auto* root = interface_cast<IObjectStorage>(scene->root().get());
+                if (!root) {
+                    continue;
+                }
+                auto new_bvh_obj = ::velk::ext::make_object<impl::SceneBvh>();
+                // The make_object signature returns IObject::Ptr whose
+                // raw bytes alias the concrete SceneBvh allocation (see
+                // ext::make_object). The void*-roundtrip mirrors what
+                // make_object itself used to construct the pointer.
+                bvh = static_cast<impl::SceneBvh*>(
+                    static_cast<void*>(new_bvh_obj.get()));
+                root->add_attachment(new_bvh_obj);
+                scene_bvh_cache_[scene] = bvh;
+            }
+
+            // Dirty if the change affects scene geometry: an element
+            // was removed, or a redrawn element carries an IVisual
+            // attachment (i.e. its geometry/shape set may have moved
+            // or changed). Pure camera / light transform updates land
+            // in redraw_list too but don't affect BVH topology, so we
+            // skip a rebuild for them. Parent transform changes are
+            // still caught because the layout solver propagates the
+            // dirty flag into all descendant visuals.
+            bool dirty = !state.removed_list.empty();
+            if (!dirty) {
+                for (auto* elem : state.redraw_list) {
+                    if (::velk::has_attachment<IVisual>(elem)) {
+                        dirty = true;
+                        break;
+                    }
+                }
+            }
+            bvh->rebuild(scene, frame_buffer_, dirty, [&](ShapeSite& site) {
+                auto mat = site.paint
+                    ? snippets_.resolve_material(site.paint, ctx)
+                    : FrameSnippetRegistry::MaterialRef{};
+                uint32_t tex_id = 0;
+                if (site.draw_entry && site.draw_entry->texture_key != 0) {
+                    auto* surf = reinterpret_cast<ISurface*>(
+                        static_cast<uintptr_t>(site.draw_entry->texture_key));
+                    tex_id = resources_.find_texture(surf);
+                    if (tex_id == 0) {
+                        uint64_t rt_id = get_render_target_id(surf);
+                        if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
+                    }
+                }
+                site.geometry.material_id = mat.mat_id;
+                site.geometry.material_data_addr = mat.mat_addr;
+                site.geometry.texture_id = tex_id;
+
+                if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
+                    uint32_t kind = snippets_.register_intersect(analytic, *render_ctx_);
+                    if (kind != 0) site.geometry.shape_kind = kind;
+                }
+            });
+            scene_bvhs[scene] = bvh;
+        }
+
+        // Per-view passes go into a temp so the shared passes (RTT, etc.)
+        // can be emitted first into slot.passes; shared must render before
+        // any view pass that samples their output.
+        vector<RenderPass> view_passes;
         for (auto& entry : views_) {
             if (!view_matches(entry, desc)) {
                 continue;
@@ -335,15 +447,25 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 continue;
             }
 
-            ICamera* camera = nullptr;
-            if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-                camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
+            auto bit = scene_bvhs.find(scene);
+            if (bit != scene_bvhs.end() && bit->second) {
+                auto* b = bit->second;
+                ctx.bvh_nodes_addr = b->nodes_addr();
+                ctx.bvh_shapes_addr = b->shapes_addr();
+                ctx.bvh_root = b->get_root_index();
+                ctx.bvh_node_count = b->get_node_count();
+                ctx.bvh_shape_count = b->get_shape_count();
+            } else {
+                ctx.bvh_nodes_addr = 0;
+                ctx.bvh_shapes_addr = 0;
+                ctx.bvh_root = 0;
+                ctx.bvh_node_count = 0;
+                ctx.bvh_shape_count = 0;
             }
 
-            // Ray-traced view: skip raster batch work, build a compute+blit
-            // pass targeting the surface. The camera's render_path drives
-            // this; raster is the default when no camera or path=Raster.
-            RenderPath render_path = RenderPath::Raster;
+            // Pick the sub-renderer based on the camera's render_path.
+            auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
+            RenderPath render_path = RenderPath::Forward;
             if (camera) {
                 auto cam_state = read_state<ICamera>(camera);
                 if (cam_state) {
@@ -352,200 +474,33 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             }
 
             if (render_path == RenderPath::RayTrace) {
-                auto sstate_rt = read_state<IWindowSurface>(entry.surface);
-                float sw_full = static_cast<float>(sstate_rt ? sstate_rt->size.x : 0);
-                float sh_full = static_cast<float>(sstate_rt ? sstate_rt->size.y : 0);
-                bool has_vp = entry.viewport.width > 0 && entry.viewport.height > 0;
-                // View's pixel rect on the surface.
-                float vp_x_f = has_vp ? entry.viewport.x * sw_full : 0.f;
-                float vp_y_f = has_vp ? entry.viewport.y * sh_full : 0.f;
-                float vp_w_f = has_vp ? entry.viewport.width * sw_full : sw_full;
-                float vp_h_f = has_vp ? entry.viewport.height * sh_full : sh_full;
-                int vp_w = static_cast<int>(vp_w_f);
-                int vp_h = static_cast<int>(vp_h_f);
-                if (vp_w <= 0 || vp_h <= 0 || !backend_ || !render_ctx_) {
-                    continue;
-                }
-
-                // (Re)create storage output texture sized to the viewport
-                // (not the full surface). Blit scales to the viewport rect.
-                if (entry.rt_output_tex != 0 &&
-                    (entry.rt_width != vp_w || entry.rt_height != vp_h)) {
-                    resources_.defer_texture_destroy(
-                        entry.rt_output_tex, present_counter_ + kGpuLatencyFrames);
-                    entry.rt_output_tex = 0;
-                }
-                if (entry.rt_output_tex == 0) {
-                    TextureDesc td{};
-                    td.width = vp_w;
-                    td.height = vp_h;
-                    td.format = PixelFormat::RGBA8;
-                    td.usage = TextureUsage::Storage;
-                    entry.rt_output_tex = backend_->create_texture(td);
-                    entry.rt_width = vp_w;
-                    entry.rt_height = vp_h;
-                }
-
-                // Compile the RT test compute pipeline once.
-                if (rt_test_pipeline_key_ == 0) {
-                    rt_test_pipeline_key_ =
-                        render_ctx_->compile_compute_pipeline(rt_test_compute_src);
-                }
-
-                auto pit = pipeline_map_->find(rt_test_pipeline_key_);
-                if (entry.rt_output_tex == 0 ||
-                    rt_test_pipeline_key_ == 0 ||
-                    pit == pipeline_map_->end()) {
-                    continue;
-                }
-
-                struct PushC { uint32_t image_index; uint32_t width; uint32_t height; uint32_t pad; };
-                PushC pc{entry.rt_output_tex, static_cast<uint32_t>(vp_w),
-                         static_cast<uint32_t>(vp_h), 0};
-
-                RenderPass pass;
-                pass.kind = PassKind::ComputeBlit;
-                pass.compute.pipeline = pit->second;
-                pass.compute.groups_x = (vp_w + 7) / 8;
-                pass.compute.groups_y = (vp_h + 7) / 8;
-                pass.compute.groups_z = 1;
-                pass.compute.root_constants_size = sizeof(PushC);
-                std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
-                pass.blit_source = entry.rt_output_tex;
-                pass.blit_surface_id = get_render_target_id(entry.surface);
-                pass.blit_dst_rect = {vp_x_f, vp_y_f, vp_w_f, vp_h_f};
-                slot.passes.push_back(std::move(pass));
-                continue;
+                ray_tracer_.build_passes(entry, sit->second, ctx, view_passes);
+            } else {
+                rasterizer_.build_passes(entry, sit->second, ctx, view_passes);
+                // Deferred lighting consumes the G-buffer filled by the
+                // rasterizer. Must appear after in the pass list so the
+                // G-buffer attachments have been written + transitioned
+                // to SHADER_READ_ONLY_OPTIMAL before the compute samples.
+                deferred_lighter_.build_passes(entry, sit->second, ctx, view_passes);
             }
-
-            if (entry.batches_dirty) {
-                batch_builder_.rebuild_batches(sit->second, entry.batches);
-                if (camera) {
-                    prepend_environment_batch(*camera, entry);
-                }
-                entry.batches_dirty = false;
-            }
-
-            auto sstate = read_state<IWindowSurface>(entry.surface);
-            float sw = static_cast<float>(sstate ? sstate->size.x : 0);
-            float sh = static_cast<float>(sstate ? sstate->size.y : 0);
-            bool has_viewport = entry.viewport.width > 0 && entry.viewport.height > 0;
-            float vp_w = has_viewport ? entry.viewport.width * sw : sw;
-            float vp_h = has_viewport ? entry.viewport.height * sh : sh;
-
-            if (vp_w > 0 && vp_h > 0) {
-                FrameGlobals globals{};
-                mat4 vp_mat;
-                if (camera) {
-                    vp_mat = camera->get_view_projection(*entry.camera_element, vp_w, vp_h);
-                } else {
-                    build_ortho_projection(globals.view_projection, vp_w, vp_h);
-                    std::memcpy(vp_mat.m, globals.view_projection, sizeof(vp_mat.m));
-                }
-                std::memcpy(globals.view_projection, vp_mat.m, sizeof(vp_mat.m));
-                auto inv_vp = mat4::inverse(vp_mat);
-                std::memcpy(globals.inverse_view_projection, inv_vp.m, sizeof(inv_vp.m));
-                globals.viewport[0] = vp_w;
-                globals.viewport[1] = vp_h;
-                globals.viewport[2] = 1.0f / vp_w;
-                globals.viewport[3] = 1.0f / vp_h;
-                globals_gpu_addr_ = frame_buffer_.write(&globals, sizeof(globals));
-            }
-
-            draw_calls_.clear();
-            batch_builder_.build_draw_calls(entry.batches,
-                                            draw_calls_,
-                                            frame_buffer_,
-                                            resources_,
-                                            globals_gpu_addr_,
-                                            pipeline_map_,
-                                            render_ctx_,
-                                            this);
-
-            // Main surface pass
-            RenderPass pass;
-            pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
-            float vp_x = has_viewport ? entry.viewport.x * sw : 0;
-            float vp_y = has_viewport ? entry.viewport.y * sh : 0;
-            pass.viewport = {vp_x, vp_y, vp_w, vp_h};
-            pass.draw_calls = draw_calls_;
-            slot.passes.push_back(std::move(pass));
         }
 
-        // Build render target passes once (not per view)
-        for (auto& rtp : batch_builder_.render_target_passes()) {
-            auto& rte = render_target_entries_[rtp.element];
-            if (!rte.target) {
-                if (auto* storage = interface_cast<IObjectStorage>(rtp.element)) {
-                    if (auto rtt = storage->find_attachment<IRenderToTexture>()) {
-                        auto rtt_state = read_state<IRenderToTexture>(rtt);
-                        if (rtt_state) {
-                            rte.target = rtt_state->render_target.get<IRenderTarget>();
-                        }
-                    }
-                }
-            }
-            if (!rte.target) {
-                continue;
-            }
-            int w{1}, h{1};
-            if (auto es = read_state<IElement>(rtp.element)) {
-                w = std::max(static_cast<int>(es->size.width), 1);
-                h = std::max(static_cast<int>(es->size.height), 1);
-            }
-            if (rte.texture_id != 0 && (rte.width != w || rte.height != h)) {
-                if (backend_) {
-                    resources_.defer_texture_destroy(rte.texture_id, present_counter_ + kGpuLatencyFrames);
-                }
-                rte.texture_id = 0;
-            }
-            if (rte.texture_id == 0 && backend_) {
-                TextureDesc tdesc{};
-                tdesc.width = w;
-                tdesc.height = h;
-                tdesc.format = PixelFormat::RGBA8;
-                tdesc.usage = TextureUsage::RenderTarget;
-                rte.texture_id = backend_->create_texture(tdesc);
-                rte.width = w;
-                rte.height = h;
-                rte.target->set_render_target_id(static_cast<uint64_t>(rte.texture_id));
-            }
+        rasterizer_.build_shared_passes(ctx, slot.passes);
+        ray_tracer_.build_shared_passes(ctx, slot.passes);
+        for (auto& p : view_passes) {
+            slot.passes.push_back(std::move(p));
+        }
 
-            if (rte.texture_id == 0) {
-                continue;
-            }
-
-            FrameGlobals rt_globals{};
-            build_ortho_projection(
-                rt_globals.view_projection, static_cast<float>(rte.width), static_cast<float>(rte.height));
-            rt_globals.viewport[0] = static_cast<float>(rte.width);
-            rt_globals.viewport[1] = static_cast<float>(rte.height);
-            rt_globals.viewport[2] = 1.0f / static_cast<float>(rte.width);
-            rt_globals.viewport[3] = 1.0f / static_cast<float>(rte.height);
-            uint64_t saved_globals = globals_gpu_addr_;
-            globals_gpu_addr_ = frame_buffer_.write(&rt_globals, sizeof(rt_globals));
-
-            vector<DrawCall> saved_calls;
-            std::swap(draw_calls_, saved_calls);
-            batch_builder_.build_draw_calls(rtp.batches,
-                                            draw_calls_,
-                                            frame_buffer_,
-                                            resources_,
-                                            globals_gpu_addr_,
-                                            pipeline_map_,
-                                            render_ctx_,
-                                            this);
-
-            // Insert render target pass before surface passes
-            RenderPass rt_pass{};
-            rt_pass.target.target = rte.target;
-            rt_pass.viewport = {0, 0, static_cast<float>(rte.width), static_cast<float>(rte.height)};
-            rt_pass.draw_calls = draw_calls_;
-            slot.passes.insert(slot.passes.begin(), std::move(rt_pass));
-
-            std::swap(draw_calls_, saved_calls);
-            globals_gpu_addr_ = saved_globals;
-            rte.dirty = false;
+        // Debug overlays: tail-appended so they blit on top of whatever
+        // the view passes produced on the target surface.
+        for (auto& ov : debug_overlays_) {
+            if (!ov.surface || ov.texture_id == 0) continue;
+            RenderPass op;
+            op.kind = PassKind::Blit;
+            op.blit_source = ov.texture_id;
+            op.blit_surface_id = ov.surface->get_render_target_id();
+            op.blit_dst_rect = ov.dst_rect;
+            slot.passes.push_back(std::move(op));
         }
 
         if (!frame_buffer_.overflowed()) {
@@ -591,6 +546,8 @@ Frame Renderer::prepare(const FrameDesc& desc)
 
     auto consumed_scenes = consume_scenes(desc);
 
+    batch_builder_.reset_frame_state();
+    snippets_.begin_frame();
     build_frame_passes(desc, consumed_scenes, *slot);
 
     active_slot_ = nullptr;
@@ -662,14 +619,59 @@ void Renderer::present(Frame frame)
             auto& pass = target->passes[i];
 
             if (pass.kind == PassKind::ComputeBlit) {
-                // Ray-traced view: dispatch compute then blit output texture
-                // onto the swapchain image for the surface.
+                // Ray-traced view or deferred lighting: dispatch compute
+                // then blit output texture onto the swapchain image.
+                // Barrier target is ComputeShader because this pass
+                // reads prior texture writes from compute, not fragment.
                 if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
                     had_texture_pass = false;
                 }
                 backend_->dispatch({&pass.compute, 1});
                 backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
+                continue;
+            }
+
+            if (pass.kind == PassKind::Blit) {
+                // Bare blit from a texture (e.g. a G-buffer attachment)
+                // to a surface subrect. Used for debug overlays on top
+                // of whatever was already drawn/blitted to the surface.
+                if (had_texture_pass) {
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
+                    had_texture_pass = false;
+                }
+                backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
+                continue;
+            }
+
+            if (pass.kind == PassKind::Compute) {
+                // Pure compute dispatch (e.g. deferred lighting). Output
+                // consumed by a later pass via sampled image / storage;
+                // no surface blit here.
+                if (had_texture_pass) {
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
+                    had_texture_pass = false;
+                }
+                backend_->dispatch({&pass.compute, 1});
+                continue;
+            }
+
+            if (pass.kind == PassKind::GBufferFill) {
+                // Deferred G-buffer fill: raster-draw into an MRT group.
+                // Produces no surface output on its own; the compute
+                // lighting pass samples these attachments later.
+                if (had_texture_pass) {
+                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
+                    had_texture_pass = false;
+                }
+                backend_->begin_pass(pass.gbuffer_group);
+                backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
+                backend_->end_pass();
+                // Attachments transition to SHADER_READ_ONLY_OPTIMAL via
+                // the group's render pass finalLayout; a sampling pass
+                // can read them immediately once a pipeline barrier is
+                // inserted (done by the lighting pass in B.3).
+                had_texture_pass = true;
                 continue;
             }
 
@@ -731,6 +733,31 @@ void Renderer::set_max_frames_in_flight(uint32_t count)
     slot_cv_.notify_all();
 }
 
+void Renderer::add_debug_overlay(const IWindowSurface::Ptr& surface,
+                                  TextureId texture_id,
+                                  const rect& dst_rect)
+{
+    debug_overlays_.push_back({surface, texture_id, dst_rect});
+}
+
+void Renderer::clear_debug_overlays()
+{
+    debug_overlays_.clear();
+}
+
+TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
+                                            const IWindowSurface::Ptr& surface,
+                                            uint32_t attachment_index) const
+{
+    for (auto& v : views_) {
+        if (v.camera_element.get() != camera_element.get()) continue;
+        if (v.surface.get() != surface.get()) continue;
+        if (v.gbuffer_group == 0 || !backend_) return 0;
+        return backend_->get_render_target_group_attachment(v.gbuffer_group, attachment_index);
+    }
+    return 0;
+}
+
 void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)
 {
     resources_.on_resource_destroyed(resource, present_counter_, kGpuLatencyFrames);
@@ -754,20 +781,22 @@ void Renderer::shutdown()
 
         resources_.shutdown(*backend_);
 
-        for (auto& entry : views_) {
-            if (entry.rt_output_tex != 0) {
-                backend_->destroy_texture(entry.rt_output_tex);
-                entry.rt_output_tex = 0;
+        // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
+        {
+            FrameContext ctx = make_frame_context();
+            for (auto& entry : views_) {
+                rasterizer_.on_view_removed(entry, ctx);
+                ray_tracer_.on_view_removed(entry, ctx);
+                deferred_lighter_.on_view_removed(entry, ctx);
             }
-            backend_->destroy_surface(get_render_target_id(entry.surface));
+            rasterizer_.shutdown(ctx);
+            ray_tracer_.shutdown(ctx);
+            deferred_lighter_.shutdown(ctx);
         }
 
-        for (auto& [key, rte] : render_target_entries_) {
-            if (rte.texture_id != 0) {
-                backend_->destroy_texture(rte.texture_id);
-            }
+        for (auto& entry : views_) {
+            backend_->destroy_surface(get_render_target_id(entry.surface));
         }
-        render_target_entries_.clear();
 
         for (auto& slot : frame_slots_) {
             if (slot.buffer.handle) {
@@ -781,79 +810,8 @@ void Renderer::shutdown()
 
     views_.clear();
     batch_builder_.clear();
-    draw_calls_.clear();
     pipeline_map_ = nullptr;
 }
 
-void Renderer::prepend_environment_batch(ICamera& camera, ViewEntry& entry)
-{
-    if (!backend_) {
-        return;
-    }
-
-    auto cam_state = read_state<ICamera>(&camera);
-    if (!(cam_state && cam_state->environment)) {
-        return;
-    }
-    auto env_ptr = cam_state->environment.get<IEnvironment>();
-    if (!env_ptr) {
-        return;
-    }
-    auto* surf = interface_cast<ISurface>(env_ptr);
-    auto* buf = interface_cast<IBuffer>(env_ptr);
-    if (!surf || !buf) {
-        return;
-    }
-
-    // Upload the environment texture if dirty.
-    if (buf->is_dirty()) {
-        const uint8_t* pixels = buf->get_data();
-        auto sz = surf->get_dimensions();
-        int tw = static_cast<int>(sz.x);
-        int th = static_cast<int>(sz.y);
-        if (pixels && tw > 0 && th > 0) {
-            TextureId tid = resources_.find_texture(surf);
-            if (tid == 0) {
-                TextureDesc desc{};
-                desc.width = tw;
-                desc.height = th;
-                desc.format = surf->format();
-                tid = backend_->create_texture(desc);
-                resources_.register_texture(surf, tid);
-                surf->add_gpu_resource_observer(this);
-                auto buf_ptr = interface_pointer_cast<IBuffer>(env_ptr);
-                if (buf_ptr) {
-                    resources_.add_env_observer(buf_ptr);
-                }
-            }
-            if (tid != 0) {
-                backend_->upload_texture(tid, pixels, tw, th);
-            }
-            buf->clear_dirty();
-        }
-    }
-
-    // Get the material from the environment (owned by the environment,
-    // like Font owns TextMaterial).
-    auto material = env_ptr->get_material();
-    if (!material) {
-        return;
-    }
-
-    // Insert a synthetic batch at the front of batches_ so the environment
-    // renders before all scene geometry. The batch flows through the
-    // normal build_draw_calls path. The env vertex shader generates a
-    // fullscreen quad from vertex index; no instance data is needed, but
-    // the batch must have instance_count = 1 to produce a draw call.
-    BatchBuilder::Batch env_batch;
-    env_batch.pipeline_key = 0; // material override supplies the pipeline
-    env_batch.texture_key = reinterpret_cast<uint64_t>(surf);
-    env_batch.instance_stride = 4;
-    env_batch.instance_count = 1;
-    env_batch.instance_data.resize(4, 0); // dummy, shader ignores it
-    env_batch.material = std::move(material);
-
-    entry.batches.insert(entry.batches.begin(), std::move(env_batch));
-}
 
 } // namespace velk::ui
