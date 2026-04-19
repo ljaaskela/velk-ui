@@ -37,6 +37,7 @@ public:
                                    size_t max_count = 0) const override;
     vector<IElement::Ptr> find_elements(const ElementQuery& query,
                                         size_t max_count = 0) const override;
+    ::velk::IBvh::Ptr get_default_bvh() const override;
 
     // IHierarchy forwarding
     ReturnValue set_root(const IObject::Ptr& root) override;

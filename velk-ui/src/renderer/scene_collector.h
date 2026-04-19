@@ -106,16 +106,9 @@ struct LightSite
 // Returns the first IShadowTechnique attached to the given light, or
 // nullptr if none. Both RayTracer and DeferredLighter resolve lights to
 // a shadow tech this way; the lookup is centralised here.
-inline IShadowTechnique* find_shadow_technique(ILight* light)
+inline IShadowTechnique::Ptr find_shadow_technique(ILight* light)
 {
-    auto* storage = interface_cast<IObjectStorage>(light);
-    if (!storage) return nullptr;
-    for (size_t k = 0; k < storage->attachment_count(); ++k) {
-        if (auto* st = interface_cast<IShadowTechnique>(storage->get_attachment(k))) {
-            return st;
-        }
-    }
-    return nullptr;
+    return ::velk::find_attachment<IShadowTechnique>(light);
 }
 
 // Emits shape sites for a single element (one per analytic shape or

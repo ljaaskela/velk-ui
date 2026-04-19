@@ -26,6 +26,7 @@
 #include <velk-ui/interface/intf_render_to_texture.h>
 #include <velk-ui/interface/intf_renderer.h>
 #include <velk-ui/interface/intf_scene.h>
+#include "scene_bvh.h"
 
 #include <condition_variable>
 #include <mutex>
@@ -109,6 +110,13 @@ private:
     // the sub-renderers (RayTracer composer, DeferredLighter light
     // resolution) read from the same stable ids.
     FrameSnippetRegistry snippets_;
+
+    // Per-scene concrete SceneBvh pointer cache. The attachment on the
+    // scene root owns the lifetime; we just cache the typed pointer so
+    // rebuild() can be called without a round-trip through IBvh. Stale
+    // entries for dead scenes are harmless because we only touch entries
+    // whose scene is currently in `consumed_scenes`.
+    std::unordered_map<IScene*, impl::SceneBvh*> scene_bvh_cache_;
 
     // Sub-renderers; one per render path.
     Rasterizer rasterizer_;

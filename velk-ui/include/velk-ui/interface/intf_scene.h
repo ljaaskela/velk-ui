@@ -8,6 +8,7 @@
 #include <velk/interface/intf_hierarchy.h>
 #include <velk/interface/intf_store.h>
 
+#include <velk-render/interface/intf_bvh.h>
 #include <velk-ui/interface/intf_element.h>
 #include <velk-ui/types.h>
 
@@ -110,6 +111,18 @@ public:
      */
     virtual vector<IElement::Ptr> find_elements(const ElementQuery& query,
                                                 size_t max_count = 0) const = 0;
+
+    /**
+     * @brief Returns the scene's default (primary) BVH, or nullptr if
+     *        no BVH is currently attached.
+     *
+     * Scenes may carry multiple IBvh attachments (render BVH, picking
+     * BVH, etc.). This accessor returns the first IBvh attached to the
+     * scene root, which is by convention the primary render BVH. For
+     * multi-BVH consumers, iterate `IObjectStorage` attachments on the
+     * scene root directly.
+     */
+    virtual ::velk::IBvh::Ptr get_default_bvh() const = 0;
 };
 
 } // namespace velk::ui

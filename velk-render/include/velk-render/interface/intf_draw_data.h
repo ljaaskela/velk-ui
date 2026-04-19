@@ -3,6 +3,8 @@
 
 #include <velk/interface/intf_metadata.h>
 
+#include <velk-render/interface/intf_buffer.h>
+
 #include <cstddef>
 
 namespace velk {
@@ -33,6 +35,26 @@ public:
      * @return ReturnValue::Success on success, ReturnValue::Fail on error.
      */
     virtual ReturnValue write_draw_data(void* out, size_t size) const = 0;
+
+    /**
+     * @brief Returns a persistent IBuffer holding this program's current
+     *        draw-data bytes. Stable GPU address across frames (as long
+     *        as the data size doesn't change), so consumers caching the
+     *        address in shape records remain valid across frames.
+     *
+     * Materials implementing this method own the buffer internally; the
+     * renderer picks it up through the standard IBuffer upload path
+     * (is_dirty / clear_dirty / set_gpu_address) and holds a strong ref
+     * for the duration of any frame that captured its address, so the
+     * material can reset or replace the buffer at any time without
+     * synchronising with the renderer — the IGpuResource observer
+     * mechanism handles deferred GPU-handle destruction.
+     *
+     * Default returns nullptr for programs that have no persistent
+     * buffer; such programs fall back to per-frame serialisation via
+     * `write_draw_data` into the renderer's frame scratch arena.
+     */
+    virtual IBuffer::Ptr get_data_buffer() { return nullptr; }
 };
 
 } // namespace velk

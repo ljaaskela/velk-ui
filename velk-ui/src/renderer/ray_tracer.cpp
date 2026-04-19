@@ -221,10 +221,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     }
 
     // Resolve the camera (if any) so we can read its render_path and env.
-    ICamera* camera = nullptr;
-    if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-        camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
-    }
+    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
 
     // Camera view-projection + world position for ray generation.
     mat4 vp_mat;
@@ -258,7 +255,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     vector<RtShape> shapes;
     enumerate_scene_shapes(scene_state, [&](ShapeSite& site) {
         auto mat = site.paint
-            ? ctx.snippets->resolve_material(site.paint, *ctx.render_ctx, *ctx.frame_buffer)
+            ? ctx.snippets->resolve_material(site.paint, ctx)
             : FrameSnippetRegistry::MaterialRef{};
         if (site.paint && mat.mat_id == 0) {
             return;
@@ -285,9 +282,9 @@ void RayTracer::build_passes(ViewEntry& entry,
 
     vector<GpuLight> lights;
     enumerate_scene_lights(scene_state, [&](LightSite& site) {
-        if (auto* tech = find_shadow_technique(site.light)) {
+        if (auto tech = find_shadow_technique(site.light)) {
             site.base.flags[1] =
-                ctx.snippets->register_shadow_tech(tech, *ctx.render_ctx);
+                ctx.snippets->register_shadow_tech(tech.get(), *ctx.render_ctx);
         }
         lights.push_back(site.base);
     });
@@ -310,8 +307,7 @@ void RayTracer::build_passes(ViewEntry& entry,
             auto env_mat = resolved.env->get_material();
             if (env_mat) {
                 auto env_prog = interface_pointer_cast<IProgram>(env_mat);
-                auto env_ref = ctx.snippets->resolve_material(
-                    env_prog.get(), *ctx.render_ctx, *ctx.frame_buffer);
+                auto env_ref = ctx.snippets->resolve_material(env_prog.get(), ctx);
                 env_mat_id = env_ref.mat_id;
                 env_data_addr = env_ref.mat_addr;
             }

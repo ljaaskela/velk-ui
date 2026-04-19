@@ -1,10 +1,15 @@
 #ifndef VELK_RENDER_EXT_MATERIAL_H
 #define VELK_RENDER_EXT_MATERIAL_H
 
+#include <velk/api/velk.h>
+
 #include <velk-render/ext/gpu_resource.h>
+#include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_material_internal.h>
+#include <velk-render/interface/intf_program_data_buffer.h>
 #include <velk-render/interface/intf_render_context.h>
+#include <velk-render/plugin.h>
 
 namespace velk::ext {
 
@@ -33,6 +38,41 @@ class Material : public GpuResource<T, IMaterialInternal, IDrawData, Extra...>
 public:
     uint64_t get_pipeline_handle(IRenderContext&) override { return handle_; }
     void set_pipeline_handle(uint64_t handle) override { handle_ = handle; }
+
+    /**
+     * @brief Default persistent-buffer implementation.
+     *
+     * Serialises the material's current draw data via the derived
+     * class's `write_draw_data` into an owned `ProgramDataBuffer`. The
+     * buffer diffs the bytes and only flags dirty on actual change, so
+     * unchanged materials skip re-upload. The returned pointer is
+     * stable across frames; its GPU address stays valid until the
+     * material (or a capturing frame) drops its last reference.
+     *
+     * Materials with no draw data return nullptr, which keeps the
+     * renderer on the frame-scratch fallback path.
+     */
+    ::velk::IBuffer::Ptr get_data_buffer() override
+    {
+        size_t sz = this->get_draw_data_size();
+        if (sz == 0) {
+            return nullptr;
+        }
+        if (!data_buffer_) {
+            // Allocate through the type registry so instantiation can
+            // use the framework's object hive for fast reuse.
+            data_buffer_ = ::velk::instance().create<::velk::IProgramDataBuffer>(
+                ::velk::ClassId::ProgramDataBuffer);
+            if (!data_buffer_) {
+                return nullptr;
+            }
+        }
+        bool ok = true;
+        data_buffer_->write(sz, [this, &ok](void* dst, size_t n) {
+            ok = this->write_draw_data(dst, n) == ReturnValue::Success;
+        });
+        return ok ? data_buffer_ : nullptr;
+    }
 
 protected:
     /**
@@ -89,6 +129,7 @@ protected:
 
 private:
     uint64_t handle_{};
+    ::velk::IProgramDataBuffer::Ptr data_buffer_;
 };
 
 } // namespace velk::ext

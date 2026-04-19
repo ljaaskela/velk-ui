@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include "default_ui_shaders.h"
+#include "scene_bvh.h"
 #include "scene_collector.h"
 
 #include <velk/api/any.h>
@@ -348,28 +349,61 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
 
         FrameContext ctx = make_frame_context();
 
-        // Build scene-wide BVHs once per unique scene. Every view on
-        // that scene reads the same BVH addr/count/root via ctx, so
-        // FrameGlobals writes land consistent values across views. The
-        // shape callback is a no-op today; RtShape material fields stay
-        // zero, which is all shadow rays need. When RT primary rays
-        // move to this buffer we'll need a non-null callback here.
-        struct SceneBvh {
-            uint64_t nodes_addr = 0;
-            uint64_t shapes_addr = 0;
-            uint32_t root = 0;
-            uint32_t node_count = 0;
-            uint32_t shape_count = 0;
-        };
-        std::unordered_map<IScene*, SceneBvh> scene_bvhs;
+        // Scene-wide BVH. Each scene has a SceneBvh attachment on its
+        // root (installed lazily on first frame); every view on that
+        // scene reads addresses from the same attachment. The shape
+        // callback resolves material + texture + custom intersect via
+        // the shared snippet registry so primary-buffer shapes and
+        // BVH shapes carry identical ids.
+        //
+        // M2: rebuild runs every frame; M3 will skip it when nothing
+        // dirty has changed.
+        std::unordered_map<IScene*, impl::SceneBvh*> scene_bvhs;
         for (auto& [scene, state] : consumed_scenes) {
-            // Resolve material + texture per shape via the shared
-            // snippet registry so scene-BVH shapes carry the same
-            // material_id / material_data_addr / texture_id as RT's
-            // primary buffer. Both consumers read from one scene BVH.
-            auto build = build_scene_bvh(scene, [&](ShapeSite& site) {
+            impl::SceneBvh* bvh = nullptr;
+            auto cit = scene_bvh_cache_.find(scene);
+            if (cit != scene_bvh_cache_.end()) {
+                bvh = cit->second;
+            } else {
+                // First time we see this scene. Create + attach a
+                // SceneBvh on the scene root, then cache the typed
+                // pointer here so future frames skip the interface
+                // round-trip.
+                auto* root = interface_cast<IObjectStorage>(scene->root().get());
+                if (!root) {
+                    continue;
+                }
+                auto new_bvh_obj = ::velk::ext::make_object<impl::SceneBvh>();
+                // The make_object signature returns IObject::Ptr whose
+                // raw bytes alias the concrete SceneBvh allocation (see
+                // ext::make_object). The void*-roundtrip mirrors what
+                // make_object itself used to construct the pointer.
+                bvh = static_cast<impl::SceneBvh*>(
+                    static_cast<void*>(new_bvh_obj.get()));
+                root->add_attachment(new_bvh_obj);
+                scene_bvh_cache_[scene] = bvh;
+            }
+
+            // Dirty if the change affects scene geometry: an element
+            // was removed, or a redrawn element carries an IVisual
+            // attachment (i.e. its geometry/shape set may have moved
+            // or changed). Pure camera / light transform updates land
+            // in redraw_list too but don't affect BVH topology, so we
+            // skip a rebuild for them. Parent transform changes are
+            // still caught because the layout solver propagates the
+            // dirty flag into all descendant visuals.
+            bool dirty = !state.removed_list.empty();
+            if (!dirty) {
+                for (auto* elem : state.redraw_list) {
+                    if (::velk::has_attachment<IVisual>(elem)) {
+                        dirty = true;
+                        break;
+                    }
+                }
+            }
+            bvh->rebuild(scene, frame_buffer_, dirty, [&](ShapeSite& site) {
                 auto mat = site.paint
-                    ? snippets_.resolve_material(site.paint, *render_ctx_, frame_buffer_)
+                    ? snippets_.resolve_material(site.paint, ctx)
                     : FrameSnippetRegistry::MaterialRef{};
                 uint32_t tex_id = 0;
                 if (site.draw_entry && site.draw_entry->texture_key != 0) {
@@ -385,29 +419,12 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 site.geometry.material_data_addr = mat.mat_addr;
                 site.geometry.texture_id = tex_id;
 
-                // Custom visual intersect: if the visual contributes a
-                // snippet, register it and stamp the generated kind id
-                // into the shape so the composed intersect_shape
-                // dispatches to the snippet instead of the built-in
-                // rect/cube/sphere routines.
                 if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
                     uint32_t kind = snippets_.register_intersect(analytic, *render_ctx_);
                     if (kind != 0) site.geometry.shape_kind = kind;
                 }
             });
-            SceneBvh info;
-            info.root = build.root_index;
-            info.node_count = static_cast<uint32_t>(build.nodes.size());
-            info.shape_count = static_cast<uint32_t>(build.shapes.size());
-            if (!build.nodes.empty()) {
-                info.nodes_addr = frame_buffer_.write(
-                    build.nodes.data(), build.nodes.size() * sizeof(GpuBvhNode));
-            }
-            if (!build.shapes.empty()) {
-                info.shapes_addr = frame_buffer_.write(
-                    build.shapes.data(), build.shapes.size() * sizeof(RtShape));
-            }
-            scene_bvhs[scene] = info;
+            scene_bvhs[scene] = bvh;
         }
 
         // Per-view passes go into a temp so the shared passes (RTT, etc.)
@@ -431,12 +448,13 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             }
 
             auto bit = scene_bvhs.find(scene);
-            if (bit != scene_bvhs.end()) {
-                ctx.bvh_nodes_addr = bit->second.nodes_addr;
-                ctx.bvh_shapes_addr = bit->second.shapes_addr;
-                ctx.bvh_root = bit->second.root;
-                ctx.bvh_node_count = bit->second.node_count;
-                ctx.bvh_shape_count = bit->second.shape_count;
+            if (bit != scene_bvhs.end() && bit->second) {
+                auto* b = bit->second;
+                ctx.bvh_nodes_addr = b->nodes_addr();
+                ctx.bvh_shapes_addr = b->shapes_addr();
+                ctx.bvh_root = b->get_root_index();
+                ctx.bvh_node_count = b->get_node_count();
+                ctx.bvh_shape_count = b->get_shape_count();
             } else {
                 ctx.bvh_nodes_addr = 0;
                 ctx.bvh_shapes_addr = 0;
@@ -446,10 +464,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             }
 
             // Pick the sub-renderer based on the camera's render_path.
-            ICamera* camera = nullptr;
-            if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-                camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
-            }
+            auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
             RenderPath render_path = RenderPath::Forward;
             if (camera) {
                 auto cam_state = read_state<ICamera>(camera);

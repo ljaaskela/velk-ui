@@ -193,7 +193,7 @@ SceneState Scene::consume_state()
     return state;
 }
 
-void Scene::notify_dirty(IElement& element, DirtyFlags)
+void Scene::notify_dirty(IElement& element, DirtyFlags flags)
 {
     std::unique_lock lock(state_mutex_);
     dirty_elements_.push_back(&element);
@@ -311,6 +311,11 @@ vector<IElement::Ptr> Scene::find_elements(const ElementQuery& query, size_t max
     }
 
     return matches;
+}
+
+::velk::IBvh::Ptr Scene::get_default_bvh() const
+{
+    return ::velk::find_attachment<::velk::IBvh>(logical_.root().object());
 }
 
 void Scene::ensure_hierarchy()

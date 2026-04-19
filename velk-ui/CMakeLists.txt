@@ -58,6 +58,8 @@ add_library(velk_ui SHARED
     src/renderer/deferred_lighter.cpp
     src/renderer/renderer.h
     src/renderer/renderer.cpp
+    src/renderer/scene_bvh.h
+    src/renderer/scene_bvh.cpp
     src/import/align_type_extension.h
     src/import/align_type_extension.cpp
     src/import/dim_type_extension.h

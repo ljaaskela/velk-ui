@@ -1,6 +1,8 @@
 #ifndef VELK_UI_FRAME_SNIPPET_REGISTRY_H
 #define VELK_UI_FRAME_SNIPPET_REGISTRY_H
 
+#include <velk-render/interface/intf_buffer.h>
+
 #include <velk/string.h>
 #include <velk/vector.h>
 
@@ -16,6 +18,7 @@ class IRenderContext;
 namespace velk::ui {
 
 class FrameDataManager;
+struct FrameContext;
 
 /**
  * @brief Scene-wide registry of composed shader snippets.
@@ -83,7 +86,7 @@ public:
         uint32_t mat_id = 0;
         uint64_t mat_addr = 0;
     };
-    MaterialRef resolve_material(IProgram* prog, IRenderContext& ctx, FrameDataManager& fb);
+    MaterialRef resolve_material(IProgram* prog, FrameContext& ctx);
 
     const vector<MaterialInfo>&   material_info_by_id() const { return material_info_by_id_; }
     const vector<ShadowTechInfo>& shadow_tech_info_by_id() const { return shadow_tech_info_by_id_; }
@@ -91,6 +94,14 @@ public:
     const vector<uint32_t>&       frame_materials() const { return frame_materials_; }
     const vector<uint32_t>&       frame_shadow_techs() const { return frame_shadow_techs_; }
     const vector<uint32_t>&       frame_intersects() const { return frame_intersects_; }
+
+    /**
+     * @brief Program data buffers touched during the current frame's
+     *        `resolve_material` calls. Renderer uploads dirty entries
+     *        before passes execute so each shape's `material_data_addr`
+     *        points at fresh GPU bytes.
+     */
+    const vector<IBuffer::Ptr>& frame_data_buffers() const { return frame_data_buffers_; }
 
 private:
     struct MaterialInstance
@@ -116,6 +127,11 @@ private:
     vector<uint32_t>         frame_materials_;
     vector<uint32_t>         frame_shadow_techs_;
     vector<uint32_t>         frame_intersects_;
+    // Strong refs to program data buffers used this frame, so the
+    // renderer's upload pass can iterate them and the buffers stay
+    // alive for the duration of the frame even if a material drops
+    // its internal ref mid-frame.
+    vector<IBuffer::Ptr>     frame_data_buffers_;
 };
 
 } // namespace velk::ui

@@ -70,10 +70,7 @@ void Rasterizer::build_passes(ViewEntry& entry,
         return;
     }
 
-    ICamera* camera = nullptr;
-    if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-        camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
-    }
+    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
 
     bool deferred_view = false;
     if (camera) {
@@ -199,12 +196,9 @@ void Rasterizer::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out_
     for (auto& rtp : ctx.batch_builder->render_target_passes()) {
         auto& rte = render_target_entries_[rtp.element];
         if (!rte.target) {
-            if (auto* storage = interface_cast<IObjectStorage>(rtp.element)) {
-                if (auto rtt = storage->find_attachment<IRenderToTexture>()) {
-                    auto rtt_state = read_state<IRenderToTexture>(rtt);
-                    if (rtt_state) {
-                        rte.target = rtt_state->render_target.get<IRenderTarget>();
-                    }
+            if (auto rtt = ::velk::find_attachment<IRenderToTexture>(rtp.element)) {
+                if (auto rtt_state = read_state<IRenderToTexture>(rtt)) {
+                    rte.target = rtt_state->render_target.get<IRenderTarget>();
                 }
             }
         }

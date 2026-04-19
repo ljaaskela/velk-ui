@@ -18,6 +18,9 @@ inline constexpr Uid RenderTexture{"ed3e9c55-9227-4c93-8c96-1759452e741f"};
 /** @brief Ray-traced shadow technique. Stub snippet; real body traces against the shared shape buffer. */
 inline constexpr Uid RtShadow{"a1b54a78-cb8c-4c26-9d4e-413648cb280f"};
 
+/** @brief Persistent IBuffer holding a program's per-draw data, cross-frame stable GPU address. */
+inline constexpr Uid ProgramDataBuffer{"5362a373-42bf-48b1-9537-1229f44d008d"};
+
 } // namespace ClassId
 
 namespace PluginId {

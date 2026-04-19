@@ -104,10 +104,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     // Only run for Deferred views. Forward views skip the deferred
     // pipeline entirely; RT views produce their final image through
     // the ray-tracer's compute+blit pipeline.
-    ICamera* camera = nullptr;
-    if (auto* storage = interface_cast<IObjectStorage>(entry.camera_element)) {
-        camera = interface_cast<ICamera>(storage->find_attachment<ICamera>());
-    }
+    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
     bool is_deferred = false;
     if (camera) {
         if (auto cs = read_state<ICamera>(camera)) {
@@ -169,7 +166,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     // lands we'll switch to composed dispatch like RayTracer.
     vector<GpuLight> lights;
     enumerate_scene_lights(scene_state, [&](LightSite& site) {
-        if (auto* tech = find_shadow_technique(site.light)) {
+        if (auto tech = find_shadow_technique(site.light)) {
             if (tech->get_snippet_fn_name() == string_view("velk_shadow_rt")) {
                 site.base.flags[1] = 1;
             }

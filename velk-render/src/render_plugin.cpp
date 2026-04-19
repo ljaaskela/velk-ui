@@ -1,5 +1,6 @@
 #include "render_plugin.h"
 
+#include "program_data_buffer.h"
 #include "render_context.h"
 #include "rt_shadow.h"
 #include "standard_material.h"
@@ -24,6 +25,7 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<impl::ShaderMaterial>(velk);
     rv &= register_type<impl::StandardMaterial>(velk);
     rv &= register_type<impl::RtShadow>(velk);
+    rv &= register_type<impl::ProgramDataBuffer>(velk);
     rv &= register_type<::velk::ext::AnyValue<UpdateRate>>(velk);
     return rv;
 }
