@@ -153,25 +153,54 @@ MaterialEval velk_eval_standard(EvalContext ctx)
 {
     StandardMaterialData d = StandardMaterialData(ctx.data_addr);
 
+    // Base color = factor * texture (texture defaults to white when absent).
     vec4 base = d.base_color.factor;
     if (d.base_color.texture_id != 0u) {
         base *= velk_texture(d.base_color.texture_id, ctx.uv);
     }
 
+    // MR texture: B = metallic, G = roughness per glTF spec.
+    float metallic  = d.metallic_roughness.metallic_factor;
+    float roughness = d.metallic_roughness.roughness_factor;
+    if (d.metallic_roughness.texture_id != 0u) {
+        vec4 mr = velk_texture(d.metallic_roughness.texture_id, ctx.uv);
+        metallic  *= mr.b;
+        roughness *= mr.g;
+    }
+
+    // Occlusion: R channel, lerp from 1 by strength so strength=0 disables.
+    float occlusion = 1.0;
+    if (d.occlusion.texture_id != 0u) {
+        float ao = velk_texture(d.occlusion.texture_id, ctx.uv).r;
+        occlusion = mix(1.0, ao, d.occlusion.strength);
+    }
+
+    // Emissive = factor * strength * texture.
     vec3 emissive = d.emissive.factor.rgb * d.emissive.strength;
     if (d.emissive.texture_id != 0u) {
         emissive *= velk_texture(d.emissive.texture_id, ctx.uv).rgb;
     }
 
+    // KHR_materials_specular: factor comes from A channel, color from RGB
+    // of separate textures per spec.
+    float specular_factor = d.specular.factor;
+    if (d.specular.texture_id != 0u) {
+        specular_factor *= velk_texture(d.specular.texture_id, ctx.uv).a;
+    }
+    vec3 specular_color = d.specular.color_factor.rgb;
+    if (d.specular.color_texture_id != 0u) {
+        specular_color *= velk_texture(d.specular.color_texture_id, ctx.uv).rgb;
+    }
+
     MaterialEval e = velk_default_material_eval();
     e.color = base;
     e.normal = ctx.normal;
-    e.metallic = d.metallic_roughness.metallic_factor;
-    e.roughness = d.metallic_roughness.roughness_factor;
+    e.metallic = metallic;
+    e.roughness = roughness;
     e.emissive = emissive;
-    e.occlusion = d.occlusion.strength;
-    e.specular_color_factor = d.specular.color_factor.rgb;
-    e.specular_factor = d.specular.factor;
+    e.occlusion = occlusion;
+    e.specular_color_factor = specular_color;
+    e.specular_factor = specular_factor;
     e.lighting_mode = VELK_LIGHTING_STANDARD;
     return e;
 }
