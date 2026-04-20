@@ -2,7 +2,10 @@
 #define VELK_RENDER_MATERIAL_PROPERTY_H
 
 #include <velk/ext/object.h>
+#include <velk/interface/intf_metadata_observer.h>
+#include <velk/vector.h>
 
+#include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/material/intf_material_property.h>
 #include <velk-render/plugin.h>
 
@@ -61,18 +64,51 @@ public:
     VELK_CLASS_UID(ClassId::SpecularProperty, "SpecularProperty");
 };
 
-class AlphaModeProperty
-    : public ext::Object<AlphaModeProperty, IAlphaModeProperty, IMaterialProperty>
+/**
+ * @brief Material pipeline options carrier.
+ *
+ * Observes its own state changes (as IMetadataObserver on itself) and
+ * forwards any IMaterialOptions property write to subscribed
+ * IMaterialOptionsObservers, so dependent materials can invalidate
+ * their cached pipeline handles without polling.
+ */
+class MaterialOptions
+    : public ext::Object<MaterialOptions, IMaterialOptions, IMetadataObserver>
 {
 public:
-    VELK_CLASS_UID(ClassId::AlphaModeProperty, "AlphaModeProperty");
-};
+    VELK_CLASS_UID(ClassId::MaterialOptions, "MaterialOptions");
 
-class DoubleSidedProperty
-    : public ext::Object<DoubleSidedProperty, IDoubleSidedProperty, IMaterialProperty>
-{
-public:
-    VELK_CLASS_UID(ClassId::DoubleSidedProperty, "DoubleSidedProperty");
+    void on_state_changed(string_view /*name*/, IMetadata& /*owner*/, Uid interface_id) override
+    {
+        if (interface_id != IMaterialOptions::UID) {
+            return;
+        }
+        for (auto* obs : observers_) {
+            if (obs) obs->on_material_options_changed(this);
+        }
+    }
+
+    void add_observer(IMaterialOptionsObserver* observer) override
+    {
+        if (!observer) return;
+        for (auto* existing : observers_) {
+            if (existing == observer) return; // idempotent
+        }
+        observers_.push_back(observer);
+    }
+
+    void remove_observer(IMaterialOptionsObserver* observer) override
+    {
+        for (auto it = observers_.begin(); it != observers_.end(); ++it) {
+            if (*it == observer) {
+                observers_.erase(it);
+                return;
+            }
+        }
+    }
+
+private:
+    vector<IMaterialOptionsObserver*> observers_;
 };
 
 } // namespace velk::impl

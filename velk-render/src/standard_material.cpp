@@ -65,15 +65,6 @@ VELK_GPU_STRUCT SpecularParams
 };
 static_assert(sizeof(SpecularParams) == 32, "SpecularParams must be 32 bytes");
 
-VELK_GPU_STRUCT AlphaModeParams
-{
-    float cutoff{0.5f};
-    uint32_t mode{};             // 0 = Opaque, 1 = Mask, 2 = Blend
-    uint32_t double_sided{};     // boolean folded into this block to save a slot
-    uint32_t _pad{};
-};
-static_assert(sizeof(AlphaModeParams) == 16, "AlphaModeParams must be 16 bytes");
-
 VELK_GPU_STRUCT StandardMaterialParams
 {
     BaseColorParams         base_color;
@@ -82,9 +73,8 @@ VELK_GPU_STRUCT StandardMaterialParams
     OcclusionParams         occlusion;
     EmissiveParams          emissive;
     SpecularParams          specular;
-    AlphaModeParams         alpha_mode;
 };
-static_assert(sizeof(StandardMaterialParams) == 160,
+static_assert(sizeof(StandardMaterialParams) == 144,
               "StandardMaterialParams layout must match standard_eval_src");
 
 // Rect-instance vertex shader. Duplicates the velk-ui-provided
@@ -137,7 +127,6 @@ struct NormalParams { float scale; uint texture_id; uint _pad0; uint _pad1; };
 struct OcclusionParams { float strength; uint texture_id; uint _pad0; uint _pad1; };
 struct EmissiveParams { vec4 factor; float strength; uint texture_id; uint _pad0; uint _pad1; };
 struct SpecularParams { vec4 color_factor; float factor; uint texture_id; uint color_texture_id; uint _pad; };
-struct AlphaModeParams { float cutoff; uint mode; uint double_sided; uint _pad; };
 
 layout(buffer_reference, std430) readonly buffer StandardMaterialData {
     BaseColorParams         base_color;
@@ -146,7 +135,6 @@ layout(buffer_reference, std430) readonly buffer StandardMaterialData {
     OcclusionParams         occlusion;
     EmissiveParams          emissive;
     SpecularParams          specular;
-    AlphaModeParams         alpha_mode;
 };
 
 MaterialEval velk_eval_standard(EvalContext ctx)
@@ -339,13 +327,6 @@ ReturnValue StandardMaterial::write_draw_data(void* out, size_t size, ITextureRe
                     p.specular.color_factor = r->color_factor;
                 }
                 p.specular.texture_id = resolve(tex);
-            } else if (cid == ClassId::AlphaModeProperty) {
-                if (auto r = read_state<IAlphaModeProperty>(prop)) {
-                    p.alpha_mode.mode = static_cast<uint32_t>(r->mode);
-                    p.alpha_mode.cutoff = r->cutoff;
-                }
-            } else if (cid == ClassId::DoubleSidedProperty) {
-                p.alpha_mode.double_sided = 1;
             }
         }
     });

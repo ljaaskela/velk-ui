@@ -10,6 +10,7 @@
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/material/intf_material.h>
+#include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_raster_shader.h>
 #include "gpu_resource_manager.h"
 #include <velk-ui/interface/intf_visual.h>
@@ -25,6 +26,31 @@ namespace {
 uint64_t make_batch_key(uint64_t pipeline, uint64_t texture)
 {
     return pipeline * 31 + texture;
+}
+
+// Reads pipeline-state hints from the material's attached IMaterialOptions.
+// Absence means legacy defaults: no culling, alpha blending on.
+struct MaterialPipelineState
+{
+    velk::CullMode cull = velk::CullMode::None;
+    velk::BlendMode blend = velk::BlendMode::Alpha;
+};
+
+MaterialPipelineState material_pipeline_state(velk::IProgram* prog)
+{
+    MaterialPipelineState s{};
+    auto* storage = interface_cast<velk::IObjectStorage>(prog);
+    if (!storage) return s;
+    auto opts = storage->template find_attachment<velk::IMaterialOptions>();
+    if (!opts) return s;
+    auto r = velk::read_state<velk::IMaterialOptions>(opts.get());
+    if (!r) return s;
+    s.cull = r->cull_mode;
+    // Mask and Opaque both write opaquely; Blend alpha-blends.
+    s.blend = (r->alpha_mode == velk::AlphaMode::Blend)
+                  ? velk::BlendMode::Alpha
+                  : velk::BlendMode::Opaque;
+    return s;
 }
 
 } // namespace
@@ -118,8 +144,9 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                             string frag = compose_eval_fragment(
                                 forward_fragment_driver_template, eval_src, eval_fn,
                                 mat->get_forward_discard_threshold());
+                            auto ps = material_pipeline_state(prog.get());
                             uint64_t h = render_ctx->compile_pipeline(
-                                string_view(frag), vertex_src);
+                                string_view(frag), vertex_src, 0, 0, ps.cull, ps.blend);
                             if (h) {
                                 prog->set_pipeline_handle(h);
                             }
@@ -542,8 +569,9 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
                 composed.append(string_view("void velk_visual_discard() {}\n", 30));
             }
 
+            auto ps = material_pipeline_state(batch.material.get());
             gpid = render_ctx->compile_gbuffer_pipeline(
-                string_view(composed), vsrc, gbuffer_key, target_group);
+                string_view(composed), vsrc, gbuffer_key, target_group, ps.cull);
         }
         if (gpid == 0) {
             continue;

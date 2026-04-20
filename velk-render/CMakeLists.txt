@@ -38,11 +38,14 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_surface.h
     include/velk-render/interface/material/intf_material.h
     include/velk-render/interface/material/intf_material_internal.h
+    include/velk-render/interface/material/intf_material_options.h
     include/velk-render/interface/material/intf_material_property.h
     include/velk-render/interface/material/intf_shader_material.h
     include/velk-render/interface/material/intf_standard_material.h
     include/velk-render/interface/intf_shader.h
+    include/velk-render/api/material/material.h
     include/velk-render/api/material/standard_material.h
+    include/velk-render/api/material/material_options.h
     include/velk-render/api/material/material_property.h
     src/material_property.h
     include/velk-render/interface/intf_window_surface.h

@@ -94,28 +94,6 @@ public:
     )
 };
 
-/// glTF 2.0 alphaMode + alphaCutoff.
-enum class AlphaMode : uint8_t
-{
-    Opaque,
-    Mask,
-    Blend,
-};
-
-class IAlphaModeProperty : public Interface<IAlphaModeProperty>
-{
-public:
-    VELK_INTERFACE(
-        (PROP, AlphaMode, mode, AlphaMode::Opaque),
-        (PROP, float, cutoff, 0.5f)
-    )
-};
-
-/// glTF 2.0 doubleSided. No PROPs; presence on the material means double sided.
-class IDoubleSidedProperty : public Interface<IDoubleSidedProperty>
-{
-};
-
 } // namespace velk
 
 #endif // VELK_RENDER_INTF_MATERIAL_PROPERTY_H

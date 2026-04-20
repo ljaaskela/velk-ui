@@ -4,6 +4,7 @@
 #include <velk/api/object.h>
 #include <velk/api/state.h>
 
+#include <velk-render/api/material/material.h>
 #include <velk-render/api/material/material_property.h>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/material/intf_material_property.h>
@@ -23,13 +24,12 @@ namespace velk {
  * objects explicitly; the most recently attached of each class is effective
  * ("last wins").
  */
-class StandardMaterial : public Object
+class StandardMaterial : public Material
 {
 public:
     StandardMaterial() = default;
-    explicit StandardMaterial(IObject::Ptr obj) : Object(check_object<IStandardMaterial>(obj)) {}
-    explicit StandardMaterial(IStandardMaterial::Ptr mat) : Object(as_object(mat)) {}
-    operator IMaterial::Ptr() const { return as_ptr<IMaterial>(); }
+    explicit StandardMaterial(IObject::Ptr obj) : Material(check_object<IStandardMaterial>(obj)) {}
+    explicit StandardMaterial(IStandardMaterial::Ptr mat) : Material(as_object(mat)) {}
     operator IStandardMaterial::Ptr() const { return as_ptr<IStandardMaterial>(); }
 
     color get_base_color() const { return get_prop<IBaseColorProperty>(&IBaseColorProperty::State::factor); }
@@ -68,11 +68,6 @@ public:
     OcclusionProperty occlusion() const { return canonical<OcclusionProperty, IOcclusionProperty>(); }
     EmissiveProperty emissive() const { return canonical<EmissiveProperty, IEmissiveProperty>(); }
     SpecularProperty specular() const { return canonical<SpecularProperty, ISpecularProperty>(); }
-    AlphaModeProperty alpha_mode() const { return canonical<AlphaModeProperty, IAlphaModeProperty>(); }
-    DoubleSidedProperty double_sided() const
-    {
-        return canonical<DoubleSidedProperty, IDoubleSidedProperty>();
-    }
 
 private:
     template <class Wrapper, class Interface>

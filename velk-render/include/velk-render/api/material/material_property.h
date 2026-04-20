@@ -270,49 +270,6 @@ public:
     }
 };
 
-/**
- * @brief Wrapper for an AlphaModeProperty attachment.
- *
- * glTF 2.0 alphaMode + alphaCutoff. Opaque ignores the alpha channel; Mask
- * discards fragments below @c cutoff; Blend alpha-blends the output.
- */
-class AlphaModeProperty : public MaterialProperty
-{
-public:
-    AlphaModeProperty() = default;
-    explicit AlphaModeProperty(IObject::Ptr obj) : MaterialProperty(check_object<IAlphaModeProperty>(obj)) {}
-
-    /** @brief Alpha handling: Opaque, Mask, or Blend. */
-    AlphaMode get_mode() const
-    {
-        return read_state_value<IAlphaModeProperty>(&IAlphaModeProperty::State::mode);
-    }
-    /** @copybrief get_mode */
-    void set_mode(AlphaMode v) { write_state_value<IAlphaModeProperty>(&IAlphaModeProperty::State::mode, v); }
-
-    /** @brief Threshold for Mask mode. Fragments with alpha < cutoff are discarded. */
-    float get_cutoff() const
-    {
-        return read_state_value<IAlphaModeProperty>(&IAlphaModeProperty::State::cutoff);
-    }
-    /** @copybrief get_cutoff */
-    void set_cutoff(float v) { write_state_value<IAlphaModeProperty>(&IAlphaModeProperty::State::cutoff, v); }
-};
-
-/**
- * @brief Marker wrapper for a DoubleSidedProperty attachment.
- *
- * glTF 2.0 doubleSided. Carries no fields: its presence on a material means
- * back faces are rendered with flipped normals.
- */
-class DoubleSidedProperty : public MaterialProperty
-{
-public:
-    DoubleSidedProperty() = default;
-    explicit DoubleSidedProperty(IObject::Ptr obj) : MaterialProperty(check_object<IDoubleSidedProperty>(obj))
-    {}
-};
-
 } // namespace velk
 
 #endif // VELK_RENDER_API_MATERIAL_MATERIAL_PROPERTY_H
