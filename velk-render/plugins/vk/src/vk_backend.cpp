@@ -412,6 +412,11 @@ bool VkBackend::create_device()
     features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     features12.bufferDeviceAddress = VK_TRUE;
     features12.descriptorIndexing = VK_TRUE;
+    // Per-block scalar packing (opt-in via `layout(scalar)` on a
+    // buffer_reference block). Used by the 3D mesh vertex path so
+    // `Vertex3D { vec3 pos; vec3 normal; vec2 uv; }` packs tightly to
+    // 32 bytes instead of std430's 48-byte vec3=16-align stride.
+    features12.scalarBlockLayout = VK_TRUE;
     features12.descriptorBindingPartiallyBound = VK_TRUE;
     features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
     features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;

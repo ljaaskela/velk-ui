@@ -16,6 +16,7 @@ const char* kVelkGlsl = R"(
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 // Scene shape record: rect / cube / sphere with a pointer to material
@@ -94,12 +95,21 @@ vec4 velk_texture(uint id, vec2 uv)
 struct VelkVertex2D { vec2 position; };
 layout(buffer_reference, std430) readonly buffer VelkVbo2D { VelkVertex2D data[]; };
 
-// Vertex-shader helper: position from the VBO at the current
-// gl_VertexIndex. Macro (not function) so the readonly memory
-// qualifier on the buffer_reference is preserved at the call site,
-// and so velk.glsl doesn't reference gl_VertexIndex at namespace
-// scope (would break fragment shaders that also include this file).
+// Standard 3D vertex layout shared by procedural primitives (cube,
+// sphere, ...) and glTF imports. 32-byte tight C-style packing
+// (vec3 pos + vec3 normal + vec2 uv) via scalar layout — the default
+// std430 rule would pad vec3 to 16 bytes and inflate this to 48.
+// Enabled by the Vulkan `scalarBlockLayout` feature (see vk_backend).
+struct VelkVertex3D { vec3 position; vec3 normal; vec2 uv; };
+layout(buffer_reference, scalar) readonly buffer VelkVbo3D { VelkVertex3D data[]; };
+
+// Vertex-shader helpers: fetch current gl_VertexIndex from the VBO.
+// Macros (not functions) so the readonly memory qualifier on the
+// buffer_reference is preserved at the call site, and so velk.glsl
+// doesn't reference gl_VertexIndex at namespace scope (would break
+// fragment shaders that also include this file).
 #define velk_vertex_pos2d(root) ((root).vbo.data[gl_VertexIndex].position)
+#define velk_vertex3d(root) ((root).vbo.data[gl_VertexIndex])
 
 // Standard DrawData header fields. Use inside a buffer_reference block:
 //   layout(buffer_reference, std430) readonly buffer DrawData {

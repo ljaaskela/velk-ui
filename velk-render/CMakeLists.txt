@@ -28,7 +28,9 @@ add_library(velk_render SHARED
     src/mesh_buffer.cpp
     src/mesh_builder.h
     src/mesh_builder.cpp
+    src/primitive_meshes.cpp
     include/velk-render/interface/intf_mesh.h
+    include/velk-render/interface/intf_primitive_shape.h
     src/rt_shadow.h
     src/rt_shadow.cpp
     src/spirv_material_reflect.h

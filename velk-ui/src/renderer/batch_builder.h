@@ -7,6 +7,7 @@
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
+#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/interface/intf_render_target.h>
@@ -44,6 +45,10 @@ public:
         // share a material still get distinct composed pipelines.
         IShaderSnippet::Ptr visual_discard;
         uint64_t discard_key_perturb = 0;
+        // The visual's IRasterShader, cached so the deferred gbuffer
+        // pipeline compose can pull its vertex shader when no paint
+        // material is routed (e.g. primitive mesh visuals).
+        IRasterShader::Ptr raster_shader;
     };
 
     struct ElementCache
@@ -70,6 +75,9 @@ public:
         // DrawDataHeader and issues an indexed draw with
         // vertex_count = mesh->get_index_count().
         IMesh::Ptr mesh;
+        // Visual's IRasterShader. Used by the deferred gbuffer
+        // composer when no paint material supplies a vertex shader.
+        IRasterShader::Ptr raster_shader;
     };
 
     struct RenderTargetPassData

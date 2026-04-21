@@ -3,6 +3,7 @@
 
 #include <velk/ext/object.h>
 
+#include <unordered_map>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/plugin.h>
 
@@ -31,9 +32,16 @@ public:
                      const aabb& bounds) override;
 
     IMesh::Ptr get_unit_quad() override;
+    IMesh::Ptr get_cube(uint32_t subdivisions = 0) override;
+    IMesh::Ptr get_sphere(uint32_t subdivisions = 0) override;
 
 private:
+    IMesh::Ptr make_cube(uint32_t subdivisions);
+    IMesh::Ptr make_sphere(uint32_t subdivisions);
+
     IMesh::Ptr unit_quad_;
+    std::unordered_map<uint32_t, IMesh::Ptr> cube_cache_;
+    std::unordered_map<uint32_t, IMesh::Ptr> sphere_cache_;
 };
 
 } // namespace velk::impl

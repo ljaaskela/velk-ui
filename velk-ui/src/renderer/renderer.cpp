@@ -57,6 +57,15 @@ struct TextInstance {
     uint _pad2;
 };
 
+// Per-instance data for 3D mesh draws. `size.xyz` scales the mesh's
+// unit-bounds vertices into element-local space; `world_matrix` is
+// the element's transform (translation + rotation, no scale).
+struct MeshInstance {
+    mat4 world_matrix;
+    vec4 size;   // xyz = element extents, w = padding
+    vec4 color;  // visual tint
+};
+
 layout(buffer_reference, std430) readonly buffer ElementInstanceData {
     ElementInstance data[];
 };
@@ -67,6 +76,10 @@ layout(buffer_reference, std430) readonly buffer RectInstanceData {
 
 layout(buffer_reference, std430) readonly buffer TextInstanceData {
     TextInstance data[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshInstanceData {
+    MeshInstance data[];
 };
 
 // ===== Material evaluation types =====

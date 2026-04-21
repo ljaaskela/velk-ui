@@ -155,6 +155,18 @@ public:
     /// Lazily built on first call; the same instance is returned for
     /// every subsequent call on this builder.
     virtual IMesh::Ptr get_unit_quad() = 0;
+
+    /// Returns a procedural cube mesh cached by `subdivisions`.
+    /// Interpretation: 0 or 1 = 24 verts / 12 tris (one quad per face,
+    /// unique vertex per face corner so normals/uvs are per-face).
+    /// N > 1 = N×N grid per face (useful later for displacement;
+    /// generates 6 * N * N quads).
+    virtual IMesh::Ptr get_cube(uint32_t subdivisions = 0) = 0;
+
+    /// Returns a procedural UV sphere cached by `subdivisions`.
+    /// Interpretation: 0 = engine default (16 segments). N = N
+    /// horizontal segments × N/2 vertical rings.
+    virtual IMesh::Ptr get_sphere(uint32_t subdivisions = 0) = 0;
 };
 
 } // namespace velk

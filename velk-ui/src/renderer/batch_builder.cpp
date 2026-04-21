@@ -14,6 +14,7 @@
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_raster_shader.h>
 #include "gpu_resource_manager.h"
+#include <velk-ui/interface/intf_mesh_visual.h>
 #include <velk-ui/interface/intf_visual.h>
 
 #include <algorithm>
@@ -93,37 +94,16 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             continue;
         }
 
-        // Ensure the visual's built-in pipeline is compiled. Empty shader
-        // sources on the visual fall back to the renderer's registered
-        // defaults (see IRenderContext::compile_pipeline). Visuals that
-        // don't contribute their own shader (TextureVisual, cube/sphere)
-        // simply don't implement IRasterShader.
-        //
-        // These built-in raster shaders all target the unit quad
-        // (TriangleStrip, no IBO). Pass that topology explicitly so the
-        // pipeline's input assembly matches the draw.
-        if (render_ctx) {
-            if (auto* rs = interface_cast<IRasterShader>(visual)) {
-                uint64_t key = rs->get_raster_pipeline_key();
-                if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
-                    auto src = rs->get_raster_source(IRasterShader::Target::Forward);
-                    render_ctx->compile_pipeline(src.fragment, src.vertex, key, 0,
-                                                 ::velk::CullMode::None, ::velk::BlendMode::Alpha,
-                                                 ::velk::Topology::TriangleStrip);
-                }
-            }
-        }
-
         VisualCommands vc;
         {
             VELK_PERF_SCOPE("renderer.get_draw_entries");
             vc.entries = visual->get_draw_entries(local_size);
         }
 
-        // Default any entry without an explicit mesh to the engine's
-        // unit quad. The mesh is owned by the render context's mesh
-        // builder; its VBO/IBO ride through the standard
-        // get_gpu_resources upload pass below.
+        // Resolve the visual's mesh. Priority:
+        //   1. IMeshVisual::get_mesh (cube / sphere / future MeshVisual)
+        //   2. entry.mesh set directly by the visual
+        //   3. fall back to the engine's unit quad
         //
         // The unit quad's buffers are singletons that outlive every
         // element. They get destroyed when the render context goes
@@ -131,18 +111,64 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         // renderer_ before render_ctx_). So we deliberately skip
         // add_gpu_resource_observer here: the buffer's destructor would
         // otherwise notify a dead renderer at process exit.
+        IMesh::Ptr mesh_from_visual;
+        if (render_ctx) {
+            if (auto* mv = interface_cast<IMeshVisual>(visual)) {
+                mesh_from_visual = mv->get_mesh(*render_ctx);
+            }
+        }
         IMesh::Ptr quad;
         if (render_ctx) {
             quad = render_ctx->get_mesh_builder().get_unit_quad();
         }
         for (auto& entry : vc.entries) {
             if (!entry.mesh) {
-                entry.mesh = quad;
+                entry.mesh = mesh_from_visual ? mesh_from_visual : quad;
             }
         }
-        if (quad) {
-            if (auto buf = interface_pointer_cast<IBuffer>(quad->get_buffer())) {
+        // Surface every referenced mesh's buffer for the upload pass.
+        auto push_mesh_buffer = [&](IMesh* m) {
+            if (!m) return;
+            if (auto buf = interface_pointer_cast<IBuffer>(m->get_buffer())) {
                 cache.gpu_resources.push_back(buf);
+            }
+        };
+        push_mesh_buffer(quad.get());
+        push_mesh_buffer(mesh_from_visual.get());
+
+        // Ensure the visual's built-in pipeline is compiled. Empty shader
+        // sources on the visual fall back to the renderer's registered
+        // defaults (see IRenderContext::compile_pipeline). Visuals that
+        // don't contribute their own shader (TextureVisual, cube/sphere
+        // analytic-only) simply don't implement IRasterShader.
+        //
+        // Pipeline topology must match the mesh bound by the draw; we
+        // take it from the first entry's mesh.
+        if (render_ctx) {
+            if (auto* rs = interface_cast<IRasterShader>(visual)) {
+                vc.raster_shader = interface_pointer_cast<IRasterShader>(att);
+                uint64_t key = rs->get_raster_pipeline_key();
+                if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
+                    auto src = rs->get_raster_source(IRasterShader::Target::Forward);
+                    ::velk::Topology topo = ::velk::Topology::TriangleStrip;
+                    ::velk::CullMode cull = ::velk::CullMode::None;
+                    if (!vc.entries.empty() && vc.entries.front().mesh) {
+                        auto* m = vc.entries.front().mesh.get();
+                        topo = to_backend_topology(m->get_topology());
+                        // Closed 3D meshes need backface culling: the
+                        // backend has no depth buffer yet, so without
+                        // culling, back faces drawn later overwrite
+                        // front faces in submission order ("inside-out"
+                        // look). 2D unit-quad draws stay CullMode::None
+                        // because single-sided quads have no back face
+                        // to worry about.
+                        if (topo == ::velk::Topology::TriangleList) {
+                            cull = ::velk::CullMode::Back;
+                        }
+                    }
+                    render_ctx->compile_pipeline(src.fragment, src.vertex, key, 0,
+                                                 cull, ::velk::BlendMode::Alpha, topo);
+                }
             }
         }
 
@@ -163,9 +189,16 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
 
         auto vstate = read_state<IVisual>(visual);
 
+        // Mesh visuals bypass paint-material routing: StandardMaterial
+        // (and every current material) ships a RectInstance-based vertex
+        // shader that would be fed MeshInstance bytes and mis-interpret
+        // them. Their own IRasterShader handles the mesh path correctly.
+        // A 3D-capable material + variant vertex path is a follow-up.
+        const bool is_mesh_visual = interface_cast<IMeshVisual>(visual) != nullptr;
+
         {
             VELK_PERF_SCOPE("renderer.resolve_material");
-            if (render_ctx && vstate && vstate->paint) {
+            if (!is_mesh_visual && render_ctx && vstate && vstate->paint) {
                 auto prog = vstate->paint.get<IProgram>();
                 if (prog) {
                     // Materials with an IMaterial eval body get their
@@ -318,6 +351,7 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                         batch.visual_discard = vc.visual_discard;
                         batch.discard_key_perturb = vc.discard_key_perturb;
                         batch.mesh = de.mesh;
+                        batch.raster_shader = vc.raster_shader;
                         target_batches.push_back(std::move(batch));
                         last_bkey = bkey;
                     }
@@ -646,6 +680,18 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
             if (base_fsrc.empty()) {
                 base_fsrc = default_gbuffer_fragment_src;
             }
+            // No material vertex src → pull from the visual's
+            // IRasterShader. Its Forward vertex shader emits the
+            // canonical varyings the default gbuffer fragment reads,
+            // so reusing it keeps the deferred path working for
+            // mesh-backed visuals without a material.
+            if (vsrc.empty() && batch.raster_shader) {
+                auto rsrc = batch.raster_shader->get_raster_source(
+                    IRasterShader::Target::Forward);
+                if (!rsrc.vertex.empty()) {
+                    vsrc = rsrc.vertex;
+                }
+            }
 
             // Compose fragment = material's (or default) source + the
             // visual's discard snippet body, OR an empty stub when the
@@ -663,8 +709,14 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
 
             auto ps = material_pipeline_state(batch.material.get());
             Topology topo = to_backend_topology(mesh->get_topology());
+            // Same rationale as the forward path: closed 3D meshes
+            // need backface culling because there's no depth buffer.
+            CullMode cull = ps.cull;
+            if (!batch.material && topo == Topology::TriangleList) {
+                cull = CullMode::Back;
+            }
             gpid = render_ctx->compile_gbuffer_pipeline(
-                string_view(composed), vsrc, gbuffer_key, target_group, ps.cull, topo);
+                string_view(composed), vsrc, gbuffer_key, target_group, cull, topo);
         }
         if (gpid == 0) {
             continue;
