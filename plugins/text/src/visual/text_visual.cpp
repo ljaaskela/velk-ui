@@ -55,7 +55,7 @@ void TextVisual::bind_font_material()
     });
 }
 
-IFont* TextVisual::ensure_layout(const rect& bounds) const
+IFont* TextVisual::ensure_layout(const ::velk::size& bounds) const
 {
     auto* font = font_.as_ptr<IFont>().get();
     if (!font) {
@@ -85,18 +85,18 @@ IFont* TextVisual::ensure_layout(const rect& bounds) const
     return font;
 }
 
-aabb TextVisual::get_local_bounds(const rect& bounds) const
+aabb TextVisual::get_local_bounds(const ::velk::size& bounds) const
 {
     auto* font = ensure_layout(bounds);
     if (!font || layout_result_.glyphs.empty()) {
         aabb out;
-        out.position = {bounds.x, bounds.y, 0.f};
-        out.extent = {bounds.width, bounds.height, 0.f};
+        out.position = {0.f, 0.f, 0.f};
+        out.extent = {bounds.width, bounds.height, bounds.depth};
         return out;
     }
 
     // Laid-out text lives in the rect
-    //   [bounds.x .. bounds.x + total_width, bounds.y .. bounds.y + total_height]
+    //   [0 .. total_width, 0 .. total_height]
     // after vertical alignment; overflow past bounds.width is legitimate
     // when the content is wider than the element. Report the union of
     // the element's own box and the laid-out text extent so neither
@@ -104,12 +104,12 @@ aabb TextVisual::get_local_bounds(const rect& bounds) const
     float w = ::velk::max(bounds.width,  layout_result_.total_width);
     float h = ::velk::max(bounds.height, layout_result_.total_height);
     aabb out;
-    out.position = {bounds.x, bounds.y, 0.f};
-    out.extent = {w, h, 0.f};
+    out.position = {0.f, 0.f, 0.f};
+    out.extent = {w, h, bounds.depth};
     return out;
 }
 
-vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
+vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
 {
     ensure_default_font();
     auto* font = ensure_layout(bounds);
@@ -125,7 +125,7 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
     HAlign ha = text_state ? text_state->h_align : HAlign::Left;
     VAlign va = text_state ? text_state->v_align : VAlign::Top;
 
-    float offset_y = bounds.y;
+    float offset_y = 0.f;
     switch (va) {
     case VAlign::Center: offset_y += (bounds.height - layout_result_.total_height) * 0.5f; break;
     case VAlign::Bottom: offset_y += bounds.height - layout_result_.total_height; break;
@@ -136,7 +136,7 @@ vector<DrawEntry> TextVisual::get_draw_entries(const rect& bounds)
     result.reserve(layout_result_.glyphs.size());
 
     for (auto& line : layout_result_.lines) {
-        float offset_x = bounds.x;
+        float offset_x = 0.f;
         switch (ha) {
         case HAlign::Center: offset_x += (bounds.width - line.width) * 0.5f; break;
         case HAlign::Right:  offset_x += bounds.width - line.width; break;

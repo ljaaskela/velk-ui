@@ -20,7 +20,7 @@ class CubeVisual : public ext::Visual<CubeVisual, ::velk::IAnalyticShape>
 public:
     VELK_CLASS_UID(ClassId::Visual::Cube, "CubeVisual");
 
-    vector<DrawEntry> get_draw_entries(const rect&) override { return {}; }
+    vector<DrawEntry> get_draw_entries(const ::velk::size&) override { return {}; }
 
     // IAnalyticShape
     uint32_t get_shape_kind() const override { return 1; }

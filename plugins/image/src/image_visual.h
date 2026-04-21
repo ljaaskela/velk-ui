@@ -28,7 +28,7 @@ public:
 
     ImageVisual();
 
-    vector<DrawEntry> get_draw_entries(const rect& bounds) override;
+    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
     vector<IBuffer::Ptr> get_gpu_resources() const override;
 
 protected:

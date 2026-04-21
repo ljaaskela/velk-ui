@@ -41,7 +41,7 @@ void TextureVisual::ensure_material()
     }
 }
 
-vector<DrawEntry> TextureVisual::get_draw_entries(const rect& bounds)
+vector<DrawEntry> TextureVisual::get_draw_entries(const ::velk::size& bounds)
 {
     ensure_material();
 
@@ -57,11 +57,11 @@ vector<DrawEntry> TextureVisual::get_draw_entries(const rect& bounds)
 
     DrawEntry entry{};
     entry.pipeline_key = 0; // material override supplies the pipeline
-    entry.bounds = bounds;
+    entry.bounds = {0, 0, bounds.width, bounds.height};
     entry.texture_key = reinterpret_cast<uint64_t>(tex.get());
     entry.set_instance(RectInstance{
         {},  // world_matrix: written by batch_builder per-instance
-        {bounds.x, bounds.y},
+        {0.f, 0.f},
         {bounds.width, bounds.height},
         ::velk::color::white()});
 

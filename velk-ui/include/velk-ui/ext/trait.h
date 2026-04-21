@@ -93,11 +93,11 @@ public:
      * Overridden by visuals whose render extent can exceed the layout
      * box (text overflow, shadows, outlines).
      */
-    aabb get_local_bounds(const rect& bounds) const override
+    aabb get_local_bounds(const ::velk::size& bounds) const override
     {
         aabb out;
-        out.position = {bounds.x, bounds.y, 0.f};
-        out.extent = {bounds.width, bounds.height, 0.f};
+        out.position = {0.f, 0.f, 0.f};
+        out.extent = {bounds.width, bounds.height, bounds.depth};
         return out;
     }
 

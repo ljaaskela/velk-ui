@@ -20,7 +20,7 @@ class TextureVisual : public ::velk::ui::ext::Visual<TextureVisual, ITextureVisu
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::Visual::Texture, "TextureVisual");
 
-    vector<DrawEntry> get_draw_entries(const rect& bounds) override;
+    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
     vector<IBuffer::Ptr> get_gpu_resources() const override;
 
 protected:

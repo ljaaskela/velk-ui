@@ -100,11 +100,10 @@ void LayoutSolver::solve_element(IHierarchy& hierarchy, const IElement::Ptr& ele
     // outlines), so we query each via get_local_bounds and fold its
     // world-space bound in too.
     auto children = hierarchy.children_of(as_object(element));
-    rect local_rect{0, 0, reader->size.width, reader->size.height};
     aabb combined = aabb::from_size(reader->size).transformed(world);
     for (auto&& vis : e.find_attachments<IVisual>()) {
         if (auto* v = vis.get()) {
-            combined = aabb::merge(combined, v->get_local_bounds(local_rect).transformed(world));
+            combined = aabb::merge(combined, v->get_local_bounds(reader->size).transformed(world));
         }
     }
     for (auto& child : children) {

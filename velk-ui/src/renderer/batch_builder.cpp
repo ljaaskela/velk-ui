@@ -76,7 +76,7 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         return;
     }
 
-    rect local_rect = {0, 0, state->size.width, state->size.height};
+    const ::velk::size& local_size = state->size;
 
     for (size_t i = 0; i < storage->attachment_count(); ++i) {
         auto att = storage->get_attachment(i);
@@ -103,7 +103,7 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         VisualCommands vc;
         {
             VELK_PERF_SCOPE("renderer.get_draw_entries");
-            vc.entries = visual->get_draw_entries(local_rect);
+            vc.entries = visual->get_draw_entries(local_size);
         }
 
         // Capture an optional per-visual `velk_visual_discard` snippet.

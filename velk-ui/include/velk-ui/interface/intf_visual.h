@@ -39,21 +39,21 @@ public:
         (PROP, VisualPhase, visual_phase, VisualPhase::BeforeChildren)
     )
 
-    /** @brief Returns draw entries for this visual within the given bounds. */
-    virtual vector<DrawEntry> get_draw_entries(const rect& bounds) = 0;
+    /** @brief Returns draw entries for this visual within the given local size. */
+    virtual vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) = 0;
 
     /**
      * @brief Returns the local-space bounds of what this visual
-     *        actually renders within @p bounds.
+     *        actually renders within the element's @p bounds.
      *
      * Most visuals render inside the element's layout box and return
-     * the same rect. Visuals whose output can extend past that box
-     * (text with overflowing glyphs, drop shadows, outline strokes)
+     * an aabb matching it. Visuals whose output can extend past that
+     * box (text with overflowing glyphs, drop shadows, outline strokes)
      * return the true extent so the element's world_aabb — used for
      * culling, hit-testing, and ray-traced shadow casting — covers
      * everything the visual draws.
      */
-    virtual aabb get_local_bounds(const rect& bounds) const = 0;
+    virtual aabb get_local_bounds(const ::velk::size& bounds) const = 0;
 
     /**
      * @brief Returns GPU resources used by this visual that need uploading

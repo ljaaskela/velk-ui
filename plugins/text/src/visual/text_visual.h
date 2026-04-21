@@ -34,8 +34,8 @@ public:
     void set_font(const IFont::Ptr& font) override;
 
     // IVisual
-    vector<DrawEntry> get_draw_entries(const rect& bounds) override;
-    aabb get_local_bounds(const rect& bounds) const override;
+    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
+    aabb get_local_bounds(const ::velk::size& bounds) const override;
     vector<IBuffer::Ptr> get_gpu_resources() const override;
 
     // Deferred coverage-discard is no longer needed here: TextMaterial's
@@ -82,7 +82,7 @@ private:
     // get_local_bounds (which reports the laid-out extent to the
     // layout solver). Cached via ChangeCache so repeated calls with
     // identical inputs are free.
-    IFont* ensure_layout(const rect& bounds) const;
+    IFont* ensure_layout(const ::velk::size& bounds) const;
 
     Font font_;
     mutable IFont::TextLayoutResult layout_result_;

@@ -61,7 +61,7 @@ void main()
 
 } // namespace
 
-vector<DrawEntry> RoundedRectVisual::get_draw_entries(const rect& bounds)
+vector<DrawEntry> RoundedRectVisual::get_draw_entries(const ::velk::size& bounds)
 {
     auto state = read_state<IVisual>(this);
     if (!state) {
@@ -70,10 +70,10 @@ vector<DrawEntry> RoundedRectVisual::get_draw_entries(const rect& bounds)
 
     DrawEntry entry{};
     entry.pipeline_key = kPipelineKey;
-    entry.bounds = bounds;
+    entry.bounds = {0, 0, bounds.width, bounds.height};
     entry.set_instance(RectInstance{
         {},  // world_matrix: written by batch_builder per-instance
-        {bounds.x, bounds.y},
+        {0.f, 0.f},
         {bounds.width, bounds.height},
         state->color});
 

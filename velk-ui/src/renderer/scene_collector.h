@@ -181,8 +181,8 @@ void emit_shapes_for_element(IElement* element, F&& cb)
             radius = std::min(std::min(ew, eh) * 0.5f, 12.f);
         }
 
-        rect local_rect{0, 0, ew, eh};
-        auto entries = visual->get_draw_entries(local_rect);
+        ::velk::size local_size{ew, eh, ed};
+        auto entries = visual->get_draw_entries(local_size);
         for (auto& dentry : entries) {
             // Instance layout (instance_types.h):
             //   [ 0..63 ] mat4 world_matrix (raster only)
