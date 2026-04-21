@@ -15,6 +15,7 @@
 #include <cstring>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/intf_camera.h>
+#include <velk-render/interface/intf_mesh.h>
 #include <velk-ui/interface/intf_environment.h>
 #include <velk-ui/interface/intf_visual.h>
 
@@ -378,7 +379,12 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                             GpuBufferDesc bdesc{};
                             bdesc.size = bsize;
                             bdesc.cpu_writable = true;
-                            bdesc.index_buffer = buf->is_index_buffer();
+                            // IMeshBuffer carries an IBO half that needs
+                            // INDEX_BUFFER usage so it can be bound for
+                            // indexed draws.
+                            if (auto* mb = interface_cast<IMeshBuffer>(buf)) {
+                                bdesc.index_buffer = mb->get_ibo_size() > 0;
+                            }
                             GpuResourceManager::BufferEntry bentry{};
                             bentry.handle = backend_->create_buffer(bdesc);
                             bentry.size = bsize;

@@ -125,8 +125,9 @@ struct DrawCall
     uint32_t vertex_count{};    ///< Vertices per instance for non-indexed draws.
     uint32_t instance_count{1}; ///< Number of instances to draw.
 
-    GpuBuffer index_buffer{};   ///< Index buffer to bind (0 = non-indexed draw).
-    uint32_t index_count{};     ///< Indices per instance for indexed draws.
+    GpuBuffer index_buffer{};         ///< Index buffer to bind (0 = non-indexed draw).
+    uint64_t index_buffer_offset{};   ///< Byte offset into `index_buffer` where indices start.
+    uint32_t index_count{};           ///< Indices per instance for indexed draws.
 
     /// Push constant data, typically an 8-byte GPU pointer to a DrawDataHeader.
     uint8_t root_constants[kMaxRootConstantsSize]{};

@@ -2,6 +2,8 @@
 
 #include "material_property.h"
 #include "mesh.h"
+#include "mesh_buffer.h"
+#include "mesh_builder.h"
 #include "program_data_buffer.h"
 #include "render_context.h"
 #include "rt_shadow.h"

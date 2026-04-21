@@ -11,6 +11,40 @@
 
 namespace velk {
 
+/**
+ * @brief Combined vertex + index storage for a single IMesh.
+ *
+ * Layout inside the buffer: VBO bytes at offset 0, followed immediately
+ * by IBO bytes at offset `get_ibo_offset()` (== `get_vbo_size()`).
+ * A single underlying VkBuffer is allocated with SHADER_DEVICE_ADDRESS
+ * (for bindless VBO reads) and INDEX_BUFFER usage (so the IBO half can
+ * be bound via vkCmdBindIndexBuffer at `get_ibo_offset()`).
+ *
+ * Meshes without an IBO (e.g. TriangleStrip unit quad) set
+ * `ibo_size == 0`; the backend just skips the index-bind and dispatches
+ * as a non-indexed draw.
+ */
+class IMeshBuffer : public Interface<IMeshBuffer, IBuffer>
+{
+public:
+    /// Replaces both VBO and IBO contents and marks the buffer dirty.
+    /// Either side may be empty (pass `nullptr, 0`).
+    virtual void set_data(const void* vbo_data, size_t vbo_size,
+                          const void* ibo_data, size_t ibo_size) = 0;
+
+    /// Size in bytes of the VBO region (starts at buffer offset 0).
+    virtual size_t get_vbo_size() const = 0;
+
+    /// Size in bytes of the IBO region (0 when the mesh is non-indexed).
+    virtual size_t get_ibo_size() const = 0;
+
+    /// Byte offset of the IBO region within the buffer. Always equals
+    /// `get_vbo_size()`; provided for callers that pass it to
+    /// `vkCmdBindIndexBuffer`.
+    virtual size_t get_ibo_offset() const = 0;
+};
+
+
 /// Semantic role of a vertex attribute. Matches glTF 2.0 attribute names so
 /// importers map 1:1. `Custom` is for app-defined attributes the engine
 /// doesn't know about.
@@ -87,11 +121,9 @@ public:
     /// Local-space bounds of the mesh geometry.
     virtual aabb get_bounds() const = 0;
 
-    /// Vertex buffer (interleaved attribute data).
-    virtual IBuffer::Ptr get_vbo() const = 0;
-
-    /// Index buffer (uint32 indices). Mandatory for now.
-    virtual IBuffer::Ptr get_ibo() const = 0;
+    /// Combined VBO + IBO storage. The backend allocates a single
+    /// VkBuffer covering both regions; see IMeshBuffer for the layout.
+    virtual IMeshBuffer::Ptr get_buffer() const = 0;
 };
 
 /**

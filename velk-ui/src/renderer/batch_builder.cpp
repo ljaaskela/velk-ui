@@ -141,14 +141,9 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
         if (quad) {
-            if (auto vbo = quad->get_vbo()) {
-                cache.gpu_resources.push_back(vbo);
+            if (auto buf = interface_pointer_cast<IBuffer>(quad->get_buffer())) {
+                cache.gpu_resources.push_back(buf);
             }
-            if (auto ibo = quad->get_ibo()) {
-                cache.gpu_resources.push_back(ibo);
-            }
-            // The unit quad (TriangleStrip) has no IBO; skipping is fine
-            // since the renderer's draw path handles null IBO.
         }
 
         // Capture an optional per-visual `velk_visual_discard` snippet.
@@ -459,17 +454,18 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
 
         IMesh* mesh = batch.mesh.get();
         if (!mesh) continue;
-        auto vbo = mesh->get_vbo();
-        if (!vbo) continue;
+        auto buffer = mesh->get_buffer();
+        if (!buffer) continue;
 
-        // IBO is optional: indexed draw when present, plain vkCmdDraw
-        // when null (TriangleStrip unit quad path).
-        auto ibo = mesh->get_ibo();
+        // IBO half is optional: indexed draw when ibo_size > 0, plain
+        // vkCmdDraw when 0 (e.g. TriangleStrip unit quad).
         GpuBuffer ibo_handle = 0;
-        if (ibo) {
-            auto* ibo_entry = resources.find_buffer(ibo.get());
-            if (!ibo_entry || !ibo_entry->handle) continue;
-            ibo_handle = ibo_entry->handle;
+        size_t ibo_offset = 0;
+        if (buffer->get_ibo_size() > 0) {
+            auto* buf_entry = resources.find_buffer(buffer.get());
+            if (!buf_entry || !buf_entry->handle) continue;
+            ibo_handle = buf_entry->handle;
+            ibo_offset = buffer->get_ibo_offset();
         }
 
         DrawDataHeader header{};
@@ -477,7 +473,7 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         header.instances_address = instances_addr;
         header.texture_id = texture_id;
         header.instance_count = batch.instance_count;
-        header.vbo_address = vbo->get_gpu_address();
+        header.vbo_address = buffer->get_gpu_address();
         if (!header.vbo_address) continue;
 
         uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
@@ -520,6 +516,7 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         call.pipeline = pit->second;
         if (ibo_handle) {
             call.index_buffer = ibo_handle;
+            call.index_buffer_offset = ibo_offset;
             call.index_count = mesh->get_index_count();
         } else {
             call.vertex_count = mesh->get_vertex_count();
@@ -568,15 +565,16 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
 
         IMesh* mesh = batch.mesh.get();
         if (!mesh) continue;
-        auto vbo = mesh->get_vbo();
-        if (!vbo) continue;
+        auto buffer = mesh->get_buffer();
+        if (!buffer) continue;
 
-        auto ibo = mesh->get_ibo();
         GpuBuffer ibo_handle = 0;
-        if (ibo) {
-            auto* ibo_entry = resources.find_buffer(ibo.get());
-            if (!ibo_entry || !ibo_entry->handle) continue;
-            ibo_handle = ibo_entry->handle;
+        size_t ibo_offset = 0;
+        if (buffer->get_ibo_size() > 0) {
+            auto* buf_entry = resources.find_buffer(buffer.get());
+            if (!buf_entry || !buf_entry->handle) continue;
+            ibo_handle = buf_entry->handle;
+            ibo_offset = buffer->get_ibo_offset();
         }
 
         DrawDataHeader header{};
@@ -584,7 +582,7 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
         header.instances_address = instances_addr;
         header.texture_id = texture_id;
         header.instance_count = batch.instance_count;
-        header.vbo_address = vbo->get_gpu_address();
+        header.vbo_address = buffer->get_gpu_address();
         if (!header.vbo_address) continue;
 
         uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
@@ -679,6 +677,7 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
         call.pipeline = gpid;
         if (ibo_handle) {
             call.index_buffer = ibo_handle;
+            call.index_buffer_offset = ibo_offset;
             call.index_count = mesh->get_index_count();
         } else {
             call.vertex_count = mesh->get_vertex_count();

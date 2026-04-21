@@ -1677,7 +1677,8 @@ void VkBackend::submit(array_view<const DrawCall> calls, rect vp)
             if (bit == buffers_.end()) {
                 continue;
             }
-            vkCmdBindIndexBuffer(sync.command_buffer, bit->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(sync.command_buffer, bit->second.buffer,
+                                 call.index_buffer_offset, VK_INDEX_TYPE_UINT32);
             vkCmdDrawIndexed(sync.command_buffer, call.index_count, call.instance_count, 0, 0, 0);
         } else {
             vkCmdDraw(sync.command_buffer, call.vertex_count, call.instance_count, 0, 0);
