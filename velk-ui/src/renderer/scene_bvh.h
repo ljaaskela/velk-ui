@@ -51,7 +51,8 @@ public:
      * @p dirty = true.
      */
     template <typename F>
-    void rebuild(IScene* scene, FrameDataManager& frame_buffer, bool dirty, F&& shape_cb);
+    void rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& frame_buffer, bool dirty,
+                 F&& shape_cb);
 
     /// Frame-local GPU addresses. Only valid for the frame in which
     /// `rebuild` was called.
@@ -110,7 +111,8 @@ private:
 };
 
 template <typename F>
-void SceneBvh::rebuild(IScene* scene, FrameDataManager& frame_buffer, bool dirty, F&& shape_cb)
+void SceneBvh::rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& frame_buffer,
+                        bool dirty, F&& shape_cb)
 {
     // Second-stage dirty check: the caller's heuristic (visuals in
     // redraw_list) can over-trigger because the scene re-adds every
@@ -132,7 +134,7 @@ void SceneBvh::rebuild(IScene* scene, FrameDataManager& frame_buffer, bool dirty
         }
     }
     if (dirty || cached_nodes_.empty()) {
-        auto build = build_scene_bvh(scene, std::forward<F>(shape_cb));
+        auto build = build_scene_bvh(scene, ctx, std::forward<F>(shape_cb));
         cached_nodes_ = std::move(build.nodes);
         cached_shapes_ = std::move(build.shapes);
         root_ = build.root_index;

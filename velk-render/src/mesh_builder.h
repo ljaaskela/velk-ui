@@ -12,17 +12,34 @@ namespace velk::impl {
 /**
  * @brief Concrete IMeshBuilder.
  *
- * Owned by the IRenderContext (one per context). Allocates Meshes
- * through the velk type registry, populates them via the internal
- * `Mesh::init` method, and caches the engine's unit-quad singleton so
- * its lifetime is bound to the render context (released before the
- * velk runtime tears down).
+ * Owned by the IRenderContext (one per context). Allocates Mesh and
+ * MeshPrimitive objects through the velk type registry.
+ *
+ * Procedural shape helpers (`get_cube`, `get_sphere`, `get_unit_quad`)
+ * cache the underlying IMeshBuffer across calls so the GPU bytes upload
+ * exactly once per (shape, subdivisions) combination. Each call still
+ * returns a fresh IMesh + IMeshPrimitive so callers may set their own
+ * per-instance material on the primitive.
+ *
+ * Exception: `get_unit_quad` returns the same singleton IMesh across
+ * calls (its primitive carries no material and never will); saves
+ * per-frame allocations in the 2D fallback path.
  */
 class MeshBuilder
     : public ::velk::ext::Object<MeshBuilder, IMeshBuilder>
 {
 public:
     VELK_CLASS_UID(::velk::ClassId::MeshBuilder, "MeshBuilder");
+
+    IMeshPrimitive::Ptr build_primitive(
+        array_view<VertexAttribute> attributes,
+        uint32_t vertex_stride,
+        const void* vertex_data, uint32_t vertex_count,
+        const uint32_t* indices, uint32_t index_count,
+        MeshTopology topology,
+        const aabb& bounds) override;
+
+    IMesh::Ptr build(array_view<IMeshPrimitive::Ptr> primitives) override;
 
     IMesh::Ptr build(array_view<VertexAttribute> attributes,
                      uint32_t vertex_stride,
@@ -36,12 +53,29 @@ public:
     IMesh::Ptr get_sphere(uint32_t subdivisions = 0) override;
 
 private:
-    IMesh::Ptr make_cube(uint32_t subdivisions);
-    IMesh::Ptr make_sphere(uint32_t subdivisions);
+    /// Per-shape cached GPU geometry. A primitive's layout parameters
+    /// (attributes / stride / counts / topology / bounds) are
+    /// deterministic from the shape inputs, so we stash them alongside
+    /// the buffer and re-use both when spinning up fresh primitives.
+    struct CachedGeometry
+    {
+        IMeshBuffer::Ptr buffer;
+        vector<VertexAttribute> attributes;
+        uint32_t vertex_stride = 0;
+        uint32_t vertex_count = 0;
+        uint32_t index_count = 0;
+        MeshTopology topology = MeshTopology::TriangleList;
+        aabb bounds{};
+    };
+
+    CachedGeometry make_cube_geometry(uint32_t subdivisions);
+    CachedGeometry make_sphere_geometry(uint32_t subdivisions);
+
+    IMesh::Ptr mesh_from_geometry(const CachedGeometry& g);
 
     IMesh::Ptr unit_quad_;
-    std::unordered_map<uint32_t, IMesh::Ptr> cube_cache_;
-    std::unordered_map<uint32_t, IMesh::Ptr> sphere_cache_;
+    std::unordered_map<uint32_t, CachedGeometry> cube_cache_;
+    std::unordered_map<uint32_t, CachedGeometry> sphere_cache_;
 };
 
 } // namespace velk::impl

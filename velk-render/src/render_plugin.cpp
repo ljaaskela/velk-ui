@@ -38,6 +38,7 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<impl::RtShadow>(velk);
     rv &= register_type<impl::ProgramDataBuffer>(velk);
     rv &= register_type<impl::Mesh>(velk);
+    rv &= register_type<impl::MeshPrimitive>(velk);
     rv &= register_type<impl::MeshBuffer>(velk);
     rv &= register_type<impl::MeshBuilder>(velk);
     rv &= register_type<::velk::ext::AnyValue<UpdateRate>>(velk);

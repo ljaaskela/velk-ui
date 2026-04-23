@@ -21,15 +21,16 @@ class ImageMaterial;
  * `ImageMaterial`. Apps can either set this directly or use the underlying
  * `ImageMaterial` if they want to attach the same image to a custom visual.
  */
-class ImageVisual : public ::velk::ui::ext::Visual<ImageVisual, IImageVisual>
+class ImageVisual : public ::velk::ui::ext::Visual2D<ImageVisual, IImageVisual>
 {
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::Visual::Image, "ImageVisual");
 
     ImageVisual();
 
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
-    vector<IBuffer::Ptr> get_gpu_resources() const override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
+    vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext& ctx) const override;
 
 protected:
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;

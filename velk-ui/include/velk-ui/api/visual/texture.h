@@ -18,12 +18,12 @@ namespace velk::ui {
  *   auto tv = trait::visual::create_texture_visual();
  *   tv.set_texture(my_texture);
  */
-class TextureVisual : public Visual
+class TextureVisual : public Visual2D
 {
 public:
     TextureVisual() = default;
-    explicit TextureVisual(IObject::Ptr obj) : Visual(std::move(obj)) {}
-    explicit TextureVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
+    explicit TextureVisual(IObject::Ptr obj) : Visual2D(std::move(obj)) {}
+    explicit TextureVisual(IVisual::Ptr v) : Visual2D(as_object(v)) {}
 
     /** @brief Sets the texture to display via ObjectRef. */
     void set_texture(const IObject::Ptr& texture)

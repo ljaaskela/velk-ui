@@ -5,7 +5,6 @@
 #include <velk-render/interface/intf_primitive_shape.h>
 #include <velk-render/interface/intf_raster_shader.h>
 #include <velk-ui/ext/trait.h>
-#include <velk-ui/interface/intf_mesh_visual.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {
@@ -23,19 +22,16 @@ namespace velk::ui {
  * the existing `intersect_cube` dispatch — independent of the raster
  * path.
  */
-class CubeVisual : public ext::Visual<CubeVisual,
-                                      IMeshVisual,
-                                      ::velk::IPrimitiveShape,
-                                      ::velk::IAnalyticShape>
+class CubeVisual : public ext::Visual3D<CubeVisual,
+                                        ::velk::IPrimitiveShape,
+                                        ::velk::IAnalyticShape>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::Cube, "CubeVisual");
 
     // IVisual
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
-
-    // IMeshVisual
-    ::velk::IMesh::Ptr get_mesh(::velk::IRenderContext& ctx) const override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
 
     // IRasterShader
     ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target t) const override;
@@ -43,9 +39,6 @@ public:
 
     // IAnalyticShape
     uint32_t get_shape_kind() const override { return 1; }
-
-private:
-    mutable IMesh::Ptr mesh_;
 };
 
 } // namespace velk::ui

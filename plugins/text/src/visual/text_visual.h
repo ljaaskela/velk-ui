@@ -24,8 +24,8 @@ namespace velk::ui {
  * Layout is performed lazily in get_draw_entries() and cached via
  * ChangeCache so it only re-runs when inputs change.
  */
-class TextVisual : public ext::Visual<TextVisual, ITextVisual,
-                                       ::velk::IAnalyticShape>
+class TextVisual : public ext::Visual2D<TextVisual, ITextVisual,
+                                         ::velk::IAnalyticShape>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::Text, "TextVisual");
@@ -34,9 +34,10 @@ public:
     void set_font(const IFont::Ptr& font) override;
 
     // IVisual
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
     aabb get_local_bounds(const ::velk::size& bounds) const override;
-    vector<IBuffer::Ptr> get_gpu_resources() const override;
+    vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext& ctx) const override;
 
     // Deferred coverage-discard is no longer needed here: TextMaterial's
     // eval produces alpha-modulated coverage and the deferred fragment

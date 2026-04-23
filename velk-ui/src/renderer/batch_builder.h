@@ -34,8 +34,6 @@ public:
     struct VisualCommands
     {
         vector<DrawEntry> entries;
-        uint64_t pipeline_override = 0;
-        IProgram::Ptr material;
         // Per-visual deferred-fragment discard snippet (SDF corners,
         // glyph coverage, ...). Non-null only when the visual opts in
         // via IShaderSnippet. See batch_builder's gbuffer pipeline
@@ -46,9 +44,13 @@ public:
         IShaderSnippet::Ptr visual_discard;
         uint64_t discard_key_perturb = 0;
         // The visual's IRasterShader, cached so the deferred gbuffer
-        // pipeline compose can pull its vertex shader when no paint
-        // material is routed (e.g. primitive mesh visuals).
+        // pipeline compose can pull its vertex shader when no material
+        // is routed (e.g. primitive mesh visuals).
         IRasterShader::Ptr raster_shader;
+        // Materials are per-entry (see DrawEntry::material). Pipeline
+        // compilation runs once per unique material during rebuild_commands
+        // and the resulting handle is stashed on each entry's
+        // pipeline_override.
     };
 
     struct ElementCache
@@ -70,11 +72,11 @@ public:
         // Precomputed key perturbation for the gbuffer pipeline cache;
         // 0 when the visual contributes no discard snippet.
         uint64_t discard_key_perturb = 0;
-        // Geometry input. Every batch carries the same mesh across its
-        // instances; the renderer writes vbo/ibo addresses into the
+        // Geometry input. Every batch carries the same primitive across
+        // its instances; the renderer writes vbo/ibo addresses into the
         // DrawDataHeader and issues an indexed draw with
-        // vertex_count = mesh->get_index_count().
-        IMesh::Ptr mesh;
+        // index_count = primitive->get_index_count().
+        IMeshPrimitive::Ptr primitive;
         // Visual's IRasterShader. Used by the deferred gbuffer
         // composer when no paint material supplies a vertex shader.
         IRasterShader::Ptr raster_shader;

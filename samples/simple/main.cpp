@@ -225,7 +225,7 @@ void main()
             sm.set_input<float>("scale", 8.0f);
 
             auto header = scene.root().child_at(0).child_at(0);
-            auto v = velk::ui::Visual(header.find_attachment<velk::ui::IVisual>());
+            auto v = velk::ui::Visual2D(header.find_attachment<velk::ui::IVisual>());
             v.set_paint(sm);
         }
     }

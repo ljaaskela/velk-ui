@@ -14,13 +14,13 @@
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_raster_shader.h>
 #include "gpu_resource_manager.h"
-#include <velk-ui/interface/intf_mesh_visual.h>
 #include <velk-ui/interface/intf_visual.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <unordered_set>
 #include <velk/string.h>
 
 namespace {
@@ -97,13 +97,15 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         VisualCommands vc;
         {
             VELK_PERF_SCOPE("renderer.get_draw_entries");
-            vc.entries = visual->get_draw_entries(local_size);
+            if (render_ctx) {
+                vc.entries = visual->get_draw_entries(*render_ctx, local_size);
+            }
         }
 
-        // Resolve the visual's mesh. Priority:
-        //   1. IMeshVisual::get_mesh (cube / sphere / future MeshVisual)
-        //   2. entry.mesh set directly by the visual
-        //   3. fall back to the engine's unit quad
+        // Resolve the visual's primitive. 3D visuals (cube, sphere,
+        // future MeshVisual) populate `entry.primitive` themselves
+        // inside `get_draw_entries`; 2D visuals leave it null and fall
+        // back to the unit quad's primitive here.
         //
         // The unit quad's buffers are singletons that outlive every
         // element. They get destroyed when the render context goes
@@ -111,30 +113,31 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
         // renderer_ before render_ctx_). So we deliberately skip
         // add_gpu_resource_observer here: the buffer's destructor would
         // otherwise notify a dead renderer at process exit.
-        IMesh::Ptr mesh_from_visual;
+        IMeshPrimitive::Ptr quad_primitive;
         if (render_ctx) {
-            if (auto* mv = interface_cast<IMeshVisual>(visual)) {
-                mesh_from_visual = mv->get_mesh(*render_ctx);
+            auto quad = render_ctx->get_mesh_builder().get_unit_quad();
+            if (quad) {
+                auto prims = quad->get_primitives();
+                if (prims.size() > 0) {
+                    quad_primitive = prims[0];
+                }
             }
         }
-        IMesh::Ptr quad;
-        if (render_ctx) {
-            quad = render_ctx->get_mesh_builder().get_unit_quad();
-        }
-        for (auto& entry : vc.entries) {
-            if (!entry.mesh) {
-                entry.mesh = mesh_from_visual ? mesh_from_visual : quad;
-            }
-        }
-        // Surface every referenced mesh's buffer for the upload pass.
-        auto push_mesh_buffer = [&](IMesh* m) {
-            if (!m) return;
-            if (auto buf = interface_pointer_cast<IBuffer>(m->get_buffer())) {
+        // Surface every referenced primitive's buffer for the upload pass.
+        auto push_primitive_buffer = [&](IMeshPrimitive* p) {
+            if (!p) return;
+            if (auto buf = interface_pointer_cast<IBuffer>(p->get_buffer())) {
                 cache.gpu_resources.push_back(buf);
             }
         };
-        push_mesh_buffer(quad.get());
-        push_mesh_buffer(mesh_from_visual.get());
+        push_primitive_buffer(quad_primitive.get());
+        for (auto& entry : vc.entries) {
+            if (!entry.primitive) {
+                entry.primitive = quad_primitive;
+            } else {
+                push_primitive_buffer(entry.primitive.get());
+            }
+        }
 
         // Ensure the visual's built-in pipeline is compiled. Empty shader
         // sources on the visual fall back to the renderer's registered
@@ -151,8 +154,8 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                 if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
                     auto src = rs->get_raster_source(IRasterShader::Target::Forward);
                     ::velk::Topology topo = ::velk::Topology::TriangleStrip;
-                    if (!vc.entries.empty() && vc.entries.front().mesh) {
-                        topo = to_backend_topology(vc.entries.front().mesh->get_topology());
+                    if (!vc.entries.empty() && vc.entries.front().primitive) {
+                        topo = to_backend_topology(vc.entries.front().primitive->get_topology());
                     }
                     auto po = pipeline_options_from_storage(interface_cast<IObjectStorage>(visual));
                     po.topology = topo;
@@ -176,19 +179,18 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
 
-        auto vstate = read_state<IVisual>(visual);
-
+        // Per-entry material resolution. Each DrawEntry carries its own
+        // material (filled by the visual's get_draw_entries); the visual
+        // itself doesn't advertise one. Compile the forward pipeline
+        // once per unique material, then stash the handle on each entry
+        // as `pipeline_override` for rebuild_batches to pick up.
         {
             VELK_PERF_SCOPE("renderer.resolve_material");
-            if (render_ctx && vstate && vstate->paint) {
-                auto prog = vstate->paint.get<IProgram>();
-                if (prog) {
-                    // Materials with an IMaterial eval body get their
-                    // forward pipeline composed from the shared driver
-                    // template + the material's eval_src + vertex_src.
-                    // The compiled handle is stored on the material via
-                    // set_pipeline_handle so subsequent get_pipeline_handle
-                    // calls short-circuit.
+            std::unordered_set<IProgram*> seen;
+            for (auto& entry : vc.entries) {
+                if (!entry.material || !render_ctx) continue;
+                auto prog = entry.material;
+                if (seen.insert(prog.get()).second) {
                     if (auto* mat = interface_cast<IMaterial>(prog.get());
                         mat && prog->get_pipeline_handle(*render_ctx) == 0) {
                         auto eval_src = mat->get_eval_src();
@@ -197,19 +199,16 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                         auto frag_src = mat->get_fragment_src();
                         auto po = pipeline_options_from_storage(
                             interface_cast<IObjectStorage>(prog.get()));
-                        // Topology is taken from the visual's first
-                        // draw entry. Materials are assumed to be used
-                        // with a single mesh topology in their lifetime;
-                        // mixing topologies on one material would need
-                        // per-topology pipeline caching (out of scope).
+                        // Topology from this entry's primitive. Two entries
+                        // sharing a material must share topology; mixing
+                        // topologies on one material is out of scope (would
+                        // need per-topology pipeline caching).
                         po.topology = Topology::TriangleList;
-                        if (!vc.entries.empty() && vc.entries.front().mesh) {
-                            po.topology = to_backend_topology(vc.entries.front().mesh->get_topology());
+                        if (entry.primitive) {
+                            po.topology = to_backend_topology(entry.primitive->get_topology());
                         }
                         uint64_t h = 0;
                         if (!eval_src.empty() && !vertex_src.empty() && !eval_fn.empty()) {
-                            // Eval-driver path: compose the eval body with
-                            // the forward driver template and compile.
                             mat->register_eval_includes(*render_ctx);
                             string frag = compose_eval_fragment(
                                 forward_fragment_driver_template, eval_src, eval_fn,
@@ -218,8 +217,7 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                                 string_view(frag), vertex_src, 0, 0, po);
                         } else if (!frag_src.empty() && !vertex_src.empty()) {
                             // Raw-shader path: the material supplies a full
-                            // fragment source (e.g. ShaderMaterial). No eval
-                            // composition, straight compile.
+                            // fragment source (e.g. ShaderMaterial).
                             h = render_ctx->compile_pipeline(
                                 frag_src, vertex_src, 0, 0, po);
                         }
@@ -227,16 +225,26 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                             prog->set_pipeline_handle(h);
                         }
                     }
-                    uint64_t handle = prog->get_pipeline_handle(*render_ctx);
-                    if (handle) {
-                        vc.pipeline_override = handle;
-                        vc.material = std::move(prog);
+                    // Multi-texture materials (e.g. StandardMaterial)
+                    // attach their textures to the material. Surface the
+                    // ones that carry uploadable pixel data so renderer's
+                    // upload pass registers them.
+                    if (auto* mat = interface_cast<IMaterial>(prog.get())) {
+                        for (auto* tex : mat->get_textures()) {
+                            if (auto buf = ::velk::get_self<IBuffer>(tex)) {
+                                if (observer) {
+                                    buf->add_gpu_resource_observer(observer);
+                                }
+                                cache.gpu_resources.push_back(buf);
+                            }
+                        }
                     }
                 }
+                entry.pipeline_override = prog->get_pipeline_handle(*render_ctx);
             }
         }
 
-        for (auto& res : visual->get_gpu_resources()) {
+        for (auto& res : (render_ctx ? visual->get_gpu_resources(*render_ctx) : vector<IBuffer::Ptr>{})) {
             if (res) {
                 if (observer) {
                     res->add_gpu_resource_observer(observer);
@@ -245,22 +253,8 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
 
-        // Multi-texture materials (e.g. StandardMaterial) attach their
-        // textures to the material, not the visual. Surface the ones that
-        // carry uploadable pixel data (IImage etc.) so renderer's upload
-        // pass picks them up and registers them with the resource manager.
-        if (auto* mat = interface_cast<IMaterial>(vc.material)) {
-            for (auto* tex : mat->get_textures()) {
-                if (auto buf = ::velk::get_self<IBuffer>(tex)) {
-                    if (observer) {
-                        buf->add_gpu_resource_observer(observer);
-                    }
-                    cache.gpu_resources.push_back(buf);
-                }
-            }
-        }
-
-        VisualPhase phase = vstate ? vstate->visual_phase : VisualPhase::BeforeChildren;
+        auto v2d = read_state<IVisual2D>(visual);
+        VisualPhase phase = v2d ? v2d->visual_phase : VisualPhase::BeforeChildren;
         if (phase == VisualPhase::AfterChildren) {
             cache.after_visuals.push_back(std::move(vc));
         } else {
@@ -279,8 +273,8 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
     // dedups so an RTT element shared between views only emits once
     // per frame from build_shared_passes.
 
-    auto resolve_texture = [](const IProgram::Ptr& material, uint64_t fallback) -> uint64_t {
-        return material ? reinterpret_cast<uintptr_t>(material.get()) : fallback;
+    auto resolve_texture = [](const IProgram* material, uint64_t fallback) -> uint64_t {
+        return material ? reinterpret_cast<uintptr_t>(material) : fallback;
     };
 
     auto get_visuals = [](const ElementCache& cache, VisualPhase phase) -> const vector<VisualCommands>& {
@@ -328,22 +322,22 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
 
                 auto& vc = visuals[pass];
                 for (auto& de : vc.entries) {
-                    uint64_t pipeline = (vc.pipeline_override != 0) ? vc.pipeline_override : de.pipeline_key;
+                    uint64_t pipeline = (de.pipeline_override != 0) ? de.pipeline_override : de.pipeline_key;
                     uint64_t texture = de.texture_key;
-                    uint64_t mesh_key = reinterpret_cast<uintptr_t>(de.mesh.get());
+                    uint64_t prim_key = reinterpret_cast<uintptr_t>(de.primitive.get());
 
-                    uint64_t bkey = make_batch_key(pipeline, mesh_key,
-                                                   resolve_texture(vc.material, texture));
+                    uint64_t bkey = make_batch_key(pipeline, prim_key,
+                                                   resolve_texture(de.material.get(), texture));
 
                     if (target_batches.empty() || bkey != last_bkey) {
                         Batch batch;
                         batch.pipeline_key = pipeline;
                         batch.texture_key = texture;
                         batch.instance_stride = de.instance_size;
-                        batch.material = vc.material;
+                        batch.material = de.material;
                         batch.visual_discard = vc.visual_discard;
                         batch.discard_key_perturb = vc.discard_key_perturb;
-                        batch.mesh = de.mesh;
+                        batch.primitive = de.primitive;
                         batch.raster_shader = vc.raster_shader;
                         target_batches.push_back(std::move(batch));
                         last_bkey = bkey;
@@ -479,9 +473,9 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
             }
         }
 
-        IMesh* mesh = batch.mesh.get();
-        if (!mesh) continue;
-        auto buffer = mesh->get_buffer();
+        IMeshPrimitive* primitive = batch.primitive.get();
+        if (!primitive) continue;
+        auto buffer = primitive->get_buffer();
         if (!buffer) continue;
 
         // IBO half is optional: indexed draw when ibo_size > 0, plain
@@ -544,9 +538,9 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         if (ibo_handle) {
             call.index_buffer = ibo_handle;
             call.index_buffer_offset = ibo_offset;
-            call.index_count = mesh->get_index_count();
+            call.index_count = primitive->get_index_count();
         } else {
-            call.vertex_count = mesh->get_vertex_count();
+            call.vertex_count = primitive->get_vertex_count();
         }
         call.instance_count = batch.instance_count;
         call.root_constants_size = sizeof(uint64_t);
@@ -590,9 +584,9 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
             }
         }
 
-        IMesh* mesh = batch.mesh.get();
-        if (!mesh) continue;
-        auto buffer = mesh->get_buffer();
+        IMeshPrimitive* primitive = batch.primitive.get();
+        if (!primitive) continue;
+        auto buffer = primitive->get_buffer();
         if (!buffer) continue;
 
         GpuBuffer ibo_handle = 0;
@@ -702,7 +696,7 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
 
             auto po = pipeline_options_from_storage(
                 interface_cast<IObjectStorage>(batch.material.get()));
-            po.topology = to_backend_topology(mesh->get_topology());
+            po.topology = to_backend_topology(primitive->get_topology());
             gpid = render_ctx->compile_gbuffer_pipeline(
                 string_view(composed), vsrc, gbuffer_key, target_group, po);
         }
@@ -718,9 +712,9 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
         if (ibo_handle) {
             call.index_buffer = ibo_handle;
             call.index_buffer_offset = ibo_offset;
-            call.index_count = mesh->get_index_count();
+            call.index_count = primitive->get_index_count();
         } else {
-            call.vertex_count = mesh->get_vertex_count();
+            call.vertex_count = primitive->get_vertex_count();
         }
         call.instance_count = batch.instance_count;
         call.root_constants_size = sizeof(uint64_t);

@@ -40,7 +40,7 @@ void ImageVisual::ensure_loaded()
             // Wire material as the visual's paint so the renderer picks
             // up its pipeline.
             auto mat_ptr = interface_pointer_cast<IMaterial>(material_);
-            write_state<IVisual>(this, [&](IVisual::State& s) {
+            write_state<IVisual2D>(this, [&](IVisual2D::State& s) {
                 set_object_ref(s.paint, mat_ptr);
             });
         }
@@ -65,7 +65,8 @@ void ImageVisual::ensure_loaded()
     }
 }
 
-vector<DrawEntry> ImageVisual::get_draw_entries(const ::velk::size& bounds)
+vector<DrawEntry> ImageVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
+                                                 const ::velk::size& bounds)
 {
     auto state = read_state<IImageVisual>(this);
     if (!state) {
@@ -88,6 +89,9 @@ vector<DrawEntry> ImageVisual::get_draw_entries(const ::velk::size& bounds)
     entry.pipeline_key = 0; // material override supplies the pipeline
     entry.bounds = {0, 0, bounds.width, bounds.height};
     entry.texture_key = reinterpret_cast<uint64_t>(tex);
+    if (auto vs2d = read_state<IVisual2D>(this); vs2d && vs2d->paint) {
+        entry.material = vs2d->paint.get<IProgram>();
+    }
     entry.set_instance(ElementInstance{
         {},  // world_matrix: written by batch_builder per-instance
         {0.f, 0.f, 0.f, 0.f},
@@ -98,7 +102,7 @@ vector<DrawEntry> ImageVisual::get_draw_entries(const ::velk::size& bounds)
     return {entry};
 }
 
-vector<IBuffer::Ptr> ImageVisual::get_gpu_resources() const
+vector<IBuffer::Ptr> ImageVisual::get_gpu_resources(::velk::IRenderContext& /*ctx*/) const
 {
     auto buf = interface_pointer_cast<IBuffer>(image_);
     if (!buf) {

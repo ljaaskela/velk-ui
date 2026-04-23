@@ -141,7 +141,9 @@ int main(int /*argc*/, char* /*argv*/[])
             mo.depth_test = velk::CompareOp::LessEqual;
             mo.depth_write = true;
         });
-        cube_vis.set_paint(sm);
+        velk::ui::Mesh cube_mesh(ctx.build_cube());
+        cube_mesh.set_material(0, sm);
+        cube_vis.set_mesh(cube_mesh);
     } else {
         VELK_LOG(E, "winding_test: create_shader_material returned null; test cannot run");
         return 1;

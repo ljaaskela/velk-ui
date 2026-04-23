@@ -6,6 +6,43 @@
 
 namespace velk::impl {
 
+IMeshPrimitive::Ptr MeshBuilder::build_primitive(
+    array_view<VertexAttribute> attributes,
+    uint32_t vertex_stride,
+    const void* vertex_data, uint32_t vertex_count,
+    const uint32_t* indices, uint32_t index_count,
+    MeshTopology topology,
+    const aabb& bounds)
+{
+    auto buffer = ::velk::instance().create<IMeshBuffer>(::velk::ClassId::MeshBuffer);
+    if (!buffer) return nullptr;
+
+    const size_t vbo_size = size_t(vertex_count) * vertex_stride;
+    const size_t ibo_size = indices ? size_t(index_count) * sizeof(uint32_t) : 0;
+    buffer->set_data(vertex_data, vbo_size, indices, ibo_size);
+
+    auto prim_intf = ::velk::instance().create<IMeshPrimitive>(::velk::ClassId::MeshPrimitive);
+    auto* prim = dynamic_cast<MeshPrimitive*>(prim_intf.get());
+    if (!prim) return nullptr;
+
+    prim->init(buffer,
+               /*vertex_offset*/ 0, vertex_count,
+               /*index_offset*/ 0, index_count,
+               attributes, vertex_stride,
+               topology, bounds);
+    return prim_intf;
+}
+
+IMesh::Ptr MeshBuilder::build(array_view<IMeshPrimitive::Ptr> primitives)
+{
+    auto mesh_intf = ::velk::instance().create<IMesh>(::velk::ClassId::Mesh);
+    auto* mesh = dynamic_cast<Mesh*>(mesh_intf.get());
+    if (!mesh) return nullptr;
+
+    mesh->init(primitives, aabb{}, /*has_explicit_bounds*/ false);
+    return mesh_intf;
+}
+
 IMesh::Ptr MeshBuilder::build(array_view<VertexAttribute> attributes,
                               uint32_t vertex_stride,
                               const void* vertex_data, uint32_t vertex_count,
@@ -13,14 +50,43 @@ IMesh::Ptr MeshBuilder::build(array_view<VertexAttribute> attributes,
                               MeshTopology topology,
                               const aabb& bounds)
 {
+    auto prim = build_primitive(attributes, vertex_stride,
+                                 vertex_data, vertex_count,
+                                 indices, index_count,
+                                 topology, bounds);
+    if (!prim) return nullptr;
+
     auto mesh_intf = ::velk::instance().create<IMesh>(::velk::ClassId::Mesh);
     auto* mesh = dynamic_cast<Mesh*>(mesh_intf.get());
     if (!mesh) return nullptr;
 
-    mesh->init(attributes, vertex_stride,
-               vertex_data, vertex_count,
-               indices, index_count,
-               topology, bounds);
+    IMeshPrimitive::Ptr list[] = { prim };
+    mesh->init({list, 1}, bounds, /*has_explicit_bounds*/ true);
+    return mesh_intf;
+}
+
+IMesh::Ptr MeshBuilder::mesh_from_geometry(const CachedGeometry& g)
+{
+    // Fresh primitive referencing the shared buffer. Material defaults
+    // to empty ObjectRef; callers set their own.
+    auto prim_intf = ::velk::instance().create<IMeshPrimitive>(::velk::ClassId::MeshPrimitive);
+    auto* prim = dynamic_cast<MeshPrimitive*>(prim_intf.get());
+    if (!prim) return nullptr;
+
+    prim->init(g.buffer,
+               /*vertex_offset*/ 0, g.vertex_count,
+               /*index_offset*/ 0, g.index_count,
+               {g.attributes.data(), g.attributes.size()},
+               g.vertex_stride,
+               g.topology,
+               g.bounds);
+
+    auto mesh_intf = ::velk::instance().create<IMesh>(::velk::ClassId::Mesh);
+    auto* mesh = dynamic_cast<Mesh*>(mesh_intf.get());
+    if (!mesh) return nullptr;
+
+    IMeshPrimitive::Ptr list[] = { prim_intf };
+    mesh->init({list, 1}, g.bounds, /*has_explicit_bounds*/ true);
     return mesh_intf;
 }
 
@@ -39,7 +105,6 @@ IMesh::Ptr MeshBuilder::get_unit_quad()
     // vkCmdDraw(vertex_count=4).
     struct Vertex { float pos[3]; float normal[3]; float uv[2]; };
     static const Vertex verts[] = {
-        // position       normal          uv
         { {0.f, 0.f, 0.f}, {0.f, 0.f, 1.f}, {0.f, 0.f} },
         { {1.f, 0.f, 0.f}, {0.f, 0.f, 1.f}, {1.f, 0.f} },
         { {0.f, 1.f, 0.f}, {0.f, 0.f, 1.f}, {0.f, 1.f} },
@@ -64,6 +129,24 @@ IMesh::Ptr MeshBuilder::get_unit_quad()
                        MeshTopology::TriangleStrip,
                        bounds);
     return unit_quad_;
+}
+
+IMesh::Ptr MeshBuilder::get_cube(uint32_t subdivisions)
+{
+    auto it = cube_cache_.find(subdivisions);
+    if (it == cube_cache_.end()) {
+        it = cube_cache_.emplace(subdivisions, make_cube_geometry(subdivisions)).first;
+    }
+    return mesh_from_geometry(it->second);
+}
+
+IMesh::Ptr MeshBuilder::get_sphere(uint32_t subdivisions)
+{
+    auto it = sphere_cache_.find(subdivisions);
+    if (it == sphere_cache_.end()) {
+        it = sphere_cache_.emplace(subdivisions, make_sphere_geometry(subdivisions)).first;
+    }
+    return mesh_from_geometry(it->second);
 }
 
 } // namespace velk::impl

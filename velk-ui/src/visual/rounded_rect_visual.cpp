@@ -68,9 +68,10 @@ void main()
 
 } // namespace
 
-vector<DrawEntry> RoundedRectVisual::get_draw_entries(const ::velk::size& bounds)
+vector<DrawEntry> RoundedRectVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
+                                                       const ::velk::size& bounds)
 {
-    auto state = read_state<IVisual>(this);
+    auto state = read_state<IVisual2D>(this);
     if (!state) {
         return {};
     }
@@ -78,6 +79,9 @@ vector<DrawEntry> RoundedRectVisual::get_draw_entries(const ::velk::size& bounds
     DrawEntry entry{};
     entry.pipeline_key = kPipelineKey;
     entry.bounds = {0, 0, bounds.width, bounds.height};
+    if (state->paint) {
+        entry.material = state->paint.get<IProgram>();
+    }
     entry.set_instance(ElementInstance{
         {},  // world_matrix: written by batch_builder per-instance
         {0.f, 0.f, 0.f, 0.f},

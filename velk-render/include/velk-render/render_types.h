@@ -4,6 +4,7 @@
 #include <velk/api/math_types.h>
 
 #include <velk-render/interface/intf_mesh.h>
+#include <velk-render/interface/intf_program.h>
 
 #include <cstdint>
 #include <cstring>
@@ -70,22 +71,24 @@ inline constexpr uint32_t kMaxInstanceDataSize = 128;
  * @brief Generic draw entry produced by visuals.
  *
  * Visuals pack their own instance data matching their pipeline's vertex input.
- * The renderer groups entries by (pipeline_key, mesh, texture_key),
+ * The renderer groups entries by (pipeline_key, primitive, texture_key),
  * concatenates instance data into batches, and applies the world transform.
  *
  * Convention: the first two floats in instance_data are element-local (x, y).
  * The renderer offsets them by the element's world position.
  *
- * `mesh` is optional. When null, the renderer substitutes the engine's
- * unit-quad singleton (4 verts, 6 indices) so 2D visuals that don't yet
- * know about IMesh keep working.
+ * `primitive` is optional. When null, the renderer substitutes the unit
+ * quad's single primitive so 2D visuals that don't care about geometry
+ * keep working.
  */
 struct DrawEntry
 {
-    uint64_t pipeline_key{};                       ///< Which pipeline to draw with.
+    uint64_t pipeline_key{};                       ///< Visual's own pipeline (used when no material overrides).
     uint64_t texture_key{};                        ///< Texture binding (0 = none).
     rect bounds{};                                 ///< Element-local bounds.
-    IMesh::Ptr mesh{};                             ///< Geometry; null = unit quad.
+    IMeshPrimitive::Ptr primitive{};               ///< Geometry primitive; null = unit quad.
+    IProgram::Ptr material{};                      ///< Material driving this entry's pipeline + data (0 = visual's own shader).
+    uint64_t pipeline_override{};                  ///< Cached material pipeline handle; filled by the renderer.
     uint8_t instance_data[kMaxInstanceDataSize]{}; ///< Packed instance data for the GPU.
     uint32_t instance_size{};                      ///< Bytes used in instance_data.
 

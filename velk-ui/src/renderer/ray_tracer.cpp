@@ -274,7 +274,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     // Materials resolve through the shared snippet registry so the
     // primary buffer and BVH use the same material ids.
     vector<RtShape> shapes;
-    enumerate_scene_shapes(scene_state, [&](ShapeSite& site) {
+    enumerate_scene_shapes(scene_state, ctx.render_ctx, [&](ShapeSite& site) {
         auto mat = site.paint
             ? ctx.snippets->resolve_material(site.paint, ctx)
             : FrameSnippetRegistry::MaterialRef{};

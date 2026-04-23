@@ -55,7 +55,7 @@ void append_face(::velk::vector<Vertex3D>& verts,
         for (uint32_t vx = 0; vx < side; ++vx) {
             float u = static_cast<float>(vx) / static_cast<float>(grid);
             float v = static_cast<float>(vy) / static_cast<float>(grid);
-            Vertex3D vert{};  // value-init zeros the .w / trailing pad slots
+            Vertex3D vert{};
             for (int i = 0; i < 3; ++i) {
                 vert.position[i] = origin[i] + u_axis[i] * u + v_axis[i] * v;
                 vert.normal[i] = normal[i];
@@ -83,9 +83,20 @@ void append_face(::velk::vector<Vertex3D>& verts,
     }
 }
 
+// Builds a shared IMeshBuffer from VBO + IBO bytes.
+IMeshBuffer::Ptr upload_mesh_buffer(const void* vbo, size_t vbo_size,
+                                     const uint32_t* ibo, size_t index_count)
+{
+    auto buffer = ::velk::instance().create<IMeshBuffer>(::velk::ClassId::MeshBuffer);
+    if (!buffer) return nullptr;
+    buffer->set_data(vbo, vbo_size,
+                     ibo, ibo ? index_count * sizeof(uint32_t) : 0);
+    return buffer;
+}
+
 } // namespace
 
-IMesh::Ptr MeshBuilder::make_cube(uint32_t subdivisions)
+MeshBuilder::CachedGeometry MeshBuilder::make_cube_geometry(uint32_t subdivisions)
 {
     const uint32_t grid = subdivisions == 0 ? 1u : subdivisions;
 
@@ -102,36 +113,31 @@ IMesh::Ptr MeshBuilder::make_cube(uint32_t subdivisions)
         float n[3];
     };
     const FaceDef faces[] = {
-        // -X
         { {0, 0, 0}, {0, 0, 1}, {0, 1, 0}, {-1, 0, 0} },
-        // +X
         { {1, 0, 1}, {0, 0, -1}, {0, 1, 0}, {1, 0, 0} },
-        // -Y
         { {0, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, -1, 0} },
-        // +Y
         { {0, 1, 1}, {1, 0, 0}, {0, 0, -1}, {0, 1, 0} },
-        // -Z
         { {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, 0, -1} },
-        // +Z
         { {0, 0, 1}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1} },
     };
     for (const auto& f : faces) {
         append_face(verts, indices, f.origin, f.u, f.v, f.n, grid);
     }
 
-    aabb bounds{};
-    bounds.position = { 0.f, 0.f, 0.f };
-    bounds.extent = { 1.f, 1.f, 1.f };
-
-    return build({ kVertex3DAttributes, 3 },
-                 kVertex3DStride,
-                 verts.data(), static_cast<uint32_t>(verts.size()),
-                 indices.data(), static_cast<uint32_t>(indices.size()),
-                 MeshTopology::TriangleList,
-                 bounds);
+    CachedGeometry g;
+    g.buffer = upload_mesh_buffer(verts.data(), verts.size() * sizeof(Vertex3D),
+                                   indices.data(), indices.size());
+    g.attributes.assign(std::begin(kVertex3DAttributes), std::end(kVertex3DAttributes));
+    g.vertex_stride = kVertex3DStride;
+    g.vertex_count = static_cast<uint32_t>(verts.size());
+    g.index_count = static_cast<uint32_t>(indices.size());
+    g.topology = MeshTopology::TriangleList;
+    g.bounds.position = { 0.f, 0.f, 0.f };
+    g.bounds.extent = { 1.f, 1.f, 1.f };
+    return g;
 }
 
-IMesh::Ptr MeshBuilder::make_sphere(uint32_t subdivisions)
+MeshBuilder::CachedGeometry MeshBuilder::make_sphere_geometry(uint32_t subdivisions)
 {
     const uint32_t segments = subdivisions == 0 ? 16u : subdivisions;
     const uint32_t rings = (segments / 2u) > 2u ? (segments / 2u) : 3u;
@@ -146,9 +152,6 @@ IMesh::Ptr MeshBuilder::make_sphere(uint32_t subdivisions)
     ::velk::vector<Vertex3D> verts;
     ::velk::vector<uint32_t> indices;
 
-    // (rings + 1) rings of (segments + 1) vertices each; the seam is
-    // duplicated so uvs/normals are per-vertex (no shared-seam
-    // wraparound artefacts).
     for (uint32_t r = 0; r <= rings; ++r) {
         float vy = static_cast<float>(r) / static_cast<float>(rings);
         float phi = vy * kPi;
@@ -189,38 +192,17 @@ IMesh::Ptr MeshBuilder::make_sphere(uint32_t subdivisions)
         }
     }
 
-    aabb bounds{};
-    bounds.position = { 0.f, 0.f, 0.f };
-    bounds.extent = { 1.f, 1.f, 1.f };
-
-    return build({ kVertex3DAttributes, 3 },
-                 kVertex3DStride,
-                 verts.data(), static_cast<uint32_t>(verts.size()),
-                 indices.data(), static_cast<uint32_t>(indices.size()),
-                 MeshTopology::TriangleList,
-                 bounds);
-}
-
-IMesh::Ptr MeshBuilder::get_cube(uint32_t subdivisions)
-{
-    auto it = cube_cache_.find(subdivisions);
-    if (it != cube_cache_.end()) {
-        return it->second;
-    }
-    auto mesh = make_cube(subdivisions);
-    cube_cache_[subdivisions] = mesh;
-    return mesh;
-}
-
-IMesh::Ptr MeshBuilder::get_sphere(uint32_t subdivisions)
-{
-    auto it = sphere_cache_.find(subdivisions);
-    if (it != sphere_cache_.end()) {
-        return it->second;
-    }
-    auto mesh = make_sphere(subdivisions);
-    sphere_cache_[subdivisions] = mesh;
-    return mesh;
+    CachedGeometry g;
+    g.buffer = upload_mesh_buffer(verts.data(), verts.size() * sizeof(Vertex3D),
+                                   indices.data(), indices.size());
+    g.attributes.assign(std::begin(kVertex3DAttributes), std::end(kVertex3DAttributes));
+    g.vertex_stride = kVertex3DStride;
+    g.vertex_count = static_cast<uint32_t>(verts.size());
+    g.index_count = static_cast<uint32_t>(indices.size());
+    g.topology = MeshTopology::TriangleList;
+    g.bounds.position = { 0.f, 0.f, 0.f };
+    g.bounds.extent = { 1.f, 1.f, 1.f };
+    return g;
 }
 
 } // namespace velk::impl

@@ -465,7 +465,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     }
                 }
             }
-            bvh->rebuild(scene, frame_buffer_, dirty, [&](ShapeSite& site) {
+            bvh->rebuild(scene, render_ctx_, frame_buffer_, dirty, [&](ShapeSite& site) {
                 auto mat = site.paint
                     ? snippets_.resolve_material(site.paint, ctx)
                     : FrameSnippetRegistry::MaterialRef{};

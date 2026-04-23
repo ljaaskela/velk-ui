@@ -12,13 +12,14 @@ namespace velk::ui {
  * Produces a single FillRect draw command that fills the element's bounds
  * with the visual's color.
  */
-class RectVisual : public ext::Visual<RectVisual>
+class RectVisual : public ext::Visual2D<RectVisual>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::Rect, "RectVisual");
 
     // IVisual
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
 };
 
 } // namespace velk::ui

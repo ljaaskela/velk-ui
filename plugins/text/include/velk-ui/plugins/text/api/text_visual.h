@@ -20,17 +20,17 @@ namespace velk::ui {
  *   tv.set_text("Hello!");
  *   tv.set_color(color::white());
  */
-class TextVisual : public Visual
+class TextVisual : public Visual2D
 {
 public:
     /** @brief Default-constructed TextVisual wraps no object. */
     TextVisual() = default;
 
     /** @brief Wraps an existing IObject pointer, rejected if it does not implement ITextVisual. */
-    explicit TextVisual(IObject::Ptr obj) : Visual(check_object<IVisual>(obj)) {}
+    explicit TextVisual(IObject::Ptr obj) : Visual2D(check_object<IVisual2D>(obj)) {}
 
     /** @brief Wraps an existing ITextVisual pointer. */
-    explicit TextVisual(ITextVisual::Ptr t) : Visual(interface_pointer_cast<IObject>(t)) {}
+    explicit TextVisual(ITextVisual::Ptr t) : Visual2D(interface_pointer_cast<IObject>(t)) {}
 
     /** @brief Implicit conversion to ITextVisual::Ptr. */
     operator ITextVisual::Ptr() const { return as_ptr<ITextVisual>(); }

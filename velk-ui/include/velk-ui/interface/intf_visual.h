@@ -11,6 +11,10 @@
 #include <velk-render/render_types.h>
 #include <velk-ui/interface/intf_trait.h>
 
+namespace velk {
+class IRenderContext;
+}
+
 namespace velk::ui {
 
 /** @brief Controls when a visual draws relative to an element's children. */
@@ -25,22 +29,27 @@ enum class VisualPhase : uint8_t
 };
 
 /**
- * @brief Visual representation attached to an element.
+ * @brief Renderer-facing contract for a visual attached to an element.
  *
- * Defines how an element appears on screen. An element can have one or more
- * IVisual attachments. The renderer iterates them and draws what they produce.
+ * IVisual is the trait-to-GPU contract: the renderer iterates visuals and
+ * calls these methods to obtain draw entries, local bounds, and GPU
+ * resources. Every method that runs during rendering receives the
+ * IRenderContext, so visuals never need to cache it.
+ *
+ * Concrete visuals implement either `IVisual2D` (2D authoring affordances
+ * like color / paint / visual_phase) or `IVisual3D` (3D authoring
+ * affordances, currently empty). Both inherit IVisual so the renderer
+ * can iterate them uniformly without branching on kind.
  */
 class IVisual : public Interface<IVisual, ITrait>
 {
 public:
-    VELK_INTERFACE(
-        (PROP, ::velk::color, color, {}),
-        (PROP, ObjectRef, paint, {}),
-        (PROP, VisualPhase, visual_phase, VisualPhase::BeforeChildren)
-    )
-
-    /** @brief Returns draw entries for this visual within the given local size. */
-    virtual vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) = 0;
+    /** @brief Returns draw entries for this visual within the given local size.
+               The visual is free to fetch meshes, materials, or other
+               renderer-owned resources via @p ctx; the returned DrawEntry's
+               `mesh` field carries whatever mesh the visual wants bound. */
+    virtual vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                               const ::velk::size& bounds) = 0;
 
     /**
      * @brief Returns the local-space bounds of what this visual
@@ -52,6 +61,10 @@ public:
      * return the true extent so the element's world_aabb — used for
      * culling, hit-testing, and ray-traced shadow casting — covers
      * everything the visual draws.
+     *
+     * Called by the layout solver, not the renderer, so it receives no
+     * IRenderContext: anything that needs renderer state must be cached
+     * on the visual or deferred to `get_draw_entries`.
      */
     virtual aabb get_local_bounds(const ::velk::size& bounds) const = 0;
 
@@ -63,11 +76,8 @@ public:
      * the list however it likes (member, fresh allocation, conditional
      * inclusion) without committing to backing storage, and so the renderer
      * sees a stable snapshot with no aliasing into visual-internal state.
-     *
-     * The default returns an empty vector for visuals that have no GPU
-     * resources (rect, rounded rect, gradient, etc.).
      */
-    virtual vector<IBuffer::Ptr> get_gpu_resources() const = 0;
+    virtual vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext& ctx) const = 0;
 
     // Shader provision and analytic-shape dispatch live on separate
     // role interfaces (`IRasterShader`, `IAnalyticShape`). A visual
@@ -76,6 +86,45 @@ public:
     // `IAnalyticShape`. Visuals can implement either, both, or
     // neither (e.g. a TextureVisual that piggybacks on a paint-
     // supplied material).
+};
+
+/**
+ * @brief 2D visual authoring contract.
+ *
+ * Carries the app-facing properties that make sense for a visual filling
+ * a layout box: a tint color, an optional material paint, and the
+ * BeforeChildren / AfterChildren draw phase. Rect, rounded rect, text,
+ * image, and texture visuals all implement this.
+ */
+class IVisual2D : public Interface<IVisual2D, IVisual>
+{
+public:
+    VELK_INTERFACE(
+        (PROP, ::velk::color, color, {}),
+        (PROP, ObjectRef, paint, {}),
+        (PROP, VisualPhase, visual_phase, VisualPhase::BeforeChildren)
+    )
+};
+
+/**
+ * @brief 3D visual authoring contract.
+ *
+ * Carries a reference to the `IMesh` the visual draws. Materials live
+ * on the mesh's primitives, not on the visual — callers set material
+ * via `mesh->get_primitives()[idx]->material` (typically wrapped by
+ * the API `MeshPrimitive::set_material`).
+ *
+ * Procedural primitives (cube, sphere) lazily populate this slot from
+ * the render context's mesh builder on first draw when the caller
+ * hasn't set one explicitly, so the mesh becomes observable and its
+ * primitives' materials can be set per-instance.
+ */
+class IVisual3D : public Interface<IVisual3D, IVisual>
+{
+public:
+    VELK_INTERFACE(
+        (PROP, ObjectRef, mesh, {})
+    )
 };
 
 } // namespace velk::ui

@@ -115,7 +115,7 @@ inline IShadowTechnique::Ptr find_shadow_technique(ILight* light)
 // one per rect draw entry). Shared by enumerate_scene_shapes (flat
 // walk) and build_scene_bvh (tree walk, groups by element).
 template <typename F>
-void emit_shapes_for_element(IElement* element, F&& cb)
+void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
 {
     auto* storage = interface_cast<IObjectStorage>(element);
     if (!storage) {
@@ -143,12 +143,16 @@ void emit_shapes_for_element(IElement* element, F&& cb)
     for (size_t j = 0; j < storage->attachment_count(); ++j) {
         auto* visual = interface_cast<IVisual>(storage->get_attachment(j));
         if (!visual) continue;
-        auto vs = read_state<IVisual>(visual);
-        if (!vs) continue;
+
+        // 2D-authoring affordances (color + paint) live on IVisual2D.
+        // 3D visuals have neither; their geometry color defaults to
+        // white and materials attach via other routes.
+        auto vs2d = read_state<IVisual2D>(visual);
+        ::velk::color tint = vs2d ? vs2d->color : ::velk::color::white();
 
         IProgram* paint = nullptr;
-        if (vs->paint) {
-            auto prog_ptr = vs->paint.template get<IProgram>();
+        if (vs2d && vs2d->paint) {
+            auto prog_ptr = vs2d->paint.template get<IProgram>();
             paint = prog_ptr.get();
         }
 
@@ -164,10 +168,10 @@ void emit_shapes_for_element(IElement* element, F&& cb)
             s.u_axis[0] = ux * ew; s.u_axis[1] = uy * ew; s.u_axis[2] = uz * ew;
             s.v_axis[0] = vx * eh; s.v_axis[1] = vy * eh; s.v_axis[2] = vz * eh;
             s.w_axis[0] = wx * ed; s.w_axis[1] = wy * ed; s.w_axis[2] = wz * ed;
-            s.color[0] = vs->color.r;
-            s.color[1] = vs->color.g;
-            s.color[2] = vs->color.b;
-            s.color[3] = vs->color.a;
+            s.color[0] = tint.r;
+            s.color[1] = tint.g;
+            s.color[2] = tint.b;
+            s.color[3] = tint.a;
             if (shape_kind == 2) {
                 s.params[0] = std::min({ew, eh, ed}) * 0.5f;
             }
@@ -181,8 +185,9 @@ void emit_shapes_for_element(IElement* element, F&& cb)
             radius = std::min(std::min(ew, eh) * 0.5f, 12.f);
         }
 
+        if (!ctx) continue;
         ::velk::size local_size{ew, eh, ed};
-        auto entries = visual->get_draw_entries(local_size);
+        auto entries = visual->get_draw_entries(*ctx, local_size);
         for (auto& dentry : entries) {
             // Instance layout — ElementInstance (see instance_types.h):
             //   [  0.. 63] mat4 world_matrix (raster only; zero here)
@@ -202,7 +207,7 @@ void emit_shapes_for_element(IElement* element, F&& cb)
             std::memcpy(&sz_w,     dentry.instance_data + kSizeOff,       4);
             std::memcpy(&sz_h,     dentry.instance_data + kSizeOff + 4,   4);
 
-            float cr = vs->color.r, cg = vs->color.g, cb_ = vs->color.b, ca = vs->color.a;
+            float cr = tint.r, cg = tint.g, cb_ = tint.b, ca = tint.a;
             if (dentry.instance_size >= kColorOff + 16) {
                 std::memcpy(&cr,  dentry.instance_data + kColorOff,      4);
                 std::memcpy(&cg,  dentry.instance_data + kColorOff + 4,  4);
@@ -259,11 +264,11 @@ void walk_scene_preorder(IScene* scene, const IObject::Ptr& obj, F&& on_element)
 // Returns shapes in pre-order; ordering matters only for RT's painter
 // sort which does its own depth sort afterwards.
 template <typename F>
-void enumerate_scene_shapes(const SceneState& scene_state, F&& cb)
+void enumerate_scene_shapes(const SceneState& scene_state, IRenderContext* ctx, F&& cb)
 {
     if (!scene_state.scene) return;
     detail::walk_scene_preorder(scene_state.scene, scene_state.scene->root(),
-        [&](IElement* elem) { emit_shapes_for_element(elem, cb); });
+        [&](IElement* elem) { emit_shapes_for_element(elem, ctx, cb); });
 }
 
 // Walks the scene tree (via IHierarchy) and builds a flat BVH: a
@@ -275,7 +280,7 @@ void enumerate_scene_shapes(const SceneState& scene_state, F&& cb)
 // belong to (e.g. looked up from the `IScene*` key the Renderer
 // already holds).
 template <typename F>
-BvhBuild build_scene_bvh(IScene* scene, F&& cb)
+BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
 {
     BvhBuild out;
     if (!scene) return out;
@@ -300,7 +305,7 @@ BvhBuild build_scene_bvh(IScene* scene, F&& cb)
 
         // Emit this element's shapes contiguously.
         uint32_t first_shape = static_cast<uint32_t>(out.shapes.size());
-        emit_shapes_for_element(elem.get(), [&](ShapeSite& site) {
+        emit_shapes_for_element(elem.get(), ctx, [&](ShapeSite& site) {
             cb(site);
             out.shapes.push_back(site.geometry);
         });

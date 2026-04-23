@@ -14,12 +14,12 @@ namespace velk::ui {
  *   auto rect = trait::visual::create_rounded_rect();
  *   rect.set_color({0.2f, 0.6f, 0.9f, 1.f});
  */
-class RoundedRectVisual : public Visual
+class RoundedRectVisual : public Visual2D
 {
 public:
     RoundedRectVisual() = default;
-    explicit RoundedRectVisual(IObject::Ptr obj) : Visual(std::move(obj)) {}
-    explicit RoundedRectVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
+    explicit RoundedRectVisual(IObject::Ptr obj) : Visual2D(std::move(obj)) {}
+    explicit RoundedRectVisual(IVisual::Ptr v) : Visual2D(as_object(v)) {}
 };
 
 namespace trait::visual {
