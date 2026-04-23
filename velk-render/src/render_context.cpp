@@ -58,6 +58,13 @@ bool RenderContextImpl::init(const RenderConfig& config)
     // cache uses this map to compute its per-shader cache keys.
     shader_includes_["velk.glsl"] = string(kVelkGlsl);
 
+    mesh_builder_ = instance().create<IMeshBuilder>(ClassId::MeshBuilder);
+    if (!mesh_builder_) {
+        VELK_LOG(E, "RenderContext::init: failed to create mesh builder");
+        backend_ = nullptr;
+        return false;
+    }
+
     initialized_ = true;
     VELK_LOG(I, "RenderContext initialized (Vulkan, bindless)");
     return true;
@@ -77,7 +84,33 @@ IWindowSurface::Ptr RenderContextImpl::create_surface(const SurfaceConfig& confi
         s.target_fps = config.target_fps;
     });
 
+    surface->set_depth_format(config.depth);
+
+    // Eagerly create the backend-side swapchain so the backend's default
+    // render pass gets upgraded to match the surface's depth config
+    // before any pipelines are compiled. Otherwise a pipeline compiled
+    // between create_surface() and add_view() would target the initial
+    // depth-less default render pass and be incompatible with the
+    // swapchain's depth-enabled render pass at draw time.
+    if (backend_) {
+        SurfaceDesc desc{};
+        desc.width = config.width;
+        desc.height = config.height;
+        desc.update_rate = config.update_rate;
+        desc.target_fps = config.target_fps;
+        desc.depth = config.depth;
+        uint64_t sid = backend_->create_surface(desc);
+        if (sid != 0) {
+            surface->set_render_target_id(sid);
+        }
+    }
+
     return surface;
+}
+
+IMeshBuilder& RenderContextImpl::get_mesh_builder()
+{
+    return *mesh_builder_;
 }
 
 IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage stage, uint64_t key)
@@ -136,7 +169,7 @@ IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage s
 
 uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
                                             uint64_t key, RenderTargetGroup target_group,
-                                            CullMode cull_mode, BlendMode blend_mode)
+                                            const PipelineOptions& options)
 {
     if (!initialized_ || !backend_) {
         return 0;
@@ -159,8 +192,7 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
     PipelineDesc desc;
     desc.vertex = vert_shader;
     desc.fragment = frag_shader;
-    desc.cull_mode = cull_mode;
-    desc.blend_mode = blend_mode;
+    desc.options = options;
 
     PipelineId pid = backend_->create_pipeline(desc, target_group);
     if (!pid) {
@@ -176,11 +208,11 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
 
 uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string_view vertex_source,
                                              uint64_t key, RenderTargetGroup target_group,
-                                             CullMode cull_mode, BlendMode blend_mode)
+                                             const PipelineOptions& options)
 {
     auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
     auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
-    return create_pipeline(vert, frag, key, target_group, cull_mode, blend_mode);
+    return create_pipeline(vert, frag, key, target_group, options);
 }
 
 uint64_t RenderContextImpl::create_compute_pipeline(const IShader::Ptr& compute, uint64_t key)
@@ -220,7 +252,7 @@ PipelineId RenderContextImpl::compile_gbuffer_pipeline(string_view fragment_sour
                                                        string_view vertex_source,
                                                        uint64_t key,
                                                        RenderTargetGroup target_group,
-                                                       CullMode cull_mode)
+                                                       const PipelineOptions& options)
 {
     if (!initialized_ || !backend_ || key == 0 || target_group == 0) {
         return 0;
@@ -245,9 +277,9 @@ PipelineId RenderContextImpl::compile_gbuffer_pipeline(string_view fragment_sour
     PipelineDesc desc;
     desc.vertex = vert;
     desc.fragment = frag;
-    desc.cull_mode = cull_mode;
+    desc.options = options;
     // G-buffer passes always write opaquely regardless of alpha mode.
-    desc.blend_mode = BlendMode::Opaque;
+    desc.options.blend_mode = BlendMode::Opaque;
 
     PipelineId pid = backend_->create_pipeline(desc, target_group);
     if (!pid) {
@@ -285,25 +317,24 @@ void RenderContextImpl::register_shader_include(string_view name, string_view co
 IMaterial::Ptr RenderContextImpl::create_shader_material(string_view fragment_source,
                                                          string_view vertex_source)
 {
-    auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
-    auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
-
-    uint64_t key = create_pipeline(vert, frag);
-    if (!key) {
-        return nullptr;
-    }
-
     auto mat = instance().create<IMaterialInternal>(ClassId::ShaderMaterial);
     if (!mat) {
         return nullptr;
     }
 
-    mat->set_pipeline_handle(key);
+    // Hand over the sources; pipeline compilation is the renderer's job
+    // and happens lazily on first draw — so any IMaterialOptions attached
+    // between now and then is honored, same as every other material.
+    mat->set_sources(vertex_source, fragment_source);
 
-    // Reflect material parameters from the vertex shader SPIR-V
-    const auto& vert_shader = vert ? vert : default_vertex_shader_;
-    if (vert_shader) {
-        auto vert_data = vert_shader->get_data();
+    // Reflect material parameters from the vertex shader SPIR-V for
+    // dynamic-property setup. Compilation hits the shader cache on
+    // second run (inside the renderer's pipeline compile).
+    auto vert = vertex_source.empty()
+                    ? default_vertex_shader_
+                    : compile_shader(vertex_source, ShaderStage::Vertex);
+    if (vert) {
+        auto vert_data = vert->get_data();
         if (!vert_data.empty()) {
             auto params = reflect_material_params(vert_data.begin(), vert_data.size());
             if (!params.empty()) {

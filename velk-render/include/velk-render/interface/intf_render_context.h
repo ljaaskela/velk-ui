@@ -5,6 +5,7 @@
 
 #include <unordered_map>
 #include <velk-render/interface/material/intf_material.h>
+#include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_shader.h>
 #include <velk-render/interface/intf_window_surface.h>
@@ -62,8 +63,7 @@ public:
     virtual uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
                                      uint64_t key = 0,
                                      RenderTargetGroup target_group = 0,
-                                     CullMode cull_mode = CullMode::None,
-                                     BlendMode blend_mode = BlendMode::Alpha) = 0;
+                                     const PipelineOptions& options = {}) = 0;
 
     /**
      * @brief Convenience: compiles GLSL shaders and creates the pipeline in one call.
@@ -76,8 +76,7 @@ public:
     virtual uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
                                       uint64_t key = 0,
                                       RenderTargetGroup target_group = 0,
-                                      CullMode cull_mode = CullMode::None,
-                                      BlendMode blend_mode = BlendMode::Alpha) = 0;
+                                      const PipelineOptions& options = {}) = 0;
 
     /**
      * @brief Creates a compute pipeline from a compiled compute shader.
@@ -147,7 +146,7 @@ public:
                                                 string_view vertex_source,
                                                 uint64_t key,
                                                 RenderTargetGroup target_group,
-                                                CullMode cull_mode = CullMode::None) = 0;
+                                                const PipelineOptions& options = {}) = 0;
 
     /**
      * @brief Registers a virtual shader include.
@@ -159,6 +158,15 @@ public:
 
     /** @brief Returns the render backend. */
     virtual IRenderBackend::Ptr backend() const = 0;
+
+    /**
+     * @brief Returns the context-owned mesh builder.
+     *
+     * Lifetime is tied to the render context (constructed in init).
+     * Use it to create IMesh instances (`build(...)`) or fetch shared
+     * engine meshes (`get_unit_quad()`).
+     */
+    virtual IMeshBuilder& get_mesh_builder() = 0;
 };
 
 } // namespace velk

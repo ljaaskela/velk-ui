@@ -50,7 +50,7 @@ void TextVisual::bind_font_material()
     if (!material) {
         return;
     }
-    write_state<IVisual>(this, [&](IVisual::State& s) {
+    write_state<IVisual2D>(this, [&](IVisual2D::State& s) {
         set_object_ref(s.paint, material);
     });
 }
@@ -109,7 +109,8 @@ aabb TextVisual::get_local_bounds(const ::velk::size& bounds) const
     return out;
 }
 
-vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
+vector<DrawEntry> TextVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
+                                                const ::velk::size& bounds)
 {
     ensure_default_font();
     auto* font = ensure_layout(bounds);
@@ -119,7 +120,7 @@ vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
 
     auto text_state = read_state<ITextVisual>(this);
 
-    auto visual_state = read_state<IVisual>(this);
+    auto visual_state = read_state<IVisual2D>(this);
     ::velk::color col = visual_state ? visual_state->color : ::velk::color::white();
 
     HAlign ha = text_state ? text_state->h_align : HAlign::Left;
@@ -130,6 +131,11 @@ vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
     case VAlign::Center: offset_y += (bounds.height - layout_result_.total_height) * 0.5f; break;
     case VAlign::Bottom: offset_y += bounds.height - layout_result_.total_height; break;
     default: break;
+    }
+
+    IProgram::Ptr material;
+    if (visual_state && visual_state->paint) {
+        material = visual_state->paint.get<IProgram>();
     }
 
     vector<DrawEntry> result;
@@ -150,12 +156,13 @@ vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
             entry.pipeline_key = 0;
             entry.bounds = {pg.pos.x + offset_x, pg.pos.y + offset_y,
                             pg.size.x, pg.size.y};
+            entry.material = material;
 
-            TextInstance inst{};
-            inst.pos = {pg.pos.x + offset_x, pg.pos.y + offset_y};
-            inst.size = pg.size;
+            ElementInstance inst{};
+            inst.offset = {pg.pos.x + offset_x, pg.pos.y + offset_y, 0.f, 0.f};
+            inst.size = {pg.size.x, pg.size.y, 0.f, 0.f};
             inst.col = col;
-            inst.glyph_index = pg.glyph_index;
+            inst.params[0] = pg.glyph_index;
             entry.set_instance(inst);
 
             result.push_back(entry);
@@ -165,7 +172,7 @@ vector<DrawEntry> TextVisual::get_draw_entries(const ::velk::size& bounds)
     return result;
 }
 
-vector<IBuffer::Ptr> TextVisual::get_gpu_resources() const
+vector<IBuffer::Ptr> TextVisual::get_gpu_resources(::velk::IRenderContext& /*ctx*/) const
 {
     auto font = font_.as_ptr<IFont>();
     if (!font) {

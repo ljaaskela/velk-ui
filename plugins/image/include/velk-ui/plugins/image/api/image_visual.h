@@ -21,16 +21,16 @@ namespace velk::ui {
  *   iv.set_tint(color::white());
  *   element.add_attachment(iv);
  */
-class ImageVisual : public Visual
+class ImageVisual : public Visual2D
 {
 public:
     ImageVisual() = default;
 
     /** @brief Wraps an existing IObject pointer, rejected if it does not implement IImageVisual. */
-    explicit ImageVisual(IObject::Ptr obj) : Visual(check_object<IImageVisual>(obj)) {}
+    explicit ImageVisual(IObject::Ptr obj) : Visual2D(check_object<IImageVisual>(obj)) {}
 
     /** @brief Wraps an existing IImageVisual pointer. */
-    explicit ImageVisual(IImageVisual::Ptr iv) : Visual(as_object(iv)) {}
+    explicit ImageVisual(IImageVisual::Ptr iv) : Visual2D(as_object(iv)) {}
 
     /** @brief Returns the URI of the image to load. */
     auto get_uri() const { return read_state_value<IImageVisual>(&IImageVisual::State::uri); }

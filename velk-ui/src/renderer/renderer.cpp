@@ -15,6 +15,7 @@
 #include <cstring>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/intf_camera.h>
+#include <velk-render/interface/intf_mesh.h>
 #include <velk-ui/interface/intf_environment.h>
 #include <velk-ui/interface/intf_visual.h>
 
@@ -27,45 +28,29 @@
 namespace velk::ui {
 
 constexpr string_view velk_ui_glsl = R"(
-// Minimum viable per-instance record. Carries just the element's world
-// transform; any visual type that fits this schema (no local rect, no
-// extra per-instance fields) can use ElementInstanceData directly.
+// Universal per-instance record shared by every visual (rect,
+// rounded rect, text glyphs, textures, images, env, cube, sphere,
+// meshes, and future glTF primitives).
+//
+//   world_matrix — element transform, filled by batch_builder.
+//   offset.xyz   — local offset (glyph pos for text; 0 otherwise).
+//   size.xyz     — extents (size.z = 0 for 2D visuals).
+//   color        — visual tint.
+//   params.x     — shape_param (glyph index / material slot);
+//                  yzw reserved.
+//
+// Vertex shaders compute:
+//   gl_Position = vp * world_matrix * vec4(offset + v.position * size, 1);
 struct ElementInstance {
     mat4 world_matrix;
-};
-
-// Per-instance data for quad-shaped visuals. `world_matrix` is the
-// element's world transform (filled in by the batch builder). (pos,
-// size) is the rect's local-space footprint; vertex shaders compute
-// gl_Position = vp * world_matrix * vec4(pos + q*size, 0, 1).
-struct RectInstance {
-    mat4 world_matrix;
-    vec2 pos;
-    vec2 size;
+    vec4 offset;
+    vec4 size;
     vec4 color;
-};
-
-struct TextInstance {
-    mat4 world_matrix;
-    vec2 pos;
-    vec2 size;
-    vec4 color;
-    uint glyph_index;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
+    uvec4 params;
 };
 
 layout(buffer_reference, std430) readonly buffer ElementInstanceData {
     ElementInstance data[];
-};
-
-layout(buffer_reference, std430) readonly buffer RectInstanceData {
-    RectInstance data[];
-};
-
-layout(buffer_reference, std430) readonly buffer TextInstanceData {
-    TextInstance data[];
 };
 
 // ===== Material evaluation types =====
@@ -79,8 +64,12 @@ const uint VELK_LIGHTING_UNLIT   = 0u;  // Pass color straight through, no shadi
 const uint VELK_LIGHTING_STANDARD = 1u; // Full PBR lighting via velk_pbr_shade.
 
 // Everything a material eval function receives. Bundles instance + hit
-// context so adding a new per-hit input stays cheap.
+// context so adding a new per-hit input stays cheap. `globals` points
+// at the same FrameGlobals buffer every path already has; evals that
+// need camera position, viewport, or (rarely) BVH state dereference
+// through it without breaking cross-driver portability.
 struct EvalContext {
+    GlobalData globals;    // frame globals (view_projection, cam_pos, viewport, BVH)
     uint64_t data_addr;    // material's per-draw GPU data pointer
     uint texture_id;       // bindless texture slot (0 if unused)
     uint shape_param;      // per-shape material slot (e.g. glyph index)
@@ -177,6 +166,9 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurfac
             desc.height = state->size.y;
             desc.update_rate = state->update_rate;
             desc.target_fps = state->target_fps;
+            if (auto* rt = interface_cast<IRenderTarget>(surface)) {
+                desc.depth = rt->get_depth_format();
+            }
             uint64_t sid = backend_->create_surface(desc);
             if (auto* rt = interface_cast<IRenderTarget>(surface)) {
                 rt->set_render_target_id(sid);
@@ -378,6 +370,12 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                             GpuBufferDesc bdesc{};
                             bdesc.size = bsize;
                             bdesc.cpu_writable = true;
+                            // IMeshBuffer carries an IBO half that needs
+                            // INDEX_BUFFER usage so it can be bound for
+                            // indexed draws.
+                            if (auto* mb = interface_cast<IMeshBuffer>(buf)) {
+                                bdesc.index_buffer = mb->get_ibo_size() > 0;
+                            }
                             GpuResourceManager::BufferEntry bentry{};
                             bentry.handle = backend_->create_buffer(bdesc);
                             bentry.size = bsize;
@@ -471,7 +469,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     }
                 }
             }
-            bvh->rebuild(scene, frame_buffer_, dirty, [&](ShapeSite& site) {
+            bvh->rebuild(scene, render_ctx_, frame_buffer_, dirty, [&](ShapeSite& site) {
                 auto mat = site.paint
                     ? snippets_.resolve_material(site.paint, ctx)
                     : FrameSnippetRegistry::MaterialRef{};
@@ -699,6 +697,10 @@ void Renderer::present(Frame frame)
                 }
                 backend_->dispatch({&pass.compute, 1});
                 backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
+                if (pass.blit_depth_source_group != 0) {
+                    backend_->blit_group_depth_to_surface(
+                        pass.blit_depth_source_group, pass.blit_surface_id, pass.blit_dst_rect);
+                }
                 continue;
             }
 

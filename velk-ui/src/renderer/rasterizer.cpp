@@ -57,6 +57,13 @@ void Rasterizer::prepend_environment_batch(ICamera& camera, ViewEntry& entry, Fr
     env_batch.instance_count = 1;
     env_batch.instance_data.resize(4, 0);
     env_batch.material = std::move(material);
+    if (ctx.render_ctx) {
+        auto quad = ctx.render_ctx->get_mesh_builder().get_unit_quad();
+        if (quad) {
+            auto prims = quad->get_primitives();
+            if (prims.size() > 0) env_batch.primitive = prims[0];
+        }
+    }
 
     entry.batches.insert(entry.batches.begin(), std::move(env_batch));
 }
@@ -310,7 +317,8 @@ RenderTargetGroup Rasterizer::ensure_gbuffer(ViewEntry& view, int width, int hei
     view.gbuffer_group = ctx.backend->create_render_target_group(
         array_view<const PixelFormat>(kGBufferFormats,
                                       static_cast<uint32_t>(GBufferAttachment::Count)),
-        width, height);
+        width, height,
+        DepthFormat::Default);
     if (view.gbuffer_group != 0) {
         view.gbuffer_width = width;
         view.gbuffer_height = height;

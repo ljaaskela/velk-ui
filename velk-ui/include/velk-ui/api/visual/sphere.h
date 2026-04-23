@@ -6,12 +6,12 @@
 
 namespace velk::ui {
 
-class SphereVisual : public Visual
+class SphereVisual : public Visual3D
 {
 public:
     SphereVisual() = default;
-    explicit SphereVisual(IObject::Ptr obj) : Visual(std::move(obj)) {}
-    explicit SphereVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
+    explicit SphereVisual(IObject::Ptr obj) : Visual3D(std::move(obj)) {}
+    explicit SphereVisual(IVisual::Ptr v) : Visual3D(as_object(v)) {}
 };
 
 namespace trait::visual {

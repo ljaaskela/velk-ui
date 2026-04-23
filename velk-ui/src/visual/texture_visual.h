@@ -15,13 +15,14 @@ namespace velk::ui::impl {
  * References a texture via ObjectRef. The texture can be any ISurface,
  * including a RenderTexture from a RenderToTexture trait.
  */
-class TextureVisual : public ::velk::ui::ext::Visual<TextureVisual, ITextureVisual>
+class TextureVisual : public ::velk::ui::ext::Visual2D<TextureVisual, ITextureVisual>
 {
 public:
     VELK_CLASS_UID(::velk::ui::ClassId::Visual::Texture, "TextureVisual");
 
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
-    vector<IBuffer::Ptr> get_gpu_resources() const override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
+    vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext& ctx) const override;
 
 protected:
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;

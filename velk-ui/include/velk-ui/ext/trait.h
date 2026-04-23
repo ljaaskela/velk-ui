@@ -5,6 +5,7 @@
 #include <velk/interface/intf_metadata_observer.h>
 
 #include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/intf_render_context.h>
 #include <velk-ui/interface/intf_layout_trait.h>
 #include <velk-ui/interface/intf_trait.h>
 #include <velk-ui/interface/intf_transform_trait.h>
@@ -60,17 +61,16 @@ protected:
 };
 
 /**
- * @brief CRTP base for IVisual implementations.
+ * @brief Shared CRTP base for Visual2D / Visual3D. Not intended for
+ *        direct use; concrete visuals extend `Visual2D` or `Visual3D`.
  *
- * Bakes in IVisual, ITraitNotify, and IMetadataObserver. Provides
- * invoke_trait_dirty() and a default on_state_changed that fires Visual.
- *
- * @tparam T     The concrete visual class (CRTP parameter).
- * @tparam Extra Additional interfaces the visual implements.
+ * @tparam T       The concrete visual class (CRTP parameter).
+ * @tparam Variant The authoring sub-interface (IVisual2D or IVisual3D).
+ * @tparam Extra   Additional interfaces the visual implements.
  */
-template <class T, class... Extra>
-class Visual : public ::velk::ext::Object<T, IVisual, ::velk::IRasterShader,
-                                          ITraitNotify, IMetadataObserver, Extra...>
+template <class T, class Variant, class... Extra>
+class VisualBase : public ::velk::ext::Object<T, Variant, ::velk::IRasterShader,
+                                              ITraitNotify, IMetadataObserver, Extra...>
 {
 public:
     TraitPhase get_phase() const override { return TraitPhase::Visual; }
@@ -101,7 +101,7 @@ public:
         return out;
     }
 
-    vector<IBuffer::Ptr> get_gpu_resources() const override { return {}; }
+    vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext&) const override { return {}; }
 
 protected:
     void invoke_trait_dirty(DirtyFlags flags = DirtyFlags::Visual)
@@ -114,6 +114,23 @@ protected:
 
     void on_state_changed(string_view, IMetadata&, Uid) override { invoke_trait_dirty(); }
 };
+
+/**
+ * @brief CRTP base for 2D visuals (rect, rounded rect, text, image, ...).
+ *
+ * Adds the IVisual2D authoring surface (color / paint / visual_phase).
+ */
+template <class T, class... Extra>
+class Visual2D : public VisualBase<T, IVisual2D, Extra...> {};
+
+/**
+ * @brief CRTP base for 3D visuals (cube, sphere, future mesh / glTF).
+ *
+ * Adds the IVisual3D authoring surface. 3D visuals drive appearance
+ * through attached materials rather than the 2D color / paint slots.
+ */
+template <class T, class... Extra>
+class Visual3D : public VisualBase<T, IVisual3D, Extra...> {};
 
 /**
  * @brief CRTP base for ITrait implementations running in

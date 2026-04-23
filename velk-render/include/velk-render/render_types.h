@@ -3,6 +3,9 @@
 
 #include <velk/api/math_types.h>
 
+#include <velk-render/interface/intf_mesh.h>
+#include <velk-render/interface/intf_program.h>
+
 #include <cstdint>
 #include <cstring>
 
@@ -23,6 +26,34 @@ enum class BlendMode : uint8_t
     Opaque,  ///< No blending; fragment overwrites destination.
 };
 
+/// Depth compare op. `Disabled` turns depth testing off entirely.
+enum class CompareOp : uint8_t
+{
+    Disabled,
+    Never,
+    Less,
+    Equal,
+    LessEqual,
+    Greater,
+    NotEqual,
+    GreaterEqual,
+    Always,
+};
+
+/// Depth attachment format for a render target.
+enum class DepthFormat : uint8_t
+{
+    None,     ///< No depth attachment.
+    Default,  ///< Backend picks a sensible default (currently D32_SFLOAT).
+};
+
+/// Front-face winding convention. Pairs with CullMode.
+enum class FrontFace : uint8_t
+{
+    CounterClockwise,  ///< CCW triangles are front (right-handed / glTF default).
+    Clockwise,         ///< CW triangles are front.
+};
+
 /// Pipeline keys used by the render context's auto-assign counter.
 /// Visuals that own a built-in pipeline provide their own stable key
 /// (typically via make_hash64 on the class name).
@@ -31,32 +62,39 @@ inline constexpr uint64_t Default = 1;       ///< Filled rect
 inline constexpr uint64_t CustomBase = 1000; ///< Auto-assigned keys start here.
 } // namespace PipelineKey
 
-/// Maximum inline instance data size in a DrawEntry.
-// Large enough for the current biggest instance (TextInstance = 112 bytes,
-// which carries a mat4 world_matrix + pos/size/color + glyph_index).
+/// Maximum inline instance data size in a DrawEntry. Sized for the
+/// universal `ElementInstance` (128 bytes: mat4 world_matrix + vec4
+/// offset + vec4 size + vec4 color + uvec4 params).
 inline constexpr uint32_t kMaxInstanceDataSize = 128;
 
 /**
  * @brief Generic draw entry produced by visuals.
  *
  * Visuals pack their own instance data matching their pipeline's vertex input.
- * The renderer groups entries by (pipeline_key, texture_key), concatenates
- * instance data into batches, and applies the world transform.
+ * The renderer groups entries by (pipeline_key, primitive, texture_key),
+ * concatenates instance data into batches, and applies the world transform.
  *
  * Convention: the first two floats in instance_data are element-local (x, y).
  * The renderer offsets them by the element's world position.
+ *
+ * `primitive` is optional. When null, the renderer substitutes the unit
+ * quad's single primitive so 2D visuals that don't care about geometry
+ * keep working.
  */
 struct DrawEntry
 {
-    uint64_t pipeline_key{};                       ///< Which pipeline to draw with.
+    uint64_t pipeline_key{};                       ///< Visual's own pipeline (used when no material overrides).
     uint64_t texture_key{};                        ///< Texture binding (0 = none).
     rect bounds{};                                 ///< Element-local bounds.
+    IMeshPrimitive::Ptr primitive{};               ///< Geometry primitive; null = unit quad.
+    IProgram::Ptr material{};                      ///< Material driving this entry's pipeline + data (0 = visual's own shader).
+    uint64_t pipeline_override{};                  ///< Cached material pipeline handle; filled by the renderer.
     uint8_t instance_data[kMaxInstanceDataSize]{}; ///< Packed instance data for the GPU.
     uint32_t instance_size{};                      ///< Bytes used in instance_data.
 
     /**
      * @brief Packs a typed instance struct into instance_data.
-     * @tparam T Instance struct type (e.g. RectInstance, TextInstance).
+     * @tparam T Instance struct type (typically ElementInstance).
      */
     template <typename T>
     void set_instance(const T& inst)
@@ -121,6 +159,7 @@ struct SurfaceConfig
     int height{};                               ///< Surface height in pixels.
     UpdateRate update_rate{UpdateRate::VSync};  ///< Pacing mode (VSync, Unlimited, Targeted).
     int target_fps{60};                         ///< Target framerate for UpdateRate::Targeted (ignored otherwise).
+    DepthFormat depth{DepthFormat::None};       ///< Depth attachment. None for flat UI, Default for 3D scenes.
 };
 
 } // namespace velk

@@ -4,6 +4,7 @@
 #include <velk/string.h>
 #include <velk/string_view.h>
 
+#include <velk-render/ext/element_vertex.h>
 #include <velk-ui/ext/material_shaders.h>
 
 #include <cstdio>
@@ -12,48 +13,27 @@
 namespace velk {
 
 // The default vertex/fragment shader pair used when a visual or material
-// does not supply its own. The vertex shader expands the unit quad to a
-// world-space rect and emits the varyings every known consumer reads:
-//   location 0: v_color    (vec4) - instance color
-//   location 1: v_local_uv (vec2) - unit quad coords, 0..1 across the rect
-//   location 2: v_size     (vec2, flat) - the rect's world-space size
-// Fragments that do not read v_local_uv / v_size simply ignore them.
-//
-// Built-in shaders use:
-//   #include "velk.glsl"    - framework types (GlobalData, OpaquePtr, velk_unit_quad, VELK_DRAW_DATA)
-//   #include "velk-ui.glsl" - UI instance types (RectInstance, TextInstance)
+// does not supply its own. Both the forward and gbuffer default vertex
+// shaders are now the single shared element vertex shader in
+// velk-render/ext/element_vertex.h; no per-path variants remain.
 
-[[maybe_unused]] constexpr string_view default_vertex_src = R"(
-#version 450
-#include "velk.glsl"
-#include "velk-ui.glsl"
-
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
-};
-
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) out vec4 v_color;
-layout(location = 1) out vec2 v_local_uv;
-layout(location = 2) flat out vec2 v_size;
-
-void main()
-{
-    vec2 q = velk_unit_quad(gl_VertexIndex);
-    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec4 local_pos = vec4(inst.pos + q * inst.size, 0.0, 1.0);
-    gl_Position = root.global_data.view_projection * inst.world_matrix * local_pos;
-    v_color = inst.color;
-    v_local_uv = q;
-    v_size = inst.size;
-}
-)";
+[[maybe_unused]] constexpr string_view default_vertex_src =
+    ::velk::ext::element_vertex_src;
 
 [[maybe_unused]] constexpr string_view default_fragment_src = R"(
 #version 450
 
+// The shared element vertex shader writes the full canonical varying
+// set (locations 0..5). Declare every input even when unused so the
+// SPIR-V interface matches and the validator doesn't warn about
+// dropped outputs.
 layout(location = 0) in vec4 v_color;
+layout(location = 1) in vec2 v_local_uv;
+layout(location = 2) flat in vec2 v_size;
+layout(location = 3) in vec3 v_world_pos;
+layout(location = 4) in vec3 v_world_normal;
+layout(location = 5) flat in uint v_shape_param;
+
 layout(location = 0) out vec4 frag_color;
 
 void main()
@@ -62,48 +42,8 @@ void main()
 }
 )";
 
-// Default vertex shader for the deferred G-buffer fill. Mirrors
-// default_vertex_src but additionally emits world_pos and world_normal
-// varyings that G-buffer fragment shaders need to populate attachments
-// 1 (normal) and 2 (world pos). Normal is the +Z axis of the instance's
-// world matrix (rect convention: normal is the third column); for cube
-// / sphere shapes this only matches for flat faces, and those primitives
-// are expected to provide their own G-buffer vertex shader.
-[[maybe_unused]] constexpr string_view default_gbuffer_vertex_src = R"(
-#version 450
-#include "velk.glsl"
-#include "velk-ui.glsl"
-
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(RectInstanceData)
-};
-
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) out vec4 v_color;
-layout(location = 1) out vec2 v_local_uv;
-layout(location = 2) flat out vec2 v_size;
-layout(location = 3) out vec3 v_world_pos;
-layout(location = 4) out vec3 v_world_normal;
-
-void main()
-{
-    vec2 q = velk_unit_quad(gl_VertexIndex);
-    RectInstance inst = root.instance_data.data[gl_InstanceIndex];
-    vec4 local_pos = vec4(inst.pos + q * inst.size, 0.0, 1.0);
-    vec4 world_pos = inst.world_matrix * local_pos;
-    gl_Position = root.global_data.view_projection * world_pos;
-    v_color = inst.color;
-    v_local_uv = q;
-    v_size = inst.size;
-    v_world_pos = world_pos.xyz;
-    // Rect convention: +Z axis of world matrix is the surface normal.
-    v_world_normal = normalize(vec3(inst.world_matrix[2]));
-}
-)";
-
-// rect_material_vertex_src now lives in <velk-ui/ext/material_shaders.h>
-// so plugins can reuse it without depending on this internal header.
+[[maybe_unused]] constexpr string_view default_gbuffer_vertex_src =
+    ::velk::ext::element_vertex_src;
 
 // Default fragment shader for the deferred G-buffer fill. Writes the
 // instance color straight through to albedo, marks the fragment as
@@ -112,13 +52,16 @@ void main()
 [[maybe_unused]] constexpr string_view default_gbuffer_fragment_src = R"(
 #version 450
 
-// Canonical deferred varyings; the default gbuffer vertex emits the
-// full set and every fragment reads a subset.
+// Canonical deferred varyings; the shared element vertex shader emits
+// the full set (locations 0..5). Declare every input even when unused
+// so the SPIR-V interface matches and the validator doesn't warn
+// about dropped outputs.
 layout(location = 0) in vec4 v_color;
 layout(location = 1) in vec2 v_local_uv;
 layout(location = 2) flat in vec2 v_size;
 layout(location = 3) in vec3 v_world_pos;
 layout(location = 4) in vec3 v_world_normal;
+layout(location = 5) flat in uint v_shape_param;
 
 // Canonical G-buffer attachments (see velk-render/gbuffer.h).
 layout(location = 0) out vec4 g_albedo;         // rgba: surface albedo
@@ -162,7 +105,7 @@ void main()
 
 [[maybe_unused]] constexpr string_view forward_fragment_driver_template = R"(
 layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(OpaquePtr)
+    VELK_DRAW_DATA(OpaquePtr, OpaquePtr)
     OpaquePtr material;
 };
 layout(push_constant) uniform PC { DrawData root; };
@@ -179,6 +122,7 @@ layout(location = 0) out vec4 frag_color;
 void main()
 {
     EvalContext ctx;
+    ctx.globals     = root.global_data;
     ctx.data_addr   = uint64_t(root.material);
     ctx.texture_id  = root.texture_id;  // per-drawcall, shared by all instances
     ctx.shape_param = v_shape_param;
@@ -196,7 +140,7 @@ void main()
 
 [[maybe_unused]] constexpr string_view deferred_fragment_driver_template = R"(
 layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(OpaquePtr)
+    VELK_DRAW_DATA(OpaquePtr, OpaquePtr)
     OpaquePtr material;
 };
 layout(push_constant) uniform PC { DrawData root; };
@@ -221,6 +165,7 @@ void main()
     velk_visual_discard();
 
     EvalContext ctx;
+    ctx.globals     = root.global_data;
     ctx.data_addr   = uint64_t(root.material);
     ctx.texture_id  = root.texture_id;
     ctx.shape_param = v_shape_param;
@@ -1213,6 +1158,7 @@ vec3 trace_bounce(Ray ray, vec3 throughput)
         // trace_closest_hit returns BVH-space indices (pc.bvh_shapes).
         RtShape s = pc.bvh_shapes.data[hit.shape_index];
         EvalContext ctx;
+        ctx.globals = pc.globals;
         ctx.data_addr = s.material_data_addr;
         ctx.texture_id = s.texture_id;
         ctx.shape_param = s.shape_param;
@@ -1288,6 +1234,7 @@ void main()
         if (!intersect_shape(primary, s, hit)) continue;
 
         EvalContext ctx;
+        ctx.globals = pc.globals;
         ctx.data_addr = s.material_data_addr;
         ctx.texture_id = s.texture_id;
         ctx.shape_param = s.shape_param;

@@ -6,12 +6,12 @@
 
 namespace velk::ui {
 
-class CubeVisual : public Visual
+class CubeVisual : public Visual3D
 {
 public:
     CubeVisual() = default;
-    explicit CubeVisual(IObject::Ptr obj) : Visual(std::move(obj)) {}
-    explicit CubeVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
+    explicit CubeVisual(IObject::Ptr obj) : Visual3D(std::move(obj)) {}
+    explicit CubeVisual(IVisual::Ptr v) : Visual3D(as_object(v)) {}
 };
 
 namespace trait::visual {

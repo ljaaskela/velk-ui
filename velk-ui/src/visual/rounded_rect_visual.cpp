@@ -34,9 +34,16 @@ bool velk_intersect_rounded_rect(Ray ray, RtShape shape, out RayHit hit)
 constexpr string_view kFragmentSrc = R"(
 #version 450
 
+// The shared element vertex shader writes the full canonical varying
+// set (locations 0..5). Declare all inputs even if unused so the
+// SPIR-V interface matches and the validator doesn't warn about
+// dropped outputs.
 layout(location = 0) in vec4 v_color;
 layout(location = 1) in vec2 v_local_uv;
 layout(location = 2) flat in vec2 v_size;
+layout(location = 3) in vec3 v_world_pos;
+layout(location = 4) in vec3 v_world_normal;
+layout(location = 5) flat in uint v_shape_param;
 layout(location = 0) out vec4 frag_color;
 
 float rounded_rect_sdf(vec2 p, vec2 half_size, float radius)
@@ -61,9 +68,10 @@ void main()
 
 } // namespace
 
-vector<DrawEntry> RoundedRectVisual::get_draw_entries(const ::velk::size& bounds)
+vector<DrawEntry> RoundedRectVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
+                                                       const ::velk::size& bounds)
 {
-    auto state = read_state<IVisual>(this);
+    auto state = read_state<IVisual2D>(this);
     if (!state) {
         return {};
     }
@@ -71,11 +79,15 @@ vector<DrawEntry> RoundedRectVisual::get_draw_entries(const ::velk::size& bounds
     DrawEntry entry{};
     entry.pipeline_key = kPipelineKey;
     entry.bounds = {0, 0, bounds.width, bounds.height};
-    entry.set_instance(RectInstance{
+    if (state->paint) {
+        entry.material = state->paint.get<IProgram>();
+    }
+    entry.set_instance(ElementInstance{
         {},  // world_matrix: written by batch_builder per-instance
-        {0.f, 0.f},
-        {bounds.width, bounds.height},
-        state->color});
+        {0.f, 0.f, 0.f, 0.f},
+        {bounds.width, bounds.height, 0.f, 0.f},
+        state->color,
+        {0u, 0u, 0u, 0u}});
 
     return {entry};
 }

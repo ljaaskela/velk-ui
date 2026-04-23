@@ -14,17 +14,12 @@ namespace velk::ui {
  *   auto rect = trait::visual::create_rect();
  *   rect.set_color({0.9f, 0.2f, 0.2f, 1.f});
  */
-class RectVisual : public Visual
+class RectVisual : public Visual2D
 {
 public:
-    /** @brief Default-constructed RectVisual wraps no object. */
     RectVisual() = default;
-
-    /** @brief Wraps an existing IObject pointer. */
-    explicit RectVisual(IObject::Ptr obj) : Visual(std::move(obj)) {}
-
-    /** @brief Wraps an existing IVisual pointer. */
-    explicit RectVisual(IVisual::Ptr v) : Visual(as_object(v)) {}
+    explicit RectVisual(IObject::Ptr obj) : Visual2D(std::move(obj)) {}
+    explicit RectVisual(IVisual::Ptr v) : Visual2D(as_object(v)) {}
 };
 
 namespace trait::visual {

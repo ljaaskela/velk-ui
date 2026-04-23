@@ -26,7 +26,7 @@ constexpr string_view env_vertex_src = R"(
 #include "velk-ui.glsl"
 
 layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(OpaquePtr)
+    VELK_DRAW_DATA(OpaquePtr, VelkVbo3D)
     OpaquePtr material;
 };
 
@@ -41,7 +41,9 @@ layout(location = 5) flat out uint v_shape_param;
 
 void main()
 {
-    vec2 q = velk_unit_quad(gl_VertexIndex);
+    // Env draws as a fullscreen quad in clip space — read xy from
+    // the 3D unit-quad VBO (z = 0).
+    vec2 q = velk_vertex3d(root).position.xy;
     // Fullscreen clip-space quad at z=1 (far plane).
     gl_Position = vec4(q * 2.0 - 1.0, 1.0, 1.0);
 

@@ -27,7 +27,7 @@ void TextureVisual::ensure_material()
         material_ = ::velk::ext::make_object<TextureMaterial>();
         if (material_) {
             auto mat_ptr = interface_pointer_cast<IMaterial>(material_);
-            write_state<IVisual>(this, [&](IVisual::State& s) {
+            write_state<IVisual2D>(this, [&](IVisual2D::State& s) {
                 set_object_ref(s.paint, mat_ptr);
             });
         }
@@ -41,7 +41,8 @@ void TextureVisual::ensure_material()
     }
 }
 
-vector<DrawEntry> TextureVisual::get_draw_entries(const ::velk::size& bounds)
+vector<DrawEntry> TextureVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
+                                                   const ::velk::size& bounds)
 {
     ensure_material();
 
@@ -59,16 +60,20 @@ vector<DrawEntry> TextureVisual::get_draw_entries(const ::velk::size& bounds)
     entry.pipeline_key = 0; // material override supplies the pipeline
     entry.bounds = {0, 0, bounds.width, bounds.height};
     entry.texture_key = reinterpret_cast<uint64_t>(tex.get());
-    entry.set_instance(RectInstance{
+    if (auto vs2d = read_state<IVisual2D>(this); vs2d && vs2d->paint) {
+        entry.material = vs2d->paint.get<IProgram>();
+    }
+    entry.set_instance(ElementInstance{
         {},  // world_matrix: written by batch_builder per-instance
-        {0.f, 0.f},
-        {bounds.width, bounds.height},
-        ::velk::color::white()});
+        {0.f, 0.f, 0.f, 0.f},
+        {bounds.width, bounds.height, 0.f, 0.f},
+        ::velk::color::white(),
+        {0u, 0u, 0u, 0u}});
 
     return {entry};
 }
 
-vector<IBuffer::Ptr> TextureVisual::get_gpu_resources() const
+vector<IBuffer::Ptr> TextureVisual::get_gpu_resources(::velk::IRenderContext& /*ctx*/) const
 {
     auto state = read_state<ITextureVisual>(this);
     if (!state) {

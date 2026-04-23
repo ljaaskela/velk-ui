@@ -21,6 +21,7 @@
 #include <velk-ui/api/trait/light.h>
 #include <velk-ui/api/trait/orbit.h>
 #include <velk-ui/api/trait/trs.h>
+#include <velk-ui/api/mesh.h>
 #include <velk-ui/api/visual/cube.h>
 #include <velk-ui/api/visual/rounded_rect.h>
 #include <velk-ui/api/visual/sphere.h>
@@ -109,6 +110,8 @@ int main(int /*argc*/, char* /*argv*/[])
     wc.width = kWidth;
     wc.height = kHeight;
     wc.title = "velk-ui fluent";
+    wc.depth = velk::DepthFormat::Default;
+    // wc.update_rate = velk::UpdateRate::Unlimited;
 
     auto app = velk::create_app(config);
     auto window = app.create_window(wc);
@@ -140,9 +143,9 @@ int main(int /*argc*/, char* /*argv*/[])
 
         // Rough matte floor. Gives the mirrors something to reflect below
         // the horizon and breaks the symmetry with the sky reflection.
-        if (auto floor_vis = velk::ui::Visual(floor.find_trait<velk::ui::IVisual>())) {
+        if (auto floor_vis = velk::ui::Visual2D(floor.find_trait<velk::ui::IVisual>())) {
             floor_vis.set_paint(velk::material::create_standard(
-                velk::color{0.45f, 0.42f, 0.40f, 1.f}, /*metallic=*/0.f, /*roughness=*/0.7f));
+                velk::color{0.45f, 0.42f, 0.40f, 1.f}, /*metallic=*/0.8f, /*roughness=*/0.2f));
         }
 
         build_mirror_grid(scene, grid_root);
@@ -176,9 +179,11 @@ int main(int /*argc*/, char* /*argv*/[])
             velk::ui::dim::px(140.f), velk::ui::dim::px(140.f), velk::ui::dim::px(140.f));
         cube_trs = velk::ui::trait::transform::create_trs();
         auto cube_vis = velk::ui::trait::visual::create_cube();
-        cube_vis.set_color({0.95f, 0.95f, 1.0f, 1.f});
-        cube_vis.set_paint(velk::material::create_standard(
+        // Build the cube mesh up-front so its primitive's material can
+        velk::ui::Mesh cube_mesh(ctx.build_cube());
+        cube_mesh.set_material(0, velk::material::create_standard(
             velk::color{0.95f, 0.7f, 0.4f, 1.f}, /*metallic=*/0.9f, /*roughness=*/0.15f));
+        cube_vis.set_mesh(cube_mesh);
         cube.add_trait(cube_sz);
         cube.add_trait(cube_trs);
         cube.add_trait(cube_vis);
@@ -210,9 +215,10 @@ int main(int /*argc*/, char* /*argv*/[])
             velk::ui::dim::px(180.f), velk::ui::dim::px(180.f), velk::ui::dim::px(180.f));
         sphere_trs = velk::ui::trait::transform::create_trs();
         auto sphere_vis = velk::ui::trait::visual::create_sphere();
-        sphere_vis.set_color({0.95f, 0.95f, 1.0f, 1.f});
-        sphere_vis.set_paint(velk::material::create_standard(
+        velk::ui::Mesh sphere_mesh(ctx.build_sphere());
+        sphere_mesh.set_material(0, velk::material::create_standard(
             velk::color{0.4f, 0.6f, 0.95f, 1.f}, /*metallic=*/0.3f, /*roughness=*/0.08f));
+        sphere_vis.set_mesh(sphere_mesh);
         sphere.add_trait(sphere_sz);
         sphere.add_trait(sphere_trs);
         sphere.add_trait(sphere_vis);

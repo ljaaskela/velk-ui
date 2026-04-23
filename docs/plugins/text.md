@@ -83,7 +83,7 @@ A `TextVisual` trait can be added as an attachment to one or more `Element` to r
 }
 ```
 
-`text`, `font_size`, `h_align`, and `v_align` are all standard properties. `color` lives on the base `IVisual` interface.
+`text`, `font_size`, `h_align`, and `v_align` are all standard properties. `color` lives on the `IVisual2D` interface shared by all 2D visuals.
 
 The default font is created automatically by the plugin and used unless the visual's `set_font` method is called explicitly with a different font. There is no need to declare the font in the scene file.
 
@@ -109,7 +109,7 @@ flowchart LR
     C["<b>FontBuffers</b> (CPU side)<br/>three flat append-only buffers:<br>curves, bands, glyph table<br>per-section dirty flags"]
     D["<b>FontGpuBuffer</b><br>(one per section, implements IBuffer)<br/>observable GPU resource: dirty / upload / regrow / deferred-destroy"]
     E["<b>Renderer upload path</b><br/>backend create_buffer + map + memcpy, per section<br/>publishes GPU virtual address back to IBuffer via set_gpu_address"]
-    F["<b>TextMaterial</b> (owned by Font, shared by all visuals using it)<br/>fragment+vertex pipeline, lazy-compiled with velk_text.glsl include<br/>write_gpu_data emits the three buffer GPU addresses per draw"]
+    F["<b>TextMaterial</b> (owned by Font, shared by all visuals using it)<br/>eval body + vertex shader, lazy-compiled with velk_text.glsl include<br/>write_draw_data emits the three buffer GPU addresses per draw"]
     G["<b>Slug fragment shader</b><br/>reads glyph record, walks h+v band curves<br/>computes analytic coverage"]
 
     A --> B --> C --> D --> E --> F --> G
@@ -183,7 +183,7 @@ Public ClassIds for the plugin's main types. Construct via `instance().create<I>
 | ClassId | Implements | Description |
 |---|---|---|
 | `velk::ui::ClassId::Font` | `IFont` | FreeType + HarfBuzz font instance. Shapes text and lazy-bakes glyphs into GPU curve / band / glyph buffers. Properties (in font units): `ascender`, `descender`, `line_height`, `units_per_em`. |
-| `velk::ui::ClassId::Visual::Text` | `ITextVisual`, `IVisual` | Text visual trait. Properties: `text`, `font_size`, `h_align`, `v_align`; `color` from `IVisual`. Attaches to any element. |
+| `velk::ui::ClassId::Visual::Text` | `ITextVisual`, `IVisual2D` | Text visual trait. Properties: `text`, `font_size`, `h_align`, `v_align`; `color` / `paint` from `IVisual2D`. Attaches to any element. |
 | `velk::ui::ClassId::TextMaterial` | `IMaterial` | Material that runs the analytic-coverage fragment shader. Owned by each `Font` and shared by all `TextVisual`s using that font (so they batch into one draw call). Not normally constructed by user code. |
 | `velk::ui::ClassId::FontGpuBuffer` | `IBuffer` | Internal GPU resource backing the font's curve / band / glyph data. Not normally touched by user code. |
 

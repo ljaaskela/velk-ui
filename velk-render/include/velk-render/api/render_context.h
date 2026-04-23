@@ -3,6 +3,7 @@
 
 #include <velk/api/object.h>
 #include <velk/api/velk.h>
+#include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/plugin.h>
 
@@ -32,6 +33,22 @@ public:
     {
         return with<IRenderContext>([&](auto& ctx) {
             return ctx.create_shader_material(fragment_source, vertex_source);
+        });
+    }
+
+    /** @brief Returns a procedural cube IMesh. See IMeshBuilder::get_cube. */
+    IMesh::Ptr build_cube(uint32_t subdivisions = 0)
+    {
+        return with<IRenderContext>([&](auto& ctx) {
+            return ctx.get_mesh_builder().get_cube(subdivisions);
+        });
+    }
+
+    /** @brief Returns a procedural sphere IMesh. See IMeshBuilder::get_sphere. */
+    IMesh::Ptr build_sphere(uint32_t subdivisions = 0)
+    {
+        return with<IRenderContext>([&](auto& ctx) {
+            return ctx.get_mesh_builder().get_sphere(subdivisions);
         });
     }
 };

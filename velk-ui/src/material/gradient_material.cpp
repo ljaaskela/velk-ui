@@ -1,7 +1,5 @@
 #include "gradient_material.h"
 
-#include "../renderer/default_ui_shaders.h"
-
 #include <velk/api/state.h>
 
 #include <cstring>
@@ -73,9 +71,5 @@ string_view GradientMaterial::get_eval_fn_name() const
     return "velk_eval_gradient";
 }
 
-string_view GradientMaterial::get_vertex_src() const
-{
-    return rect_material_vertex_src;
-}
 
 } // namespace velk::ui

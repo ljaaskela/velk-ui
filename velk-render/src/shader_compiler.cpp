@@ -16,6 +16,7 @@ const char* kVelkGlsl = R"(
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 // Scene shape record: rect / cube / sphere with a pointer to material
@@ -84,26 +85,36 @@ vec4 velk_texture(uint id, vec2 uv)
     return texture(velk_textures[nonuniformEXT(id)], uv);
 }
 
-// Unit quad vertex position from a triangle strip vertex index.
-// Returns (0,0), (1,0), (0,1), (1,1) for indices 0..3.
-vec2 velk_unit_quad(int vertex_index)
-{
-    return vec2(vertex_index & 1, vertex_index >> 1);
-}
+// Standard vertex layout used by every visual (2D and 3D). 32-byte
+// tight C-style packing (vec3 pos + vec3 normal + vec2 uv) via scalar
+// layout — the default std430 rule would pad vec3 to 16 bytes and
+// inflate this to 48. Enabled by the Vulkan `scalarBlockLayout`
+// feature (see vk_backend). 2D visuals use the unit quad mesh
+// (z = 0, normal = +Z); 3D meshes use full xyz positions + normals.
+struct VelkVertex3D { vec3 position; vec3 normal; vec2 uv; };
+layout(buffer_reference, scalar) readonly buffer VelkVbo3D { VelkVertex3D data[]; };
+
+// Vertex-shader helper: fetch current gl_VertexIndex from the VBO.
+// Macro (not function) so the readonly memory qualifier on the
+// buffer_reference is preserved at the call site, and so velk.glsl
+// doesn't reference gl_VertexIndex at namespace scope (would break
+// fragment shaders that also include this file).
+#define velk_vertex3d(root) ((root).vbo.data[gl_VertexIndex])
 
 // Standard DrawData header fields. Use inside a buffer_reference block:
 //   layout(buffer_reference, std430) readonly buffer DrawData {
-//       VELK_DRAW_DATA(RectInstanceData)
+//       VELK_DRAW_DATA(ElementInstanceData, VelkVbo3D)
 //       vec4 my_material_param;  // optional material fields follow
 //   };
-// Padding ensures material data starts at the correct std430 alignment.
-#define VELK_DRAW_DATA(InstancesType) \
-    GlobalData global_data;           \
-    InstancesType instance_data;      \
-    uint texture_id;                  \
-    uint instance_count;              \
-    uint _velk_pad0;                  \
-    uint _velk_pad1;
+// `VboType` is a `buffer_reference`-typed handle to the vertex buffer
+// (typically `VelkVbo3D`, the unified scalar-packed vertex layout).
+// The 32-byte header keeps everything 8-byte aligned for std430.
+#define VELK_DRAW_DATA(InstancesType, VboType) \
+    GlobalData global_data;                    \
+    InstancesType instance_data;               \
+    uint texture_id;                           \
+    uint instance_count;                       \
+    VboType vbo;
 )";
 
 namespace {

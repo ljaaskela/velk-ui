@@ -8,8 +8,9 @@ namespace velk {
 /// @file gpu_data.h
 /// Framework-level GPU data structures.
 ///
-/// Visual-specific instance types (RectInstance, TextInstance, etc.) are defined
-/// by the visuals that produce them, not here.
+/// The universal per-instance type (`ElementInstance`) lives in
+/// `velk-ui/instance_types.h`; visuals fill its fields and the
+/// renderer's batch builder writes the world matrix.
 
 /// Declares a struct with std430-compatible alignment (16 bytes).
 /// Use for material GPU data structs that follow the DrawDataHeader.
@@ -55,6 +56,7 @@ VELK_GPU_STRUCT DrawDataHeader
     uint64_t instances_address; ///< GPU pointer to the instance data array.
     uint32_t texture_id;        ///< Bindless texture index (0 = none).
     uint32_t instance_count;    ///< Number of instances in this draw.
+    uint64_t vbo_address;       ///< GPU pointer to the draw's vertex buffer (mesh VBO).
 };
 
 static_assert(sizeof(DrawDataHeader) == 32, "DrawDataHeader must be 32 bytes for std430 alignment");

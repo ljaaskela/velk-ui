@@ -14,14 +14,15 @@ namespace velk::ui {
  * Produces a single FillRoundedRect draw command. The renderer uses
  * an SDF fragment shader to clip corners with antialiasing.
  */
-class RoundedRectVisual : public ext::Visual<RoundedRectVisual,
-                                              ::velk::IAnalyticShape,
-                                              ::velk::IShaderSnippet>
+class RoundedRectVisual : public ext::Visual2D<RoundedRectVisual,
+                                                ::velk::IAnalyticShape,
+                                                ::velk::IShaderSnippet>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::RoundedRect, "RoundedRectVisual");
 
-    vector<DrawEntry> get_draw_entries(const ::velk::size& bounds) override;
+    vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
+                                       const ::velk::size& bounds) override;
 
     // IRasterShader overrides: custom fragment for SDF corners;
     // vertex stays default.
