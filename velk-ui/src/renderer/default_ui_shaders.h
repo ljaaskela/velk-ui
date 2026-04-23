@@ -122,6 +122,7 @@ layout(location = 0) out vec4 frag_color;
 void main()
 {
     EvalContext ctx;
+    ctx.globals     = root.global_data;
     ctx.data_addr   = uint64_t(root.material);
     ctx.texture_id  = root.texture_id;  // per-drawcall, shared by all instances
     ctx.shape_param = v_shape_param;
@@ -164,6 +165,7 @@ void main()
     velk_visual_discard();
 
     EvalContext ctx;
+    ctx.globals     = root.global_data;
     ctx.data_addr   = uint64_t(root.material);
     ctx.texture_id  = root.texture_id;
     ctx.shape_param = v_shape_param;
@@ -1156,6 +1158,7 @@ vec3 trace_bounce(Ray ray, vec3 throughput)
         // trace_closest_hit returns BVH-space indices (pc.bvh_shapes).
         RtShape s = pc.bvh_shapes.data[hit.shape_index];
         EvalContext ctx;
+        ctx.globals = pc.globals;
         ctx.data_addr = s.material_data_addr;
         ctx.texture_id = s.texture_id;
         ctx.shape_param = s.shape_param;
@@ -1231,6 +1234,7 @@ void main()
         if (!intersect_shape(primary, s, hit)) continue;
 
         EvalContext ctx;
+        ctx.globals = pc.globals;
         ctx.data_addr = s.material_data_addr;
         ctx.texture_id = s.texture_id;
         ctx.shape_param = s.shape_param;

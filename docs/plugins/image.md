@@ -240,7 +240,7 @@ Public ClassIds for the plugin's main types. Construct via `instance().create<I>
 |---|---|---|
 | `velk::ui::ClassId::Image` | `IImage`, `ITexture`, `IResource` | Decoded raster image. After upload the CPU pixel buffer is freed and the GPU handle is the only remaining surface. Inherits `IResource` for URI / persistence. |
 | `velk::ui::ClassId::Environment` | `IEnvironment`, `ITexture`, `IResource` | HDR equirectangular environment map (RGBA16F). Properties: `intensity`, `rotation`. Owns its skybox material. |
-| `velk::ui::ClassId::Visual::Image` | `IVisual` | Convenience visual that loads an image by URI and binds it as a textured quad. Properties: `uri`, `tint`. |
+| `velk::ui::ClassId::Visual::Image` | `IImageVisual`, `IVisual2D` | Convenience visual that loads an image by URI and binds it as a textured quad. Properties: `uri`, `tint`. |
 | `velk::ui::ClassId::Material::Image` | `IMaterial` | Samples any `ITexture` (image, glyph atlas, render target) and multiplies by a tint. Used by `Visual::Image` internally; can be used directly with custom visuals. |
 | `velk::ui::ClassId::Material::Environment` | `IMaterial` | Skybox material. Renders an `IEnvironment` as a fullscreen quad behind scene geometry. Owned by each `Environment`. |
 | `velk::ui::ClassId::ImageDecoder` | `IResourceDecoder` | Decodes raster bytes into `Image`. Registered with the resource store under `"image"` so URIs of the form `image:<inner_uri>` route through it. |

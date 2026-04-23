@@ -78,7 +78,8 @@ Each trait category has a CRTP base in `velk::ui::ext` that provides sensible de
 |------|-------|----------|
 | `ext::Layout<T, Phase, ...>` | Layout or Constraint | No-op measure/apply |
 | `ext::Transform<T, ...>` | Transform | No-op transform |
-| `ext::Visual<T, ...>` | Visual | Fires `on_visual_changed` on any property change |
+| `ext::Visual2D<T, ...>` | Visual | 2D visual base (color, paint, visual phase). Fires `on_visual_changed` on any property change |
+| `ext::Visual3D<T, ...>` | Visual | 3D visual base (mesh reference). Fires `on_visual_changed` on any property change |
 | `ext::Input<T, ...>` | Input | All handlers return `Ignored` |
 | `ext::Render<T, ...>` | Render | Base for render-phase traits (e.g. Camera) |
 
@@ -146,11 +147,20 @@ LookAt only orients the element (keeping its current position), while Orbit both
 
 Visuals implement `IVisual` and define how an element appears on screen. The renderer queries each element's visuals for draw commands during `render()`. An element can have multiple visuals (e.g. a background rect and a text label).
 
+`IVisual` is the renderer-facing contract shared by every visual; it carries no authoring properties of its own. The authoring surface splits into two sub-interfaces that concrete visuals implement:
+
+- **`IVisual2D`** adds `color`, `paint`, and `visual_phase`. 2D visuals fill the element's layout box with a color or material paint. Implemented by rect, rounded rect, text, image, and texture visuals.
+- **`IVisual3D`** adds a `mesh` reference. 3D visuals draw one or more primitives from an `IMesh`; materials live on the primitives, not on the visual. Implemented by cube, sphere, and future mesh / glTF visuals.
+
 | Trait | Interface | Description |
 |-------|-----------|-------------|
-| RectVisual | `IVisual` | Solid color rectangle filling element bounds |
-| RoundedRectVisual | `IVisual` | Rounded rectangle with SDF corners |
-| TextVisual | `ITextVisual` | Shaped text rendered as glyph quads (text plugin) |
+| RectVisual | `IVisual2D` | Solid color rectangle filling element bounds |
+| RoundedRectVisual | `IVisual2D` | Rounded rectangle with SDF corners |
+| TextVisual | `IVisual2D`, `ITextVisual` | Shaped text rendered as glyph quads (text plugin) |
+| CubeVisual | `IVisual3D`, `IPrimitiveShape`, `IAnalyticShape` | Procedural axis-aligned cube |
+| SphereVisual | `IVisual3D`, `IPrimitiveShape`, `IAnalyticShape` | Procedural UV sphere |
+
+2D visuals are authored through the `color` and `paint` properties:
 
 ```cpp
 auto rect = velk::ui::trait::visual::create_rect();
@@ -161,11 +171,23 @@ text.set_font(font);
 text.set_text("Hello!");
 ```
 
-Visuals can optionally reference an `IMaterial` (via the `paint` property) to override the default fill with a custom shader or gradient.
+Assigning a material to `paint` overrides the default solid-color fill with a custom shader or gradient.
+
+3D visuals are authored through a mesh reference; materials live on primitives. Procedural primitives lazily populate the mesh on first render, but most callers build it up-front so per-primitive materials can be set at authoring time:
+
+```cpp
+auto cube_vis = velk::ui::trait::visual::create_cube();
+velk::ui::Mesh cube_mesh(ctx.build_cube());
+cube_mesh.set_material(0, velk::material::create_standard(
+    color{0.95f, 0.7f, 0.4f, 1.f}, /*metallic=*/0.9f, /*roughness=*/0.15f));
+cube_vis.set_mesh(cube_mesh);
+```
+
+See [mesh](../render/mesh.md) for the container / primitive / buffer model and [materials](../render/materials.md) for the authoring options.
 
 ### Visual phase
 
-Each visual has a `visual_phase` property that controls when it draws relative to the element's children:
+2D visuals carry a `visual_phase` property (on `IVisual2D`) that controls when they draw relative to the element's children:
 
 | Phase | Description |
 |-------|-------------|
@@ -187,6 +209,8 @@ In JSON:
 ```
 
 Multiple visuals on the same element are grouped by phase. All `BeforeChildren` visuals draw in attachment order before any child visuals, then all `AfterChildren` visuals draw in attachment order after all descendants.
+
+3D visuals don't carry a phase; they depth-sort through the depth buffer rather than a painter's algorithm.
 
 ## Render traits
 
@@ -308,14 +332,17 @@ Visuals produce draw entries. The renderer queries each element's visuals during
 
 | ClassId | Implements | Description |
 |---|---|---|
-| `velk::ui::ClassId::Visual::Rect` | `IVisual` | Solid color rectangle filling the element bounds. |
-| `velk::ui::ClassId::Visual::RoundedRect` | `IVisual` | Rounded rectangle with SDF corners. Properties: `corner_radius`. |
+| `velk::ui::ClassId::Visual::Rect` | `IVisual2D` | Solid color rectangle filling the element bounds. |
+| `velk::ui::ClassId::Visual::RoundedRect` | `IVisual2D` | Rounded rectangle with SDF corners. Properties: `corner_radius`. |
+| `velk::ui::ClassId::Visual::Texture` | `IVisual2D`, `ITextureVisual` | Texture sampler filling the element bounds. |
+| `velk::ui::ClassId::Visual::Cube` | `IVisual3D`, `IPrimitiveShape`, `IAnalyticShape` | Procedural axis-aligned cube. |
+| `velk::ui::ClassId::Visual::Sphere` | `IVisual3D`, `IPrimitiveShape`, `IAnalyticShape` | Procedural UV sphere. |
 
 Plugin-provided visuals: `velk::ui::ClassId::Visual::Text` (text plugin), `velk::ui::ClassId::Visual::Image` (image plugin) — see the plugin docs.
 
 ### Material classes
 
-Materials are referenced by visuals via their `paint` property. The default visual fill is the visual's `color`, but assigning a material overrides it with custom shading.
+How a material attaches depends on the visual kind. 2D visuals reference a single material through `IVisual2D::paint`; setting paint overrides the solid-color fill defined by `color`. 3D visuals carry no paint slot — materials live on `IMeshPrimitive::material`, one per primitive — so a multi-primitive mesh can mix materials. See [materials](../render/materials.md) for both paths.
 
 | ClassId | Implements | Description |
 |---|---|---|

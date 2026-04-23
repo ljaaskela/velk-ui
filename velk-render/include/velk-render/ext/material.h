@@ -22,9 +22,13 @@ namespace velk::ext {
  * @brief CRTP base for application-defined materials.
  *
  * Use this when you write both the shader and the material class, and
- * control the GPU data layout directly. Provides pipeline handle storage
- * and lazy compilation via ensure_pipeline(). Derived classes implement
- * gpu_data_size() and write_gpu_data().
+ * control the GPU data layout directly. Provides pipeline handle
+ * storage, lazy compilation via ensure_pipeline() (for the full-fragment
+ * path), and `IMaterialOptions` subscription so option writes invalidate
+ * the cached pipeline. Derived classes override IDrawData's
+ * get_draw_data_size() / write_draw_data(), and IMaterial's get_eval_src()
+ * / get_eval_fn_name() (and optionally get_vertex_src()). The framework
+ * composes forward / deferred / RT drivers from the eval body.
  *
  * For dynamic materials where inputs are discovered from the shader,
  * use ShaderMaterial instead.
@@ -33,8 +37,11 @@ namespace velk::ext {
  *   class MyMaterial : public velk::ext::Material<MyMaterial, IMyProps>
  *   {
  *       VELK_CLASS_UID(...);
- *       size_t gpu_data_size() const override { return sizeof(MyParams); }
- *       void write_gpu_data(void* out, size_t size) const override { ... }
+ *       size_t       get_draw_data_size() const override { return sizeof(MyParams); }
+ *       ReturnValue  write_draw_data(void* out, size_t size,
+ *                                    ITextureResolver*) const override { ... }
+ *       string_view  get_eval_src() const override     { return my_eval_glsl; }
+ *       string_view  get_eval_fn_name() const override { return "velk_eval_my"; }
  *   };
  */
 template <class T, class... Extra>
