@@ -49,6 +49,19 @@ public:
     /// `get_vbo_size()`; provided for callers that pass it to
     /// `vkCmdBindIndexBuffer`.
     virtual size_t get_ibo_offset() const = 0;
+
+    /// Partial VBO update: overwrites `size` bytes starting at
+    /// `byte_offset` within the VBO region. Ranges already referenced
+    /// by IMeshPrimitives stay valid by construction: this call never
+    /// resizes. Returns Success on update, or Fail if the backend does
+    /// not support partial updates yet.
+    virtual ReturnValue update_vertex_range(size_t byte_offset,
+                                            const void* data, size_t size) = 0;
+
+    /// Partial IBO update. Same contract as update_vertex_range, with
+    /// offsets relative to the IBO region (not the whole buffer).
+    virtual ReturnValue update_index_range(size_t byte_offset,
+                                           const void* data, size_t size) = 0;
 };
 
 
@@ -187,14 +200,37 @@ public:
     /// exclusive IMeshBuffer, and returns it. Returns nullptr if the
     /// velk type registry hasn't loaded the render plugin.
     ///
-    /// For glTF-style import with shared buffers, concrete builders may
-    /// expose additional entry points later; this one always allocates
-    /// a standalone buffer.
+    /// Convenience wrapper for the common "one primitive, one buffer"
+    /// case. For glTF-style import where many primitives share one
+    /// buffer, use `build_buffer` + `build_primitive_in_buffer`.
     virtual IMeshPrimitive::Ptr build_primitive(
         array_view<VertexAttribute> attributes,
         uint32_t vertex_stride,
         const void* vertex_data, uint32_t vertex_count,
         const uint32_t* indices, uint32_t index_count,
+        MeshTopology topology,
+        const aabb& bounds) = 0;
+
+    /// Allocates an IMeshBuffer and uploads VBO and IBO bytes in one
+    /// shot. Either side may be empty (pass `nullptr, 0`). Intended for
+    /// glTF-style import where many primitives share one buffer;
+    /// callers then construct primitives via `build_primitive_in_buffer`
+    /// with byte ranges into this buffer.
+    virtual IMeshBuffer::Ptr build_buffer(
+        const void* vbo_data, size_t vbo_size,
+        const void* ibo_data, size_t ibo_size) = 0;
+
+    /// Constructs a primitive referencing a byte range within an
+    /// existing IMeshBuffer. `vertex_offset` / `index_offset` are byte
+    /// offsets into the buffer's VBO / IBO regions respectively. The
+    /// buffer must outlive the primitive; velk's Ptr semantics handle
+    /// that automatically.
+    virtual IMeshPrimitive::Ptr build_primitive_in_buffer(
+        IMeshBuffer::Ptr buffer,
+        uint32_t vertex_offset, uint32_t vertex_count,
+        uint32_t index_offset,  uint32_t index_count,
+        array_view<VertexAttribute> attributes,
+        uint32_t vertex_stride,
         MeshTopology topology,
         const aabb& bounds) = 0;
 

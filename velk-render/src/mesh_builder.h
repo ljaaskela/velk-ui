@@ -39,6 +39,19 @@ public:
         MeshTopology topology,
         const aabb& bounds) override;
 
+    IMeshBuffer::Ptr build_buffer(
+        const void* vbo_data, size_t vbo_size,
+        const void* ibo_data, size_t ibo_size) override;
+
+    IMeshPrimitive::Ptr build_primitive_in_buffer(
+        IMeshBuffer::Ptr buffer,
+        uint32_t vertex_offset, uint32_t vertex_count,
+        uint32_t index_offset,  uint32_t index_count,
+        array_view<VertexAttribute> attributes,
+        uint32_t vertex_stride,
+        MeshTopology topology,
+        const aabb& bounds) override;
+
     IMesh::Ptr build(array_view<IMeshPrimitive::Ptr> primitives) override;
 
     IMesh::Ptr build(array_view<VertexAttribute> attributes,

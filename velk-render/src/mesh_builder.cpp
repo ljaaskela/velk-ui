@@ -6,6 +6,39 @@
 
 namespace velk::impl {
 
+IMeshBuffer::Ptr MeshBuilder::build_buffer(
+    const void* vbo_data, size_t vbo_size,
+    const void* ibo_data, size_t ibo_size)
+{
+    auto buffer = ::velk::instance().create<IMeshBuffer>(::velk::ClassId::MeshBuffer);
+    if (!buffer) return nullptr;
+    buffer->set_data(vbo_data, vbo_size, ibo_data, ibo_size);
+    return buffer;
+}
+
+IMeshPrimitive::Ptr MeshBuilder::build_primitive_in_buffer(
+    IMeshBuffer::Ptr buffer,
+    uint32_t vertex_offset, uint32_t vertex_count,
+    uint32_t index_offset,  uint32_t index_count,
+    array_view<VertexAttribute> attributes,
+    uint32_t vertex_stride,
+    MeshTopology topology,
+    const aabb& bounds)
+{
+    if (!buffer) return nullptr;
+
+    auto prim_intf = ::velk::instance().create<IMeshPrimitive>(::velk::ClassId::MeshPrimitive);
+    auto* prim = dynamic_cast<MeshPrimitive*>(prim_intf.get());
+    if (!prim) return nullptr;
+
+    prim->init(buffer,
+               vertex_offset, vertex_count,
+               index_offset, index_count,
+               attributes, vertex_stride,
+               topology, bounds);
+    return prim_intf;
+}
+
 IMeshPrimitive::Ptr MeshBuilder::build_primitive(
     array_view<VertexAttribute> attributes,
     uint32_t vertex_stride,
@@ -14,23 +47,17 @@ IMeshPrimitive::Ptr MeshBuilder::build_primitive(
     MeshTopology topology,
     const aabb& bounds)
 {
-    auto buffer = ::velk::instance().create<IMeshBuffer>(::velk::ClassId::MeshBuffer);
-    if (!buffer) return nullptr;
-
     const size_t vbo_size = size_t(vertex_count) * vertex_stride;
     const size_t ibo_size = indices ? size_t(index_count) * sizeof(uint32_t) : 0;
-    buffer->set_data(vertex_data, vbo_size, indices, ibo_size);
 
-    auto prim_intf = ::velk::instance().create<IMeshPrimitive>(::velk::ClassId::MeshPrimitive);
-    auto* prim = dynamic_cast<MeshPrimitive*>(prim_intf.get());
-    if (!prim) return nullptr;
+    auto buffer = build_buffer(vertex_data, vbo_size, indices, ibo_size);
+    if (!buffer) return nullptr;
 
-    prim->init(buffer,
-               /*vertex_offset*/ 0, vertex_count,
-               /*index_offset*/ 0, index_count,
-               attributes, vertex_stride,
-               topology, bounds);
-    return prim_intf;
+    return build_primitive_in_buffer(buffer,
+                                     /*vertex_offset*/ 0, vertex_count,
+                                     /*index_offset*/ 0, index_count,
+                                     attributes, vertex_stride,
+                                     topology, bounds);
 }
 
 IMesh::Ptr MeshBuilder::build(array_view<IMeshPrimitive::Ptr> primitives)

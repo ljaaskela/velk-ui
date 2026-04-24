@@ -38,6 +38,20 @@ public:
     size_t get_ibo_size() const override { return ibo_size_; }
     size_t get_ibo_offset() const override { return vbo_size_; }
 
+    /// Stubbed pending a real use case (glTF hot-reload, morph targets,
+    /// streaming LOD). API shape is committed so enabling later is an
+    /// implementation-only change.
+    ReturnValue update_vertex_range(size_t /*byte_offset*/,
+                                    const void* /*data*/, size_t /*size*/) override
+    {
+        return ReturnValue::Fail;
+    }
+    ReturnValue update_index_range(size_t /*byte_offset*/,
+                                   const void* /*data*/, size_t /*size*/) override
+    {
+        return ReturnValue::Fail;
+    }
+
     // IBuffer
     //
     // Size queries report the original data size even after the CPU
