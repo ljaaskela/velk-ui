@@ -233,22 +233,25 @@ VELK_GPU_STRUCT DrawDataHeader
     uint32_t texture_id;         ///< bindless index, 0 = none
     uint32_t instance_count;
     uint64_t vbo_address;        ///< -> bound VBO (VelkVbo3D)
+    uint64_t uv1_address;        ///< -> TEXCOORD_1 stream or context fallback
+    uint32_t uv1_enabled;        ///< 0 = fallback (index 0), 1 = per-vertex
+    uint32_t _pad0;
 };
-static_assert(sizeof(DrawDataHeader) == 32, ...);
+static_assert(sizeof(DrawDataHeader) == 48, ...);
 ```
 
 ```glsl
 // GLSL (velk.glsl provides the VELK_DRAW_DATA macro; velk-ui.glsl provides ElementInstanceData)
 
 layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(ElementInstanceData, VelkVbo3D)  // globals, instances, texture_id, count, vbo
+    VELK_DRAW_DATA(ElementInstanceData, VelkVbo3D)  // globals, instances, texture_id, count, vbo, uv1, uv1_enabled, pad
     OpaquePtr material;                              // -> per-material data buffer
 };
 
 layout(push_constant) uniform PC { DrawData root; };
 ```
 
-The `VELK_DRAW_DATA(InstancesType, VboType)` macro expands to the standard 32-byte header: `GlobalData global_data`, `InstancesType instance_data`, `uint texture_id`, `uint instance_count`, `VboType vbo`. The 8-byte `OpaquePtr material` field lives at offset 32 and addresses the material's per-draw GPU data buffer (an `IProgramDataBuffer` owned by the material, reused and dirty-tracked across frames).
+The `VELK_DRAW_DATA(InstancesType, VboType)` macro expands to the standard 48-byte header: `GlobalData global_data`, `InstancesType instance_data`, `uint texture_id`, `uint instance_count`, `VboType vbo`, `VelkUv1Buffer uv1`, `uint uv1_enabled`, `uint _pad_uv1`. The 8-byte `OpaquePtr material` field lives at offset 48 and addresses the material's per-draw GPU data buffer (an `IProgramDataBuffer` owned by the material, reused and dirty-tracked across frames). `uv1` addresses the primitive's parallel TEXCOORD_1 vec2 stream, or a context-owned single-vertex fallback when `uv1_enabled == 0`; the vertex shader reads via the `velk_uv1(root)` macro which uses `uv1_enabled` as a branchless index multiplier.
 
 The C++ side writes addresses and indices; the GLSL side declares the same fields as `buffer_reference` types, so dereferencing `root.global_data` follows the GPU pointer to `FrameGlobals`. No descriptor binding, no uniform uploads, no vertex input. Vertex shaders that don't dereference the material pointer declare it as `OpaquePtr` (8-byte placeholder) to preserve the layout without pulling in material-specific types; eval-based fragment shaders reach it as `ctx.data_addr`.
 
@@ -479,7 +482,7 @@ When writing custom materials or draw data, the CPU-side struct layout must matc
 | `vec4` | 16 | 16 |
 | `buffer_reference` | 8 | 8 |
 
-The `DrawDataHeader` packs exactly to 32 bytes with no compiler-inserted padding:
+The `DrawDataHeader` packs exactly to 48 bytes, 16-byte aligned (`VELK_GPU_STRUCT` rounds the size up to a multiple of 16):
 
 ```cpp
 VELK_GPU_STRUCT DrawDataHeader
@@ -489,11 +492,14 @@ VELK_GPU_STRUCT DrawDataHeader
     uint32_t texture_id;         // 4 bytes, offset 16
     uint32_t instance_count;     // 4 bytes, offset 20
     uint64_t vbo_address;        // 8 bytes, offset 24
+    uint64_t uv1_address;        // 8 bytes, offset 32
+    uint32_t uv1_enabled;        // 4 bytes, offset 40
+    uint32_t _pad0;              // 4 bytes, offset 44
 };
-static_assert(sizeof(DrawDataHeader) == 32, ...);
+static_assert(sizeof(DrawDataHeader) == 48, ...);
 ```
 
-The 8-byte material pointer follows at offset 32, 8-byte aligned. The material's own data buffer (reached through that pointer) is a separate std430 buffer that the material's C++ struct and the GLSL `buffer_reference` block must lay out identically. Custom material structs should use `VELK_GPU_STRUCT` (`alignas(16)`) so the compiler handles padding automatically and 16-byte-aligned GLSL fields never see an offset mismatch.
+The 8-byte material pointer follows at offset 48, 16-byte aligned. The material's own data buffer (reached through that pointer) is a separate std430 buffer that the material's C++ struct and the GLSL `buffer_reference` block must lay out identically. Custom material structs should use `VELK_GPU_STRUCT` (`alignas(16)`) so the compiler handles padding automatically and 16-byte-aligned GLSL fields never see an offset mismatch.
 
 ### Color space
 

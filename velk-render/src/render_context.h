@@ -62,9 +62,12 @@ public:
 
     IMeshBuilder& get_mesh_builder() override;
 
+    IBuffer::Ptr get_default_buffer(DefaultBufferType type) const override;
+
 private:
     IRenderBackend::Ptr backend_;
     IMeshBuilder::Ptr mesh_builder_;
+    IMeshBuffer::Ptr default_uv1_;
     std::unordered_map<uint64_t, PipelineId> pipeline_map_;
     ShaderIncludeMap shader_includes_;
     mutable ShaderCache shader_cache_;

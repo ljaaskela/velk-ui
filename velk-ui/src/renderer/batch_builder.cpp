@@ -124,10 +124,15 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
         // Surface every referenced primitive's buffer for the upload pass.
+        // Includes the optional UV1 stream so its GPU address is ready by
+        // the time batch_builder writes it into DrawDataHeader::uv1_address.
         auto push_primitive_buffer = [&](IMeshPrimitive* p) {
             if (!p) return;
             if (auto buf = interface_pointer_cast<IBuffer>(p->get_buffer())) {
                 cache.gpu_resources.push_back(buf);
+            }
+            if (auto uv1 = interface_pointer_cast<IBuffer>(p->get_uv1_buffer())) {
+                cache.gpu_resources.push_back(uv1);
             }
         };
         push_primitive_buffer(quad_primitive.get());
@@ -497,6 +502,22 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
         header.vbo_address = buffer->get_gpu_address();
         if (!header.vbo_address) continue;
 
+        // Resolve TEXCOORD_1: primitive's own UV1 stream if present,
+        // otherwise the context-owned default (read as index 0).
+        if (auto uv1 = primitive->get_uv1_buffer()) {
+            uint64_t uv1_base = uv1->get_gpu_address();
+            if (!uv1_base) continue;
+            header.uv1_address = uv1_base + primitive->get_uv1_offset();
+            header.uv1_enabled = 1;
+        } else if (render_ctx) {
+            auto def = render_ctx->get_default_buffer(DefaultBufferType::Uv1);
+            header.uv1_address = def ? def->get_gpu_address() : 0;
+            header.uv1_enabled = 0;
+            if (!header.uv1_address) continue;
+        } else {
+            continue;
+        }
+
         uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
 
         constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
@@ -605,6 +626,22 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
         header.instance_count = batch.instance_count;
         header.vbo_address = buffer->get_gpu_address();
         if (!header.vbo_address) continue;
+
+        // Resolve TEXCOORD_1: primitive's own UV1 stream if present,
+        // otherwise the context-owned default (read as index 0).
+        if (auto uv1 = primitive->get_uv1_buffer()) {
+            uint64_t uv1_base = uv1->get_gpu_address();
+            if (!uv1_base) continue;
+            header.uv1_address = uv1_base + primitive->get_uv1_offset();
+            header.uv1_enabled = 1;
+        } else if (render_ctx) {
+            auto def = render_ctx->get_default_buffer(DefaultBufferType::Uv1);
+            header.uv1_address = def ? def->get_gpu_address() : 0;
+            header.uv1_enabled = 0;
+            if (!header.uv1_address) continue;
+        } else {
+            continue;
+        }
 
         uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
 

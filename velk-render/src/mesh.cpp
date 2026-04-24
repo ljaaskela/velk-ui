@@ -10,7 +10,9 @@ void MeshPrimitive::init(const IMeshBuffer::Ptr& buffer,
                           array_view<VertexAttribute> attributes,
                           uint32_t vertex_stride,
                           MeshTopology topology,
-                          const aabb& bounds)
+                          const aabb& bounds,
+                          const IMeshBuffer::Ptr& uv1_buffer,
+                          uint32_t uv1_offset)
 {
     buffer_ = buffer;
     vertex_offset_ = vertex_offset;
@@ -21,6 +23,8 @@ void MeshPrimitive::init(const IMeshBuffer::Ptr& buffer,
     vertex_stride_ = vertex_stride;
     topology_ = topology;
     bounds_ = bounds;
+    uv1_buffer_ = uv1_buffer;
+    uv1_offset_ = uv1_offset;
 }
 
 void Mesh::init(array_view<IMeshPrimitive::Ptr> primitives,

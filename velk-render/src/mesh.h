@@ -32,7 +32,9 @@ public:
               array_view<VertexAttribute> attributes,
               uint32_t vertex_stride,
               MeshTopology topology,
-              const aabb& bounds);
+              const aabb& bounds,
+              const IMeshBuffer::Ptr& uv1_buffer = nullptr,
+              uint32_t uv1_offset = 0);
 
     IMeshBuffer::Ptr get_buffer() const override { return buffer_; }
     uint32_t get_vertex_offset() const override { return vertex_offset_; }
@@ -46,6 +48,8 @@ public:
     uint32_t get_vertex_stride() const override { return vertex_stride_; }
     MeshTopology get_topology() const override { return topology_; }
     aabb get_bounds() const override { return bounds_; }
+    IMeshBuffer::Ptr get_uv1_buffer() const override { return uv1_buffer_; }
+    uint32_t get_uv1_offset() const override { return uv1_offset_; }
 
 private:
     IMeshBuffer::Ptr buffer_;
@@ -57,6 +61,8 @@ private:
     uint32_t vertex_stride_ = 0;
     MeshTopology topology_ = MeshTopology::TriangleList;
     aabb bounds_{};
+    IMeshBuffer::Ptr uv1_buffer_;
+    uint32_t uv1_offset_ = 0;
 };
 
 /// Concrete IMesh container. Stores a list of primitives and a lazily

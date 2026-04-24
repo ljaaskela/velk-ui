@@ -65,6 +65,20 @@ bool RenderContextImpl::init(const RenderConfig& config)
         return false;
     }
 
+    // Default UV1 buffer: one vec2(0, 0) shared by every draw whose
+    // primitive has no TEXCOORD_1. The Renderer uploads it once at
+    // set_backend time; `velk_uv1` reads index 0 via
+    // DrawDataHeader::uv1_enabled == 0.
+    {
+        const float zero_uv1[2] = {0.f, 0.f};
+        default_uv1_ = mesh_builder_->build_buffer(zero_uv1, sizeof(zero_uv1), nullptr, 0);
+        if (!default_uv1_) {
+            VELK_LOG(E, "RenderContext::init: failed to create default uv1 buffer");
+            backend_ = nullptr;
+            return false;
+        }
+    }
+
     initialized_ = true;
     VELK_LOG(I, "RenderContext initialized (Vulkan, bindless)");
     return true;
@@ -111,6 +125,15 @@ IWindowSurface::Ptr RenderContextImpl::create_surface(const SurfaceConfig& confi
 IMeshBuilder& RenderContextImpl::get_mesh_builder()
 {
     return *mesh_builder_;
+}
+
+IBuffer::Ptr RenderContextImpl::get_default_buffer(DefaultBufferType type) const
+{
+    switch (type) {
+    case DefaultBufferType::Uv1:
+        return interface_pointer_cast<IBuffer>(default_uv1_);
+    }
+    return nullptr;
 }
 
 IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage stage, uint64_t key)

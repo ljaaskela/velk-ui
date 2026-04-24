@@ -155,6 +155,18 @@ public:
 
     /// Local-space bounds of this primitive's geometry.
     virtual aabb get_bounds() const = 0;
+
+    /// Optional TEXCOORD_1 stream. Returns the IMeshBuffer that holds
+    /// a parallel vec2-per-vertex array, or nullptr when the primitive
+    /// has only one UV set. When non-null, the stream is one vec2 per
+    /// vertex starting at `get_uv1_offset()` bytes into the buffer's
+    /// VBO region, matched 1:1 with the primitive's vertex range.
+    virtual IMeshBuffer::Ptr get_uv1_buffer() const = 0;
+
+    /// Byte offset of this primitive's UV1 stream within its UV1
+    /// buffer's VBO region. 0 when the primitive owns the buffer
+    /// exclusively or has no UV1.
+    virtual uint32_t get_uv1_offset() const = 0;
 };
 
 /**
@@ -225,6 +237,12 @@ public:
     /// offsets into the buffer's VBO / IBO regions respectively. The
     /// buffer must outlive the primitive; velk's Ptr semantics handle
     /// that automatically.
+    ///
+    /// Optional @p uv1_buffer attaches a parallel TEXCOORD_1 stream
+    /// sourced from a separate IMeshBuffer (typically built via a
+    /// second `build_buffer` call). @p uv1_offset is the byte offset
+    /// of this primitive's UV1 range within that buffer's VBO region.
+    /// Pass null for primitives that do not provide UV1.
     virtual IMeshPrimitive::Ptr build_primitive_in_buffer(
         IMeshBuffer::Ptr buffer,
         uint32_t vertex_offset, uint32_t vertex_count,
@@ -232,7 +250,9 @@ public:
         array_view<VertexAttribute> attributes,
         uint32_t vertex_stride,
         MeshTopology topology,
-        const aabb& bounds) = 0;
+        const aabb& bounds,
+        IMeshBuffer::Ptr uv1_buffer = nullptr,
+        uint32_t uv1_offset = 0) = 0;
 
     /// Allocates a fresh mesh wrapping the given primitives. Computes
     /// the aggregate bounds lazily from primitive bounds.

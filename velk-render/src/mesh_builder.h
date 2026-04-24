@@ -50,7 +50,9 @@ public:
         array_view<VertexAttribute> attributes,
         uint32_t vertex_stride,
         MeshTopology topology,
-        const aabb& bounds) override;
+        const aabb& bounds,
+        IMeshBuffer::Ptr uv1_buffer = nullptr,
+        uint32_t uv1_offset = 0) override;
 
     IMesh::Ptr build(array_view<IMeshPrimitive::Ptr> primitives) override;
 

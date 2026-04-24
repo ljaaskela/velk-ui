@@ -94,12 +94,27 @@ vec4 velk_texture(uint id, vec2 uv)
 struct VelkVertex3D { vec3 position; vec3 normal; vec2 uv; };
 layout(buffer_reference, scalar) readonly buffer VelkVbo3D { VelkVertex3D data[]; };
 
+// Optional TEXCOORD_1 stream: one vec2 per vertex, in a buffer
+// parallel to the main VBO. When a primitive has no UV1, DrawData.uv1
+// points at a context-owned single-vertex fallback (vec2(0,0)) and
+// DrawData.uv1_enabled is 0 so `velk_uv1` reads only index 0. When
+// the primitive provides UV1, uv1_enabled is 1 and `velk_uv1` reads
+// gl_VertexIndex. Branchless via index multiplication — no shader
+// variants.
+layout(buffer_reference, scalar) readonly buffer VelkUv1Buffer { vec2 data[]; };
+
 // Vertex-shader helper: fetch current gl_VertexIndex from the VBO.
 // Macro (not function) so the readonly memory qualifier on the
 // buffer_reference is preserved at the call site, and so velk.glsl
 // doesn't reference gl_VertexIndex at namespace scope (would break
 // fragment shaders that also include this file).
 #define velk_vertex3d(root) ((root).vbo.data[gl_VertexIndex])
+
+// Vertex-shader helper: fetch the current vertex's UV1. Uses
+// uv1_enabled as a branchless index multiplier — 0 forces index 0 so
+// the single-vertex fallback buffer is always in range; 1 reads the
+// per-vertex stream at gl_VertexIndex.
+#define velk_uv1(root) ((root).uv1.data[(root).uv1_enabled * gl_VertexIndex])
 
 // Standard DrawData header fields. Use inside a buffer_reference block:
 //   layout(buffer_reference, std430) readonly buffer DrawData {
@@ -108,13 +123,16 @@ layout(buffer_reference, scalar) readonly buffer VelkVbo3D { VelkVertex3D data[]
 //   };
 // `VboType` is a `buffer_reference`-typed handle to the vertex buffer
 // (typically `VelkVbo3D`, the unified scalar-packed vertex layout).
-// The 32-byte header keeps everything 8-byte aligned for std430.
+// The 48-byte header keeps everything 16-byte aligned for std430.
 #define VELK_DRAW_DATA(InstancesType, VboType) \
     GlobalData global_data;                    \
     InstancesType instance_data;               \
     uint texture_id;                           \
     uint instance_count;                       \
-    VboType vbo;
+    VboType vbo;                               \
+    VelkUv1Buffer uv1;                         \
+    uint uv1_enabled;                          \
+    uint _pad_uv1;
 )";
 
 namespace {

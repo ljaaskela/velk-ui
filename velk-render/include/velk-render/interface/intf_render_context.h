@@ -167,6 +167,18 @@ public:
      * engine meshes (`get_unit_quad()`).
      */
     virtual IMeshBuilder& get_mesh_builder() = 0;
+
+    /**
+     * @brief Returns a context-owned default buffer for an optional
+     *        vertex-stream slot.
+     *
+     * The context owns a single shared fallback per `DefaultBufferType`,
+     * uploaded once at init. Draws whose primitive does not supply
+     * that stream point their DrawData slot at the fallback and the
+     * shader reads it as a safe zero (see `DefaultBufferType` docs for
+     * per-slot semantics). Returns nullptr for an unknown type.
+     */
+    virtual IBuffer::Ptr get_default_buffer(DefaultBufferType type) const = 0;
 };
 
 } // namespace velk

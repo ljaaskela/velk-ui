@@ -73,7 +73,8 @@ struct EvalContext {
     uint64_t data_addr;    // material's per-draw GPU data pointer
     uint texture_id;       // bindless texture slot (0 if unused)
     uint shape_param;      // per-shape material slot (e.g. glyph index)
-    vec2 uv;               // hit / fragment uv (0..1 across the shape)
+    vec2 uv;               // hit / fragment uv (TEXCOORD_0, 0..1 across the shape)
+    vec2 uv1;              // TEXCOORD_1; equals `uv` when the primitive has no second UV set or the shading point is on an analytic RT shape
     vec4 base;             // shape base color (instance tint)
     vec3 ray_dir;          // incoming ray / view direction (0 if unavailable)
     vec3 normal;           // surface normal at hit (world space)
@@ -147,6 +148,32 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     for (auto& slot : frame_slots_) {
         frame_buffer_.init_slot(slot.buffer, *backend_);
     }
+
+    // One-shot upload of every context-owned default buffer. Draws
+    // whose primitive does not supply a given optional vertex stream
+    // point their DrawData slot at the corresponding default so the
+    // shader can always dereference it safely.
+    auto upload_default = [&](IBuffer::Ptr buf_ptr) {
+        auto* buf = buf_ptr.get();
+        if (!buf) return;
+        size_t bsize = buf->get_data_size();
+        const uint8_t* bytes = buf->get_data();
+        if (!bytes || bsize == 0 || resources_.find_buffer(buf)) return;
+        GpuBufferDesc bdesc{};
+        bdesc.size = bsize;
+        bdesc.cpu_writable = true;
+        GpuResourceManager::BufferEntry bentry{};
+        bentry.handle = backend_->create_buffer(bdesc);
+        bentry.size = bsize;
+        if (!bentry.handle) return;
+        resources_.register_buffer(buf, bentry);
+        buf->set_gpu_address(backend_->gpu_address(bentry.handle));
+        if (auto* dst = backend_->map(bentry.handle)) {
+            std::memcpy(dst, bytes, bsize);
+        }
+        buf->clear_dirty();
+    };
+    upload_default(render_ctx_->get_default_buffer(DefaultBufferType::Uv1));
 }
 
 void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface,

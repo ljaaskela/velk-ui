@@ -41,6 +41,7 @@ layout(location = 2) flat out vec2 v_size;
 layout(location = 3) out vec3 v_world_pos;
 layout(location = 4) out vec3 v_world_normal;
 layout(location = 5) flat out uint v_shape_param;
+layout(location = 6) out vec2 v_uv1;
 
 void main()
 {
@@ -57,6 +58,7 @@ void main()
     v_world_pos    = world_h.xyz;
     v_world_normal = normalize(mat3(inst.world_matrix) * v.normal);
     v_shape_param  = inst.params.x;
+    v_uv1          = velk_uv1(root);
 }
 )";
 

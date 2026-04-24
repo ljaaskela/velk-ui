@@ -23,7 +23,9 @@ IMeshPrimitive::Ptr MeshBuilder::build_primitive_in_buffer(
     array_view<VertexAttribute> attributes,
     uint32_t vertex_stride,
     MeshTopology topology,
-    const aabb& bounds)
+    const aabb& bounds,
+    IMeshBuffer::Ptr uv1_buffer,
+    uint32_t uv1_offset)
 {
     if (!buffer) return nullptr;
 
@@ -35,7 +37,8 @@ IMeshPrimitive::Ptr MeshBuilder::build_primitive_in_buffer(
                vertex_offset, vertex_count,
                index_offset, index_count,
                attributes, vertex_stride,
-               topology, bounds);
+               topology, bounds,
+               uv1_buffer, uv1_offset);
     return prim_intf;
 }
 

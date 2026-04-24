@@ -468,7 +468,7 @@ layout(location = 0) out vec4 frag_color;
 
 void main()
 {
-    MyParams p = root.material;  // dereference the 8-byte pointer at offset 32
+    MyParams p = root.material;  // dereference the 8-byte pointer at offset 48
     frag_color = p.tint * (0.5 + 0.5 * sin(v_uv.x * p.speed));
 }
 )";
@@ -507,7 +507,7 @@ This enables workflows like:
 
 ## DrawData struct layout
 
-Both material types share the same per-draw layout. Every draw call passes a single GPU pointer via push constants to a `DrawData` struct whose first 32 bytes are the standard `DrawDataHeader`:
+Both material types share the same per-draw layout. Every draw call passes a single GPU pointer via push constants to a `DrawData` struct whose first 48 bytes are the standard `DrawDataHeader`:
 
 ```cpp
 // velk-render/gpu_data.h
@@ -518,8 +518,11 @@ VELK_GPU_STRUCT DrawDataHeader
     uint32_t texture_id;         // bindless index, 0 = none
     uint32_t instance_count;
     uint64_t vbo_address;        // -> bound VBO (VelkVbo3D)
+    uint64_t uv1_address;        // -> TEXCOORD_1 stream or fallback
+    uint32_t uv1_enabled;        // 0 = fallback (index 0), 1 = per-vertex
+    uint32_t _pad0;
 };
-static_assert(sizeof(DrawDataHeader) == 32, ...);
+static_assert(sizeof(DrawDataHeader) == 48, ...);
 ```
 
 | Offset | Field | Type | Size |
@@ -529,7 +532,10 @@ static_assert(sizeof(DrawDataHeader) == 32, ...);
 | 16 | `texture_id`        | uint32 | 4 |
 | 20 | `instance_count`    | uint32 | 4 |
 | 24 | `vbo_address`       | uint64 (buffer_reference) | 8 |
-| **32** | **material data pointer** | **uint64 (buffer_reference)** | **8** |
+| 32 | `uv1_address`       | uint64 (buffer_reference) | 8 |
+| 40 | `uv1_enabled`       | uint32 | 4 |
+| 44 | `_pad0`             | uint32 | 4 |
+| **48** | **material data pointer** | **uint64 (buffer_reference)** | **8** |
 
 On the GLSL side, declare these fields with the `VELK_DRAW_DATA(InstancesType, VboType)` macro (expanded from `velk.glsl`); the shared `element_vertex_src` shows the canonical pattern:
 
@@ -540,7 +546,7 @@ layout(buffer_reference, std430) readonly buffer DrawData {
 };
 ```
 
-Material-specific data is **not inlined after the header** — it lives in a separate `IProgramDataBuffer` (one per material, reused across frames with dirty-tracking) and the 8-byte pointer at offset 32 addresses it. The `ext::Material` base handles the buffer lifecycle: `write_draw_data` fills a scratch buffer, the base diffs it against the previous frame, and only re-uploads on change. The shader dereferences the pointer to reach the material's fields:
+Material-specific data is **not inlined after the header** — it lives in a separate `IProgramDataBuffer` (one per material, reused across frames with dirty-tracking) and the 8-byte pointer at offset 48 addresses it. The `ext::Material` base handles the buffer lifecycle: `write_draw_data` fills a scratch buffer, the base diffs it against the previous frame, and only re-uploads on change. The shader dereferences the pointer to reach the material's fields:
 
 ```glsl
 layout(buffer_reference, std430) readonly buffer MyMaterialData {

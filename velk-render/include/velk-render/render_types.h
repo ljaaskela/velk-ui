@@ -54,6 +54,16 @@ enum class FrontFace : uint8_t
     Clockwise,         ///< CW triangles are front.
 };
 
+/// Selector for context-owned default buffers. Each entry names an
+/// optional vertex-stream slot; the context owns a single shared
+/// fallback per slot that draws point at when the primitive does not
+/// supply its own. New slots (e.g. default tangents, TEXCOORD_2) can
+/// be added here without growing IRenderContext's API.
+enum class DefaultBufferType : uint8_t
+{
+    Uv1,  ///< One vec2 (0, 0); paired with DrawDataHeader::uv1_enabled == 0 so the vertex shader reads index 0 only.
+};
+
 /// Pipeline keys used by the render context's auto-assign counter.
 /// Visuals that own a built-in pipeline provide their own stable key
 /// (typically via make_hash64 on the class name).

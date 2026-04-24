@@ -24,7 +24,7 @@ namespace velk {
 #version 450
 
 // The shared element vertex shader writes the full canonical varying
-// set (locations 0..5). Declare every input even when unused so the
+// set (locations 0..6). Declare every input even when unused so the
 // SPIR-V interface matches and the validator doesn't warn about
 // dropped outputs.
 layout(location = 0) in vec4 v_color;
@@ -33,6 +33,7 @@ layout(location = 2) flat in vec2 v_size;
 layout(location = 3) in vec3 v_world_pos;
 layout(location = 4) in vec3 v_world_normal;
 layout(location = 5) flat in uint v_shape_param;
+layout(location = 6) in vec2 v_uv1;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -53,7 +54,7 @@ void main()
 #version 450
 
 // Canonical deferred varyings; the shared element vertex shader emits
-// the full set (locations 0..5). Declare every input even when unused
+// the full set (locations 0..6). Declare every input even when unused
 // so the SPIR-V interface matches and the validator doesn't warn
 // about dropped outputs.
 layout(location = 0) in vec4 v_color;
@@ -62,6 +63,7 @@ layout(location = 2) flat in vec2 v_size;
 layout(location = 3) in vec3 v_world_pos;
 layout(location = 4) in vec3 v_world_normal;
 layout(location = 5) flat in uint v_shape_param;
+layout(location = 6) in vec2 v_uv1;
 
 // Canonical G-buffer attachments (see velk-render/gbuffer.h).
 layout(location = 0) out vec4 g_albedo;         // rgba: surface albedo
@@ -116,6 +118,7 @@ layout(location = 2) flat in vec2 v_size;
 layout(location = 3) in vec3 v_world_pos;
 layout(location = 4) in vec3 v_world_normal;
 layout(location = 5) flat in uint v_shape_param;
+layout(location = 6) in vec2 v_uv1;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -127,6 +130,7 @@ void main()
     ctx.texture_id  = root.texture_id;  // per-drawcall, shared by all instances
     ctx.shape_param = v_shape_param;
     ctx.uv          = v_local_uv;
+    ctx.uv1         = v_uv1;
     ctx.base        = v_color;
     ctx.ray_dir     = normalize(v_world_pos - root.global_data.cam_pos.xyz);
     ctx.normal      = v_world_normal;
@@ -151,6 +155,7 @@ layout(location = 2) flat in vec2 v_size;
 layout(location = 3) in vec3 v_world_pos;
 layout(location = 4) in vec3 v_world_normal;
 layout(location = 5) flat in uint v_shape_param;
+layout(location = 6) in vec2 v_uv1;
 
 layout(location = 0) out vec4 g_albedo;
 layout(location = 1) out vec4 g_normal;
@@ -170,6 +175,7 @@ void main()
     ctx.texture_id  = root.texture_id;
     ctx.shape_param = v_shape_param;
     ctx.uv          = v_local_uv;
+    ctx.uv1         = v_uv1;
     ctx.base        = v_color;
     ctx.ray_dir     = normalize(v_world_pos - root.global_data.cam_pos.xyz);
     ctx.normal      = v_world_normal;
@@ -1164,6 +1170,9 @@ vec3 trace_bounce(Ray ray, vec3 throughput)
         ctx.texture_id = s.texture_id;
         ctx.shape_param = s.shape_param;
         ctx.uv = hit.uv;
+        // Analytic RT shapes have one UV set by construction; triangle-mesh RT
+        // (and its second UV stream) lands with the broader BLAS refactor.
+        ctx.uv1 = hit.uv;
         ctx.base = s.color;
         ctx.ray_dir = ray.dir;
         ctx.normal = hit.normal;
@@ -1255,6 +1264,9 @@ void main()
             ctx.texture_id = s.texture_id;
             ctx.shape_param = s.shape_param;
             ctx.uv = hit.uv;
+            // Analytic RT shapes have one UV set by construction; triangle-mesh RT
+            // (and its second UV stream) lands with the broader BLAS refactor.
+            ctx.uv1 = hit.uv;
             ctx.base = s.color;
             ctx.ray_dir = primary.dir;
             ctx.normal = hit.normal;
