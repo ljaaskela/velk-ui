@@ -81,13 +81,13 @@ A glTF file with multiple scenes uses `scene[data.scene]` (the default) if prese
 **In scope today:**
 
 - `.glb` (single file with embedded buffers and images).
+- External `.gltf` + `.bin` + sibling images-
 - Static meshes, per-node TRS transforms, material tree with KHR_texture_transform / KHR_materials_specular / KHR_materials_emissive_strength.
 - Any glTF `extensionsRequired` not on the safelist above causes the load to fail cleanly.
 - Per-texture sampler wrap / filter / mipmap from glTF sampler records.
 
 **Not yet supported:**
 
-- External `.gltf` + `.bin` + sibling images — only `.glb`.
 - Skinning, animations, morph targets, cameras, punctual lights.
 - Draco / meshopt compression.
 - KTX2 / Basis textures.

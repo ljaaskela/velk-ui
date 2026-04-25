@@ -25,6 +25,7 @@
 #include "cgltf.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace velk::ui::impl {
@@ -81,6 +82,63 @@ string_view ext_from_mime(string_view mime)
     return "bin";
 }
 
+// Join a relative URI against the base glTF URI's directory (everything up to
+// and including the final '/'). Used for sibling external image files.
+string join_sibling_uri(string_view base, string_view rel)
+{
+    size_t slash = base.rfind('/');
+    string out;
+    if (slash != string_view::npos) {
+        out.append(base.substr(0, slash + 1));
+    }
+    out.append(rel);
+    return out;
+}
+
+// cgltf file.read callback: fetch a sibling resource through the velk
+// resource store instead of the C stdio default. cgltf hands us a path it
+// produced by combining the gltf base URI with the buffer/file URI; we treat
+// that path as a velk URI directly.
+cgltf_result velk_cgltf_file_read(const cgltf_memory_options* mem_opts,
+                                  const cgltf_file_options* /*file_opts*/,
+                                  const char* path, cgltf_size* size, void** data)
+{
+    if (!path || !size || !data) return cgltf_result_invalid_options;
+
+    auto& rs = ::velk::instance().resource_store();
+    string_view uri(path, std::strlen(path));
+    auto file = rs.get_resource<IFile>(uri);
+    if (!file) {
+        VELK_LOG(E, "gltf: sibling resource not found '%.*s'",
+                 static_cast<int>(uri.size()), uri.data());
+        return cgltf_result_file_not_found;
+    }
+
+    vector<uint8_t> bytes;
+    if (failed(file->read(bytes)) || bytes.empty()) {
+        return cgltf_result_io_error;
+    }
+
+    auto alloc = mem_opts->alloc_func;
+    void* buf = alloc
+        ? alloc(mem_opts->user_data, bytes.size())
+        : std::malloc(bytes.size());
+    if (!buf) return cgltf_result_out_of_memory;
+    std::memcpy(buf, bytes.data(), bytes.size());
+    *size = bytes.size();
+    *data = buf;
+    return cgltf_result_success;
+}
+
+void velk_cgltf_file_release(const cgltf_memory_options* mem_opts,
+                             const cgltf_file_options* /*file_opts*/,
+                             void* data, cgltf_size /*size*/)
+{
+    if (!data) return;
+    if (mem_opts->free_func) mem_opts->free_func(mem_opts->user_data, data);
+    else std::free(data);
+}
+
 ISurface::Ptr decode_image(IMemoryProtocol& mem, IResourceStore& rs,
                            const cgltf_data* data, const cgltf_image& image,
                            string_view asset_uri, size_t image_idx,
@@ -94,17 +152,39 @@ ISurface::Ptr decode_image(IMemoryProtocol& mem, IResourceStore& rs,
         ? string_view(image.mime_type, std::strlen(image.mime_type))
         : string_view("image/png");
 
+    vector<uint8_t> external_bytes;  // owns bytes when image is loaded from a sibling file
     if (image.buffer_view) {
         const cgltf_buffer_view* bv = image.buffer_view;
         if (!bv->buffer || !bv->buffer->data) return nullptr;
         bytes = static_cast<const uint8_t*>(bv->buffer->data) + bv->offset;
         size = bv->size;
     } else if (image.uri) {
-        // External URI is relative to the glTF file's directory. For round
-        // 2 we only support .glb (embedded), so log and skip when external
-        // images are needed.
-        VELK_LOG(W, "gltf: external image URI '%s' not yet supported", image.uri);
-        return nullptr;
+        string_view uri_view(image.uri, std::strlen(image.uri));
+        if (uri_view.substr(0, 5) == string_view("data:")) {
+            VELK_LOG(W, "gltf: data: URI for image not yet supported");
+            return nullptr;
+        }
+        string sibling = join_sibling_uri(asset_uri, uri_view);
+        auto file = rs.get_resource<IFile>(sibling);
+        if (!file) {
+            VELK_LOG(E, "gltf: image sibling '%.*s' not found",
+                     static_cast<int>(sibling.size()), sibling.data());
+            return nullptr;
+        }
+        if (failed(file->read(external_bytes)) || external_bytes.empty()) {
+            return nullptr;
+        }
+        bytes = external_bytes.data();
+        size = external_bytes.size();
+        // Derive mime from extension if cgltf didn't supply one.
+        if (!image.mime_type) {
+            size_t dot = uri_view.rfind('.');
+            if (dot != string_view::npos) {
+                string_view ext = uri_view.substr(dot + 1);
+                if (ext == "jpg" || ext == "jpeg") mime = "image/jpeg";
+                else if (ext == "png") mime = "image/png";
+            }
+        }
     }
 
     if (!bytes || size == 0) return nullptr;
@@ -503,6 +583,8 @@ IResource::Ptr GltfDecoder::decode(const IResource::Ptr& inner) const
     }
 
     cgltf_options opts{};
+    opts.file.read = &velk_cgltf_file_read;
+    opts.file.release = &velk_cgltf_file_release;
     cgltf_data* data = nullptr;
     if (cgltf_parse(&opts, bytes.data(), bytes.size(), &data) != cgltf_result_success) {
         VELK_LOG(E, "gltf: parse failed for '%.*s'",
@@ -519,8 +601,12 @@ IResource::Ptr GltfDecoder::decode(const IResource::Ptr& inner) const
         return interface_pointer_cast<IResource>(obj);
     }
 
-    if (cgltf_load_buffers(&opts, data, nullptr) != cgltf_result_success) {
-        VELK_LOG(W, "gltf: load_buffers failed (external buffers not supported in round 2)");
+    // cgltf needs a null-terminated base path for sibling-URI resolution; our
+    // IResource exposes only string_view, so make a temporary copy.
+    string base_uri(inner->uri());
+    if (cgltf_load_buffers(&opts, data, base_uri.c_str()) != cgltf_result_success) {
+        VELK_LOG(E, "gltf: load_buffers failed for '%.*s'",
+                 static_cast<int>(inner->uri().size()), inner->uri().data());
         cgltf_free(data);
         auto obj = ::velk::ext::make_object<GltfAsset>();
         static_cast<GltfAsset*>(obj.get())->init_failed(inner->uri());
