@@ -525,6 +525,20 @@ vec3 fresnel_schlick(float cos_theta, vec3 F0)
     return F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
+// ACES Filmic tone map (Krzysztof Narkowicz fit). Maps 0..inf HDR
+// radiance to 0..1 SDR while preserving mid-tone contrast. Stand-in
+// until the renderer grows a dedicated HDR target + composite pass with
+// per-camera exposure (see design-notes/tone-mapping.md).
+vec3 velk_tonemap_aces(vec3 x)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 void main()
 {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
@@ -548,6 +562,7 @@ void main()
         vec3 far_w  = far_h.xyz  / far_h.w;
         vec3 rd = normalize(far_w - near_w);
         vec3 sky = env_miss_color(rd);
+        sky = velk_tonemap_aces(sky);
         imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord, vec4(sky, 1.0));
         return;
     }
@@ -629,6 +644,7 @@ void main()
             + F_env * env_specular;
     }
 
+    rgb = velk_tonemap_aces(rgb);
     imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord, vec4(rgb, albedo.a));
 }
 )";
