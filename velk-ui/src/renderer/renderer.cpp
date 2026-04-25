@@ -15,6 +15,7 @@
 #include <cstring>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/intf_camera.h>
+#include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-ui/interface/intf_environment.h>
 #include <velk-ui/interface/intf_visual.h>
@@ -518,6 +519,22 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
                     uint32_t kind = snippets_.register_intersect(analytic, *render_ctx_);
                     if (kind != 0) site.geometry.shape_kind = kind;
+                }
+
+                // Mesh-kind shapes: resolve the per-mesh static data
+                // address (stable across frames; cached on the cached
+                // shape's MeshInstanceData). The per-frame instance
+                // record itself is uploaded by SceneBvh during the
+                // re-publish pass. We just write a placeholder addr
+                // here for the first frame; SceneBvh's per-frame patch
+                // overwrites it on every subsequent frame.
+                if (site.has_mesh_data) {
+                    if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
+                        site.mesh_instance.mesh_static_addr =
+                            snippets_.resolve_data_buffer(dd, ctx);
+                    }
+                    site.geometry.mesh_data_addr = frame_buffer_.write(
+                        &site.mesh_instance, sizeof(site.mesh_instance));
                 }
             });
             scene_bvhs[scene] = bvh;

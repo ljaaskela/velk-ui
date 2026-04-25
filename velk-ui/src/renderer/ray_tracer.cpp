@@ -172,6 +172,7 @@ uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
     append_literal("    switch (shape.shape_kind) {\n");
     append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
     append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
+    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
     for (auto id : intersect_ids) {
         if (id < 3 || id - 3 >= intersect_info_by_id.size()) continue;
         const auto& ii = intersect_info_by_id[id - 3];
@@ -324,6 +325,14 @@ void RayTracer::build_passes(ViewEntry& entry,
         if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
             uint32_t kind = ctx.snippets->register_intersect(analytic, *ctx.render_ctx);
             if (kind != 0) site.geometry.shape_kind = kind;
+        }
+        if (site.has_mesh_data && ctx.frame_buffer) {
+            if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
+                site.mesh_instance.mesh_static_addr =
+                    ctx.snippets->resolve_data_buffer(dd, ctx);
+            }
+            site.geometry.mesh_data_addr = ctx.frame_buffer->write(
+                &site.mesh_instance, sizeof(site.mesh_instance));
         }
         shapes.push_back(site.geometry);
     });

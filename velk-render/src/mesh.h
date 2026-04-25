@@ -4,7 +4,9 @@
 #include <velk/ext/object.h>
 #include <velk/vector.h>
 
+#include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_mesh.h>
+#include <velk-render/interface/intf_program_data_buffer.h>
 #include <velk-render/plugin.h>
 
 #include <mutex>
@@ -14,8 +16,14 @@ namespace velk::impl {
 /// Concrete IMeshPrimitive. Holds the geometry range into an
 /// IMeshBuffer (may be shared with sibling primitives), the attribute
 /// layout, topology, bounds, and a material ObjectRef.
+///
+/// Also implements IDrawData: returns a persistent buffer carrying
+/// MeshStaticData for the RT/shadow path. The GPU address of that
+/// buffer is stable across frames (matches StandardMaterial's pattern)
+/// so RtShape records can cache it once and only the per-frame
+/// instance data has to be re-uploaded.
 class MeshPrimitive
-    : public ::velk::ext::Object<MeshPrimitive, IMeshPrimitive>
+    : public ::velk::ext::Object<MeshPrimitive, IMeshPrimitive, IDrawData>
 {
 public:
     VELK_CLASS_UID(::velk::ClassId::MeshPrimitive, "MeshPrimitive");
@@ -51,6 +59,15 @@ public:
     IMeshBuffer::Ptr get_uv1_buffer() const override { return uv1_buffer_; }
     uint32_t get_uv1_offset() const override { return uv1_offset_; }
 
+    // IDrawData: persistent MeshStaticData buffer for the RT/shadow
+    // path. Triangle-list primitives backed by an indexed buffer return
+    // a populated buffer; everything else returns nullptr (we don't yet
+    // emit RT shapes for non-triangle topologies).
+    size_t get_draw_data_size() const override;
+    ReturnValue write_draw_data(void* out, size_t size,
+                                ::velk::ITextureResolver* resolver = nullptr) const override;
+    IBuffer::Ptr get_data_buffer(::velk::ITextureResolver* resolver = nullptr) override;
+
 private:
     IMeshBuffer::Ptr buffer_;
     uint32_t vertex_offset_ = 0;
@@ -63,6 +80,10 @@ private:
     aabb bounds_{};
     IMeshBuffer::Ptr uv1_buffer_;
     uint32_t uv1_offset_ = 0;
+
+    /// Lazily allocated on first get_data_buffer call. Holds
+    /// MeshStaticData. Stable GPU address across frames.
+    ::velk::IProgramDataBuffer::Ptr rt_data_buffer_;
 };
 
 /// Concrete IMesh container. Stores a list of primitives and a lazily

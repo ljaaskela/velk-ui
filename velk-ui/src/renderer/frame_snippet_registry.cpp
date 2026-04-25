@@ -236,4 +236,16 @@ FrameSnippetRegistry::resolve_material(IProgram* prog, FrameContext& ctx)
     return {id, addr};
 }
 
+uint64_t FrameSnippetRegistry::resolve_data_buffer(IDrawData* dd, FrameContext& ctx)
+{
+    if (!dd) return 0;
+    auto data_buf = dd->get_data_buffer(ctx.resources);
+    if (!data_buf) return 0;
+    ensure_data_buffer_uploaded(data_buf.get(), ctx);
+    uint64_t addr = data_buf->get_gpu_address();
+    if (addr == 0) return 0;
+    frame_data_buffers_.push_back(data_buf);
+    return addr;
+}
+
 } // namespace velk::ui

@@ -588,7 +588,11 @@ IMesh::Ptr build_mesh(IMeshBuilder& builder, const cgltf_data* /*data*/,
 
         aabb b{};
         if (pos->has_min && pos->has_max) {
-            b.position = {pos->min[0], pos->min[1], pos->min[2]};
+            // Y is negated on vertex positions during the Y-up to Y-down
+            // import. The local-space AABB has to follow so consumers
+            // (BVH builders, layout solver) see the actual extent of the
+            // in-buffer vertices.
+            b.position = {pos->min[0], -pos->max[1], pos->min[2]};
             b.extent = {pos->max[0] - pos->min[0],
                         pos->max[1] - pos->min[1],
                         pos->max[2] - pos->min[2]};

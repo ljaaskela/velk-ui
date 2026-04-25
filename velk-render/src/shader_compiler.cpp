@@ -19,8 +19,12 @@ const char* kVelkGlsl = R"(
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-// Scene shape record: rect / cube / sphere with a pointer to material
-// data. Used by the BVH shape buffer and (duplicated today) by RT.
+// Scene shape record: rect / cube / sphere / mesh with a pointer to
+// material data. Used by the BVH shape buffer and (duplicated today)
+// by RT. shape_kind = 255 is the "complex" sentinel: the shape is a
+// triangle mesh, `origin/u_axis` carry the world-space AABB and
+// `mesh_data_addr` points at a MeshData record (defined below). The
+// field is 0 for non-mesh kinds.
 struct RtShape {
     vec4 origin;
     vec4 u_axis;
@@ -31,12 +35,49 @@ struct RtShape {
     uint material_id;
     uint texture_id;
     uint shape_param;
-    uint shape_kind;  // 0 = rect, 1 = cube, 2 = sphere
+    uint shape_kind;  // 0 = rect, 1 = cube, 2 = sphere, 255 = mesh
     uint64_t material_data_addr;
-    uint64_t _tail_pad;
+    uint64_t mesh_data_addr;  // shape_kind == 255: MeshData*; otherwise 0
 };
 
 layout(buffer_reference, std430) readonly buffer RtShapeList { RtShape data[]; };
+
+// Mesh-static metadata, owned by the IMeshPrimitive's persistent
+// IDrawData buffer (stable GPU address across frames). Mirrors
+// MeshStaticData in scene_collector.h.
+struct MeshStaticData {
+    uint64_t buffer_addr;     // IMeshBuffer GPU address; same buffer holds VBO + IBO
+    uint     vbo_offset;      // bytes from buffer_addr to first vertex this primitive uses
+    uint     ibo_offset;      // bytes from buffer_addr to first index this primitive uses
+    uint     triangle_count;
+    uint     vertex_stride;   // bytes per vertex (32 for VelkVertex3D)
+};
+
+layout(buffer_reference, std430) readonly buffer MeshStaticPtr { MeshStaticData data; };
+
+// Per-shape per-frame mesh instance data. Carries the per-element
+// transforms plus a pointer to the mesh's static metadata. Allocated
+// from the per-frame scratch buffer; SceneBvh patches each cached
+// shape's mesh_data_addr to this frame's copy. Mirrors
+// MeshInstanceData in scene_collector.h.
+struct MeshInstanceData {
+    mat4     world;            // mesh-local -> world (for hit attributes)
+    mat4     inv_world;        // world -> mesh-local (for transforming the ray)
+    uint64_t mesh_static_addr; // -> MeshStaticData; stable across frames
+    uint64_t _pad;
+};
+
+layout(buffer_reference, std430) readonly buffer MeshInstancePtr { MeshInstanceData data; };
+
+// Index reads from a glTF-style 16-bit-or-32-bit index buffer. We
+// always upload 32-bit indices (gltf_decoder.cpp normalises on import),
+// so MeshIndices is a uint[] view.
+layout(buffer_reference, std430) readonly buffer MeshIndices { uint data[]; };
+
+// Vertex reads as a flat float array. Caller indexes into it using
+// `vertex_stride / 4` floats per vertex; the 32-byte VelkVertex3D
+// layout is pos[0..2], normal[3..5], uv[6..7].
+layout(buffer_reference, std430) readonly buffer MeshVertices { float data[]; };
 
 // Scene-wide BVH node. Built CPU-side from the element tree in
 // scene_collector; referenced from GlobalData so every shader sees the

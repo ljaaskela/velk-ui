@@ -387,6 +387,104 @@ bool intersect_sphere(Ray ray, RtShape shape, out RayHit hit)
     return true;
 }
 
+// Forward decl: ray_aabb is defined further down with the BVH walker.
+bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit);
+
+// Triangle-mesh intersector (shape_kind == 255). Linear scan over
+// the primitive's triangle range; ray is transformed into mesh-local
+// space so vertex data stays untouched and instances share buffers.
+// Phase 2 will swap the inner loop for a per-primitive BLAS.
+bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
+{
+    // World-space AABB quick reject.
+    {
+        float t_aabb;
+        if (!ray_aabb(ray, shape.origin.xyz, shape.u_axis.xyz, 1e30, t_aabb)) return false;
+    }
+
+    MeshInstancePtr inst_ptr = MeshInstancePtr(shape.mesh_data_addr);
+    MeshInstanceData inst = inst_ptr.data;
+    if (inst.mesh_static_addr == uint64_t(0)) return false;
+    MeshStaticPtr st_ptr = MeshStaticPtr(inst.mesh_static_addr);
+    MeshStaticData st = st_ptr.data;
+    if (st.triangle_count == 0u || st.vertex_stride == 0u) return false;
+
+    // Ray into mesh-local space.
+    vec3 lo = (inst.inv_world * vec4(ray.origin, 1.0)).xyz;
+    vec3 ld = (inst.inv_world * vec4(ray.dir,    0.0)).xyz;
+
+    MeshIndices  ib = MeshIndices (st.buffer_addr + uint64_t(st.ibo_offset));
+    MeshVertices vb = MeshVertices(st.buffer_addr + uint64_t(st.vbo_offset));
+    uint floats_per_vert = st.vertex_stride >> 2u;  // stride is bytes; floats = bytes/4
+
+    bool  found = false;
+    float best_t = 1e30;
+    float best_u = 0.0;
+    float best_v = 0.0;
+    uint  best_o0 = 0u;
+    uint  best_o1 = 0u;
+    uint  best_o2 = 0u;
+
+    for (uint t = 0u; t < st.triangle_count; ++t) {
+        uint i0 = ib.data[t * 3u + 0u];
+        uint i1 = ib.data[t * 3u + 1u];
+        uint i2 = ib.data[t * 3u + 2u];
+        uint o0 = i0 * floats_per_vert;
+        uint o1 = i1 * floats_per_vert;
+        uint o2 = i2 * floats_per_vert;
+        vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
+        vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
+        vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+
+        // Möller-Trumbore.
+        vec3 e1 = v1 - v0;
+        vec3 e2 = v2 - v0;
+        vec3 p  = cross(ld, e2);
+        float det = dot(e1, p);
+        if (abs(det) < 1e-7) continue;
+        float inv_det = 1.0 / det;
+        vec3 to_v0 = lo - v0;
+        float u = dot(to_v0, p) * inv_det;
+        if (u < 0.0 || u > 1.0) continue;
+        vec3 q = cross(to_v0, e1);
+        float v = dot(ld, q) * inv_det;
+        if (v < 0.0 || u + v > 1.0) continue;
+        float tt = dot(e2, q) * inv_det;
+        if (tt < 1e-4 || tt >= best_t) continue;
+        best_t = tt;
+        best_u = u;
+        best_v = v;
+        best_o0 = o0;
+        best_o1 = o1;
+        best_o2 = o2;
+        found = true;
+    }
+    if (!found) return false;
+
+    // Interpolate per-vertex normal and UV from the closest hit's
+    // barycentrics. Vertex layout (VelkVertex3D, 32 B): pos[0..2],
+    // normal[3..5], uv[6..7]. Möller-Trumbore's (u, v) make
+    // (1-u-v, u, v) the weights for (V0, V1, V2).
+    float w = 1.0 - best_u - best_v;
+    vec3 n0 = vec3(vb.data[best_o0 + 3u], vb.data[best_o0 + 4u], vb.data[best_o0 + 5u]);
+    vec3 n1 = vec3(vb.data[best_o1 + 3u], vb.data[best_o1 + 4u], vb.data[best_o1 + 5u]);
+    vec3 n2 = vec3(vb.data[best_o2 + 3u], vb.data[best_o2 + 4u], vb.data[best_o2 + 5u]);
+    vec3 best_n = normalize(n0 * w + n1 * best_u + n2 * best_v);
+    vec2 uv0 = vec2(vb.data[best_o0 + 6u], vb.data[best_o0 + 7u]);
+    vec2 uv1 = vec2(vb.data[best_o1 + 6u], vb.data[best_o1 + 7u]);
+    vec2 uv2 = vec2(vb.data[best_o2 + 6u], vb.data[best_o2 + 7u]);
+    vec2 best_uv = uv0 * w + uv1 * best_u + uv2 * best_v;
+
+    // Convert local hit to world-space ray parameter.
+    vec3 hit_local = lo + ld * best_t;
+    vec3 hit_world = (inst.world * vec4(hit_local, 1.0)).xyz;
+    hit.t      = length(hit_world - ray.origin);
+    hit.uv     = best_uv;
+    hit.normal = normalize(mat3(inst.world) * best_n);
+    hit.shape_index = 0u;
+    return true;
+}
+)" R"(
 // Forward declaration. The DeferredLighter composer appends the
 // dispatch body (plus any visual-contributed intersect snippets) when
 // compiling the compute pipeline variant for the current scene's
@@ -924,6 +1022,99 @@ bool intersect_sphere(Ray ray, RtShape shape, out RayHit hit)
     return true;
 }
 
+// Forward decl: ray_aabb is defined further down with the BVH walker.
+bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit);
+
+// Triangle-mesh intersector for the RT path (shape_kind == 255). Same
+// math as the deferred_lighting compute's copy near the top of this
+// file; duplicated here because the RT prelude is a separate string
+// fed to a different compute pipeline. When a second consumer arrives
+// we'll factor the body out into a shared GLSL snippet.
+bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
+{
+    {
+        float t_aabb;
+        if (!ray_aabb(ray, shape.origin.xyz, shape.u_axis.xyz, 1e30, t_aabb)) return false;
+    }
+
+    MeshInstancePtr inst_ptr = MeshInstancePtr(shape.mesh_data_addr);
+    MeshInstanceData inst = inst_ptr.data;
+    if (inst.mesh_static_addr == uint64_t(0)) return false;
+    MeshStaticPtr st_ptr = MeshStaticPtr(inst.mesh_static_addr);
+    MeshStaticData st = st_ptr.data;
+    if (st.triangle_count == 0u || st.vertex_stride == 0u) return false;
+
+    vec3 lo = (inst.inv_world * vec4(ray.origin, 1.0)).xyz;
+    vec3 ld = (inst.inv_world * vec4(ray.dir,    0.0)).xyz;
+
+    MeshIndices  ib = MeshIndices (st.buffer_addr + uint64_t(st.ibo_offset));
+    MeshVertices vb = MeshVertices(st.buffer_addr + uint64_t(st.vbo_offset));
+    uint floats_per_vert = st.vertex_stride >> 2u;
+
+    bool  found = false;
+    float best_t = 1e30;
+    float best_u = 0.0;
+    float best_v = 0.0;
+    uint  best_o0 = 0u;
+    uint  best_o1 = 0u;
+    uint  best_o2 = 0u;
+
+    for (uint t = 0u; t < st.triangle_count; ++t) {
+        uint i0 = ib.data[t * 3u + 0u];
+        uint i1 = ib.data[t * 3u + 1u];
+        uint i2 = ib.data[t * 3u + 2u];
+        uint o0 = i0 * floats_per_vert;
+        uint o1 = i1 * floats_per_vert;
+        uint o2 = i2 * floats_per_vert;
+        vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
+        vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
+        vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+        vec3 e1 = v1 - v0;
+        vec3 e2 = v2 - v0;
+        vec3 p  = cross(ld, e2);
+        float det = dot(e1, p);
+        if (abs(det) < 1e-7) continue;
+        float inv_det = 1.0 / det;
+        vec3 to_v0 = lo - v0;
+        float u = dot(to_v0, p) * inv_det;
+        if (u < 0.0 || u > 1.0) continue;
+        vec3 q = cross(to_v0, e1);
+        float v = dot(ld, q) * inv_det;
+        if (v < 0.0 || u + v > 1.0) continue;
+        float tt = dot(e2, q) * inv_det;
+        if (tt < 1e-4 || tt >= best_t) continue;
+        best_t = tt;
+        best_u = u;
+        best_v = v;
+        best_o0 = o0;
+        best_o1 = o1;
+        best_o2 = o2;
+        found = true;
+    }
+    if (!found) return false;
+
+    // Interpolate per-vertex normal and UV from the closest hit's
+    // barycentrics. Vertex layout (VelkVertex3D, 32 B): pos[0..2],
+    // normal[3..5], uv[6..7]. Möller-Trumbore's (u, v) make
+    // (1-u-v, u, v) the weights for (V0, V1, V2).
+    float w = 1.0 - best_u - best_v;
+    vec3 n0 = vec3(vb.data[best_o0 + 3u], vb.data[best_o0 + 4u], vb.data[best_o0 + 5u]);
+    vec3 n1 = vec3(vb.data[best_o1 + 3u], vb.data[best_o1 + 4u], vb.data[best_o1 + 5u]);
+    vec3 n2 = vec3(vb.data[best_o2 + 3u], vb.data[best_o2 + 4u], vb.data[best_o2 + 5u]);
+    vec3 best_n = normalize(n0 * w + n1 * best_u + n2 * best_v);
+    vec2 uv0 = vec2(vb.data[best_o0 + 6u], vb.data[best_o0 + 7u]);
+    vec2 uv1 = vec2(vb.data[best_o1 + 6u], vb.data[best_o1 + 7u]);
+    vec2 uv2 = vec2(vb.data[best_o2 + 6u], vb.data[best_o2 + 7u]);
+    vec2 best_uv = uv0 * w + uv1 * best_u + uv2 * best_v;
+
+    vec3 hit_local = lo + ld * best_t;
+    vec3 hit_world = (inst.world * vec4(hit_local, 1.0)).xyz;
+    hit.t      = length(hit_world - ray.origin);
+    hit.uv     = best_uv;
+    hit.normal = normalize(mat3(inst.world) * best_n);
+    return true;
+}
+)" R"(
 // Forward declaration: the RT composer generates the dispatch body
 // after material / shadow-tech / intersect snippets have been
 // included. Built-in cases (rect/cube/sphere) forward to the

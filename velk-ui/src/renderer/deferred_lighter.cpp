@@ -74,6 +74,7 @@ uint64_t DeferredLighter::ensure_pipeline(FrameContext& ctx)
     append_literal("    switch (shape.shape_kind) {\n");
     append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
     append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
+    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
     char buf[128];
     for (auto id : intersect_ids) {
         if (id < 3 || id - 3 >= intersect_info_by_id.size()) continue;

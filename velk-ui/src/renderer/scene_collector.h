@@ -8,7 +8,9 @@
 
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_analytic_shape.h>
+#include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_light.h>
+#include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_shadow_technique.h>
 #include <velk-render/render_types.h>
@@ -25,10 +27,17 @@ namespace velk::ui {
 // GPU-side shape record. Mirrors the RtShape struct declared in the RT
 // compute prelude (and the deferred compute shader). Geometry + material
 // + texture + shape discriminator in 128 bytes.
+//
+// shape_kind:
+//   0 = rect, 1 = cube, 2 = sphere — analytic primitives.
+//   255 = mesh — triangle soup; `origin/u_axis` carry the world-space
+//   AABB and `mesh_data_addr` is a GPU pointer at a MeshData record
+//   (see below). For non-mesh kinds `mesh_data_addr` is zero. We
+//   deliberately leave 3..254 free for future analytic kinds.
 VELK_GPU_STRUCT RtShape
 {
-    float    origin[4];       ///< xyz = world origin (corner for rect/cube, AABB corner for sphere)
-    float    u_axis[4];       ///< xyz = local x axis scaled by width
+    float    origin[4];       ///< xyz = world origin (corner for rect/cube, AABB corner for sphere, AABB min for mesh)
+    float    u_axis[4];       ///< xyz = local x axis scaled by width (AABB max for mesh)
     float    v_axis[4];       ///< xyz = local y axis scaled by height
     float    w_axis[4];       ///< xyz = local z axis scaled by depth (cube only; zero otherwise)
     float    color[4];        ///< rgba base color (used when material_id == 0)
@@ -36,11 +45,43 @@ VELK_GPU_STRUCT RtShape
     uint32_t material_id;     ///< 0 = no material (use color); otherwise dispatched via switch
     uint32_t texture_id;      ///< bindless index, 0 when unused
     uint32_t shape_param;     ///< per-shape material data (e.g. glyph index for text)
-    uint32_t shape_kind;      ///< 0 = rect, 1 = cube, 2 = sphere
+    uint32_t shape_kind;      ///< 0 = rect, 1 = cube, 2 = sphere, 255 = mesh
     uint64_t material_data_addr;
-    uint64_t _tail_pad;
+    uint64_t mesh_data_addr;  ///< for shape_kind == 255: MeshData*; otherwise 0
 };
 static_assert(sizeof(RtShape) == 128, "RtShape layout mismatch");
+
+/// Sentinel value of RtShape::shape_kind for triangle-mesh shapes.
+inline constexpr uint32_t kRtShapeKindMesh = 255;
+
+// Mesh-static metadata: same for every element instance referencing a
+// given IMeshPrimitive. Owned by the primitive (returned via its
+// IDrawData::get_data_buffer), so the GPU address is stable across
+// frames and shapes can cache it. Mirrors GLSL `MeshStaticData`.
+VELK_GPU_STRUCT MeshStaticData
+{
+    uint64_t buffer_addr;     ///< IMeshBuffer GPU address; same buffer holds VBO + IBO.
+    uint32_t vbo_offset;      ///< bytes from buffer_addr to first vertex this primitive uses.
+    uint32_t ibo_offset;      ///< bytes from buffer_addr to first index this primitive uses.
+    uint32_t triangle_count;
+    uint32_t vertex_stride;   ///< bytes per vertex (32 for VelkVertex3D).
+    uint64_t _pad;            ///< pad to 32 B (VELK_GPU_STRUCT is alignas(16)).
+};
+static_assert(sizeof(MeshStaticData) == 32, "MeshStaticData layout mismatch");
+
+// Per-shape, per-frame mesh instance data. Holds the element's world
+// matrices plus a pointer to the mesh-static buffer. SceneBvh writes
+// one of these per Mesh-kind shape into the per-frame scratch buffer
+// each frame and patches the shape's mesh_data_addr. Mirrors GLSL
+// `MeshInstanceData`.
+VELK_GPU_STRUCT MeshInstanceData
+{
+    float    world[16];       ///< column-major mesh-local -> world.
+    float    inv_world[16];   ///< column-major world -> mesh-local.
+    uint64_t mesh_static_addr;///< MeshStaticData* (persistent; stable across frames).
+    uint64_t _pad;
+};
+static_assert(sizeof(MeshInstanceData) == 144, "MeshInstanceData layout mismatch");
 
 // GPU-side scene light. Mirrors the `Light` struct in the compute shaders
 // (80 bytes). flags.y is shadow_tech_id; callers populate it after
@@ -69,6 +110,18 @@ struct ShapeSite
     IVisual* visual = nullptr;
     IProgram* paint = nullptr;
     const DrawEntry* draw_entry = nullptr;
+
+    /// Set when geometry.shape_kind == kRtShapeKindMesh. The renderer
+    /// callback fills `mesh_instance.mesh_static_addr` from the
+    /// primitive's IDrawData buffer, then writes the instance record
+    /// into the per-frame buffer and stamps the resulting GPU address
+    /// into geometry.mesh_data_addr.
+    MeshInstanceData mesh_instance{};
+    /// The mesh primitive backing this shape; used by the renderer
+    /// callback to resolve the per-mesh static-data buffer address via
+    /// IDrawData::get_data_buffer. Null for non-mesh shapes.
+    IMeshPrimitive* mesh_primitive = nullptr;
+    bool has_mesh_data = false;
 };
 
 // Scene-wide BVH node. Matches the GLSL `BvhNode` layout (48 bytes)
@@ -90,6 +143,12 @@ struct BvhBuild
 {
     vector<RtShape> shapes;
     vector<GpuBvhNode> nodes;
+    /// Parallel to `shapes`. For shapes with shape_kind == kRtShapeKindMesh,
+    /// contains the populated MeshInstanceData payload (world matrices
+    /// + a stable pointer to the mesh's static-data buffer); for other
+    /// kinds the entry is zero. SceneBvh re-uploads these per frame and
+    /// patches the shapes' mesh_data_addr fields.
+    vector<MeshInstanceData> mesh_instances;
     uint32_t root_index = 0;
 };
 
@@ -200,11 +259,97 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
         }
 
         // 3D visuals that aren't analytic primitives are triangle
-        // meshes (e.g. MeshVisual from a glTF import). The 2D-rect emit
-        // path below would treat their draw entries as 2D rects and
-        // produce garbage shapes that pollute the shadow BVH; until we
-        // have a triangle / mesh shape kind, skip them entirely.
-        if (interface_cast<IVisual3D>(visual)) continue;
+        // meshes (e.g. MeshVisual from a glTF import). Emit one
+        // Mesh-kind RtShape per IMeshPrimitive, with a MeshData payload
+        // pointing at the existing IMeshBuffer's VBO+IBO regions. The
+        // renderer callback resolves mesh_data_addr to the GPU address of
+        // its uploaded MeshData record.
+        if (auto vs3d = read_state<IVisual3D>(visual)) {
+            auto mesh_obj = vs3d->mesh.template get<IMesh>();
+            if (mesh_obj) {
+                const ::velk::mat4& world = es->world_matrix;
+                ::velk::mat4 inv_world = ::velk::mat4::inverse(world);
+                auto prims = mesh_obj->get_primitives();
+                for (auto& prim_ptr : prims) {
+                    auto prim_state = read_state<IMeshPrimitive>(prim_ptr.get());
+                    if (!prim_state) continue;
+                    auto buf = prim_ptr->get_buffer();
+                    if (!buf) continue;
+                    uint64_t buffer_addr = buf->get_gpu_address();
+                    if (buffer_addr == 0) continue;
+                    uint32_t v_count = prim_ptr->get_vertex_count();
+                    uint32_t i_count = prim_ptr->get_index_count();
+                    uint32_t v_stride = prim_ptr->get_vertex_stride();
+                    if (v_count == 0 || i_count < 3 || v_stride == 0) continue;
+                    if (prim_ptr->get_topology() != MeshTopology::TriangleList) continue;
+
+                    // Per-primitive material (pulled the same way as
+                    // analytic CubeVisual / SphereVisual, but per
+                    // primitive instead of just first).
+                    IProgram* prim_paint = paint;
+                    if (prim_state->material) {
+                        auto prog_ptr = prim_state->material.template get<IProgram>();
+                        if (prog_ptr) prim_paint = prog_ptr.get();
+                    }
+
+                    // World-space AABB by transforming the local AABB's
+                    // 8 corners through the element world matrix.
+                    aabb local_b = prim_ptr->get_bounds();
+                    float lminx = local_b.position.x;
+                    float lminy = local_b.position.y;
+                    float lminz = local_b.position.z;
+                    float lmaxx = lminx + local_b.extent.width;
+                    float lmaxy = lminy + local_b.extent.height;
+                    float lmaxz = lminz + local_b.extent.depth;
+                    auto xf = [&](float lx, float ly, float lz) {
+                        float wx_ = world(0, 0) * lx + world(0, 1) * ly + world(0, 2) * lz + world(0, 3);
+                        float wy_ = world(1, 0) * lx + world(1, 1) * ly + world(1, 2) * lz + world(1, 3);
+                        float wz_ = world(2, 0) * lx + world(2, 1) * ly + world(2, 2) * lz + world(2, 3);
+                        return ::velk::vec3{wx_, wy_, wz_};
+                    };
+                    ::velk::vec3 c[8] = {
+                        xf(lminx, lminy, lminz), xf(lmaxx, lminy, lminz),
+                        xf(lminx, lmaxy, lminz), xf(lmaxx, lmaxy, lminz),
+                        xf(lminx, lminy, lmaxz), xf(lmaxx, lminy, lmaxz),
+                        xf(lminx, lmaxy, lmaxz), xf(lmaxx, lmaxy, lmaxz),
+                    };
+                    float wmin[3] = {c[0].x, c[0].y, c[0].z};
+                    float wmax[3] = {c[0].x, c[0].y, c[0].z};
+                    for (int k = 1; k < 8; ++k) {
+                        wmin[0] = std::min(wmin[0], c[k].x); wmax[0] = std::max(wmax[0], c[k].x);
+                        wmin[1] = std::min(wmin[1], c[k].y); wmax[1] = std::max(wmax[1], c[k].y);
+                        wmin[2] = std::min(wmin[2], c[k].z); wmax[2] = std::max(wmax[2], c[k].z);
+                    }
+
+                    ShapeSite site{};
+                    site.visual = visual;
+                    site.paint = prim_paint;
+                    auto& s = site.geometry;
+                    s.origin[0] = wmin[0]; s.origin[1] = wmin[1]; s.origin[2] = wmin[2];
+                    s.u_axis[0] = wmax[0]; s.u_axis[1] = wmax[1]; s.u_axis[2] = wmax[2];
+                    s.color[0] = tint.r; s.color[1] = tint.g; s.color[2] = tint.b; s.color[3] = tint.a;
+                    s.shape_kind = kRtShapeKindMesh;
+
+                    // Per-frame instance data: world matrices + a
+                    // pointer placeholder. The renderer callback fills
+                    // mesh_static_addr from the primitive's persistent
+                    // IDrawData buffer (stable across frames). Static
+                    // mesh metadata (buffer_addr, offsets, counts,
+                    // stride) lives in that buffer — not duplicated
+                    // here.
+                    auto& mi = site.mesh_instance;
+                    std::memcpy(mi.world,     world.m,     sizeof(mi.world));
+                    std::memcpy(mi.inv_world, inv_world.m, sizeof(mi.inv_world));
+                    mi.mesh_static_addr = 0;  // resolved by the renderer cb.
+                    site.mesh_primitive = prim_ptr.get();
+                    site.has_mesh_data = true;
+                    (void)buffer_addr;  // validated above; no longer carried inline.
+
+                    cb(site);
+                }
+            }
+            continue;
+        }
 
         float radius = 0.f;
         if (analytic && !analytic->get_shape_intersect_source().empty()) {
@@ -334,6 +479,8 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
         emit_shapes_for_element(elem.get(), ctx, [&](ShapeSite& site) {
             cb(site);
             out.shapes.push_back(site.geometry);
+            out.mesh_instances.push_back(
+                site.has_mesh_data ? site.mesh_instance : MeshInstanceData{});
         });
         uint32_t shape_count = static_cast<uint32_t>(out.shapes.size()) - first_shape;
 
