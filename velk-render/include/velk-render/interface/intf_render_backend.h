@@ -40,6 +40,7 @@ enum class PixelFormat : uint8_t
     RGBA8_SRGB, ///< 4 bytes per pixel, sRGB-tagged (auto-linearised on sample).
     R8,         ///< 1 byte per pixel, glyph atlases.
     RGBA16F,    ///< 8 bytes per pixel, 16-bit float per channel (HDR).
+    RGBA32F,    ///< 16 bytes per pixel, 32-bit float per channel (precision-critical, e.g. world position).
 };
 
 /// Describes a GPU buffer to create.

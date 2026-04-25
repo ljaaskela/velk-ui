@@ -390,10 +390,10 @@ bool intersect_sphere(Ray ray, RtShape shape, out RayHit hit)
 // Forward decl: ray_aabb is defined further down with the BVH walker.
 bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit);
 
-// Triangle-mesh intersector (shape_kind == 255). Linear scan over
-// the primitive's triangle range; ray is transformed into mesh-local
-// space so vertex data stays untouched and instances share buffers.
-// Phase 2 will swap the inner loop for a per-primitive BLAS.
+// Triangle-mesh intersector (shape_kind == 255). Walks the per-mesh
+// BLAS that lives in the trailing region of the primitive's
+// MeshStaticData buffer. Ray is transformed into mesh-local space so
+// vertex data stays untouched and instances share buffers.
 bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
 {
     // World-space AABB quick reject.
@@ -417,6 +417,19 @@ bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
     MeshVertices vb = MeshVertices(st.buffer_addr + uint64_t(st.vbo_offset));
     uint floats_per_vert = st.vertex_stride >> 2u;  // stride is bytes; floats = bytes/4
 
+    // The MeshStaticData buffer layout is:
+    //   [MeshStaticData header: 32 B]
+    //   [BvhNode[blas_node_count]:  48 B each]
+    //   [uint  [blas_tri_count]:    4 B each]
+    BlasNodeList blas_nodes = BlasNodeList(inst.mesh_static_addr + uint64_t(32));
+    BlasTriList  blas_tris  = BlasTriList(
+        inst.mesh_static_addr + uint64_t(32)
+        + uint64_t(st.blas_node_count) * uint64_t(48));
+
+    Ray local_ray;
+    local_ray.origin = lo;
+    local_ray.dir    = ld;
+
     bool  found = false;
     float best_t = 1e30;
     float best_u = 0.0;
@@ -425,39 +438,61 @@ bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
     uint  best_o1 = 0u;
     uint  best_o2 = 0u;
 
-    for (uint t = 0u; t < st.triangle_count; ++t) {
-        uint i0 = ib.data[t * 3u + 0u];
-        uint i1 = ib.data[t * 3u + 1u];
-        uint i2 = ib.data[t * 3u + 2u];
-        uint o0 = i0 * floats_per_vert;
-        uint o1 = i1 * floats_per_vert;
-        uint o2 = i2 * floats_per_vert;
-        vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
-        vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
-        vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+    // BLAS walk. Stack depth 32 fits any reasonable tree (a perfectly
+    // balanced binary BVH at depth 32 holds 2^32 leaves).
+    uint stack[32];
+    int sp = 0;
+    if (st.blas_node_count == 0u) return false;
+    stack[sp++] = st.blas_root;
+    while (sp > 0) {
+        uint ni = uint(stack[--sp]);
+        BvhNode node = blas_nodes.data[ni];
+        float t_aabb;
+        if (!ray_aabb(local_ray, node.aabb_min.xyz, node.aabb_max.xyz, best_t, t_aabb)) continue;
 
-        // Möller-Trumbore.
-        vec3 e1 = v1 - v0;
-        vec3 e2 = v2 - v0;
-        vec3 p  = cross(ld, e2);
-        float det = dot(e1, p);
-        if (abs(det) < 1e-7) continue;
-        float inv_det = 1.0 / det;
-        vec3 to_v0 = lo - v0;
-        float u = dot(to_v0, p) * inv_det;
-        if (u < 0.0 || u > 1.0) continue;
-        vec3 q = cross(to_v0, e1);
-        float v = dot(ld, q) * inv_det;
-        if (v < 0.0 || u + v > 1.0) continue;
-        float tt = dot(e2, q) * inv_det;
-        if (tt < 1e-4 || tt >= best_t) continue;
-        best_t = tt;
-        best_u = u;
-        best_v = v;
-        best_o0 = o0;
-        best_o1 = o1;
-        best_o2 = o2;
-        found = true;
+        if (node.shape_count > 0u) {
+            // Leaf: test triangles.
+            for (uint k = 0u; k < node.shape_count; ++k) {
+                uint tri = blas_tris.data[node.first_shape + k];
+                uint base = tri * 3u;
+                uint i0 = ib.data[base + 0u];
+                uint i1 = ib.data[base + 1u];
+                uint i2 = ib.data[base + 2u];
+                uint o0 = i0 * floats_per_vert;
+                uint o1 = i1 * floats_per_vert;
+                uint o2 = i2 * floats_per_vert;
+                vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
+                vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
+                vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+
+                // Möller-Trumbore.
+                vec3 e1 = v1 - v0;
+                vec3 e2 = v2 - v0;
+                vec3 p  = cross(ld, e2);
+                float det = dot(e1, p);
+                if (abs(det) < 1e-7) continue;
+                float inv_det = 1.0 / det;
+                vec3 to_v0 = lo - v0;
+                float u = dot(to_v0, p) * inv_det;
+                if (u < 0.0 || u > 1.0) continue;
+                vec3 q = cross(to_v0, e1);
+                float v = dot(ld, q) * inv_det;
+                if (v < 0.0 || u + v > 1.0) continue;
+                float tt = dot(e2, q) * inv_det;
+                if (tt < 1e-4 || tt >= best_t) continue;
+                best_t = tt;
+                best_u = u;
+                best_v = v;
+                best_o0 = o0;
+                best_o1 = o1;
+                best_o2 = o2;
+                found = true;
+            }
+        } else {
+            for (uint c = 0u; c < node.child_count; ++c) {
+                if (sp < 32) stack[sp++] = node.first_child + c;
+            }
+        }
     }
     if (!found) return false;
 
@@ -484,7 +519,8 @@ bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
     hit.shape_index = 0u;
     return true;
 }
-)" R"(
+)"
+                                                                      R"(
 // Forward declaration. The DeferredLighter composer appends the
 // dispatch body (plus any visual-contributed intersect snippets) when
 // compiling the compute pipeline variant for the current scene's
@@ -736,10 +772,24 @@ void main()
         vec3 F_env = fresnel_schlick(NdotV, F0);
         vec3 kD_env = (vec3(1.0) - F_env) * (1.0 - metallic);
 
+        // RT ambient occlusion: one short any-hit ray along N. Without
+        // this the env term is unshadowed and dominates outdoor scenes,
+        // so geometry-cast shadows are invisible even when per-light
+        // shadow rays correctly occlude. Binary visibility is crude
+        // (real RT-AO would integrate hemispherical samples) but catches
+        // the dominant case where surfaces sit under overhangs / inside
+        // pockets reading sky they cannot actually see. Range is short
+        // (interior-crevice scale) because at scene scale a longer ray
+        // hits something for nearly every pixel in dense scenes, and
+        // binary occlusion at that point goes black instead of softly
+        // darker. Skipped when no BVH exists so non-RT scenes are
+        // unaffected.
+        float ao = 1.0; // AO disabled while debugging shadows; re-enable later
+
         rgb = direct_diffuse * (1.0 - metallic)
             + direct_specular
-            + kD_env * albedo.rgb * env_diffuse
-            + F_env * env_specular;
+            + kD_env * albedo.rgb * env_diffuse * ao
+            + F_env * env_specular * ao;
     }
 
     rgb = velk_tonemap_aces(rgb);

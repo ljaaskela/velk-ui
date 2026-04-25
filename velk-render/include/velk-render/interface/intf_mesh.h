@@ -6,6 +6,7 @@
 #include <velk/api/math_types.h>
 #include <velk/interface/intf_metadata.h>
 
+#include <velk-render/blas.h>
 #include <velk-render/interface/intf_buffer.h>
 
 #include <cstdint>
@@ -167,6 +168,13 @@ public:
     /// buffer's VBO region. 0 when the primitive owns the buffer
     /// exclusively or has no UV1.
     virtual uint32_t get_uv1_offset() const = 0;
+
+    /// Attaches a pre-built BVH for this primitive's triangles to be
+    /// used by the RT/shadow path. Default no-op so primitive impls
+    /// that don't participate in RT (or haven't built a BLAS yet) stay
+    /// trivially compliant. Concrete `MeshPrimitive` overrides to
+    /// store the build and serialise it through its IDrawData buffer.
+    virtual void set_rt_blas(BlasBuild blas) { (void)blas; }
 };
 
 /**

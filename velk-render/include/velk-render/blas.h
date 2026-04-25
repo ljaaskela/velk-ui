@@ -1,0 +1,197 @@
+#ifndef VELK_RENDER_BLAS_H
+#define VELK_RENDER_BLAS_H
+
+#include <velk/vector.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+
+namespace velk {
+
+/// GPU-side BLAS node. Mirrors the GLSL `BvhNode` layout in
+/// shader_compiler.cpp (and the analogous `GpuBvhNode` in
+/// scene_collector.h on the velk-ui side). 48 bytes; aabb_min/aabb_max
+/// `.w` is padding. For inner nodes, `first_child` is the index of the
+/// left child (right child sits at `first_child + 1` because every
+/// inner node we emit is binary), `child_count` is 2 and the shape
+/// fields are zero. For leaves, `first_shape` indexes into the BLAS's
+/// triangle_indices array, `shape_count` is the triangle count, and
+/// the child fields are zero.
+struct alignas(16) BlasNode
+{
+    float    aabb_min[4];
+    float    aabb_max[4];
+    uint32_t first_shape;
+    uint32_t shape_count;
+    uint32_t first_child;
+    uint32_t child_count;
+};
+static_assert(sizeof(BlasNode) == 48, "BlasNode layout mismatch");
+
+/// Output of `build_mesh_blas`. `triangle_indices` is the per-leaf
+/// permutation: leaf node `n` covers triangles
+/// `triangle_indices[n.first_shape .. n.first_shape + n.shape_count]`.
+/// Each value is a triangle index into the source mesh (multiply by 3
+/// to get the vertex-index offset in the mesh's IBO).
+struct BlasBuild
+{
+    vector<BlasNode> nodes;
+    vector<uint32_t> triangle_indices;
+    uint32_t         root_index = 0;
+};
+
+namespace detail {
+
+inline void blas_merge_aabb(float bmin[3], float bmax[3],
+                            const float t_min[3], const float t_max[3])
+{
+    for (int i = 0; i < 3; ++i) {
+        if (t_min[i] < bmin[i]) bmin[i] = t_min[i];
+        if (t_max[i] > bmax[i]) bmax[i] = t_max[i];
+    }
+}
+
+struct BlasTriInfo
+{
+    uint32_t index;
+    float    aabb_min[3];
+    float    aabb_max[3];
+    float    center[3];
+};
+
+inline void blas_fill_node(BlasBuild& out, uint32_t my_idx,
+                           vector<BlasTriInfo>& tris, size_t begin, size_t end)
+{
+    constexpr size_t kLeafThreshold = 4;
+    constexpr float kInf = std::numeric_limits<float>::max();
+
+    float bmin[3] = { kInf,  kInf,  kInf};
+    float bmax[3] = {-kInf, -kInf, -kInf};
+    for (size_t i = begin; i < end; ++i) {
+        blas_merge_aabb(bmin, bmax, tris[i].aabb_min, tris[i].aabb_max);
+    }
+
+    BlasNode node{};
+    for (int i = 0; i < 3; ++i) {
+        node.aabb_min[i] = bmin[i];
+        node.aabb_max[i] = bmax[i];
+    }
+    node.aabb_min[3] = 0.f;
+    node.aabb_max[3] = 0.f;
+
+    const size_t count = end - begin;
+
+    auto emit_leaf = [&]() {
+        const uint32_t first = static_cast<uint32_t>(out.triangle_indices.size());
+        for (size_t i = begin; i < end; ++i) {
+            out.triangle_indices.push_back(tris[i].index);
+        }
+        node.first_shape = first;
+        node.shape_count = static_cast<uint32_t>(count);
+        node.first_child = 0;
+        node.child_count = 0;
+        out.nodes[my_idx] = node;
+    };
+
+    if (count <= kLeafThreshold) {
+        emit_leaf();
+        return;
+    }
+
+    float cmin[3] = { kInf,  kInf,  kInf};
+    float cmax[3] = {-kInf, -kInf, -kInf};
+    for (size_t i = begin; i < end; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            if (tris[i].center[j] < cmin[j]) cmin[j] = tris[i].center[j];
+            if (tris[i].center[j] > cmax[j]) cmax[j] = tris[i].center[j];
+        }
+    }
+    int axis = 0;
+    const float dx = cmax[0] - cmin[0];
+    const float dy = cmax[1] - cmin[1];
+    const float dz = cmax[2] - cmin[2];
+    if (dy >= dx && dy >= dz)      axis = 1;
+    else if (dz >= dx && dz >= dy) axis = 2;
+
+    // Median split. If all centroids coincide on the chosen axis, the
+    // sort would be a no-op and the split would oscillate forever — fall
+    // back to a leaf.
+    if (cmax[axis] == cmin[axis]) {
+        emit_leaf();
+        return;
+    }
+
+    std::sort(tris.begin() + begin, tris.begin() + end,
+              [axis](const BlasTriInfo& a, const BlasTriInfo& b) {
+                  return a.center[axis] < b.center[axis];
+              });
+    const size_t mid = begin + count / 2;
+
+    const uint32_t left_idx  = static_cast<uint32_t>(out.nodes.size());
+    out.nodes.push_back({});
+    const uint32_t right_idx = static_cast<uint32_t>(out.nodes.size());
+    out.nodes.push_back({});
+
+    node.first_shape = 0;
+    node.shape_count = 0;
+    node.first_child = left_idx;
+    node.child_count = 2;
+    out.nodes[my_idx] = node;
+
+    blas_fill_node(out, left_idx,  tris, begin, mid);
+    blas_fill_node(out, right_idx, tris, mid,   end);
+}
+
+} // namespace detail
+
+/// Build a BVH over a mesh primitive's triangles. Vertices are the
+/// flat float array of the mesh's VBO; vertex_stride_bytes is the
+/// stride between consecutive vertices. Indices is the flat uint32
+/// array of the mesh's IBO (3 indices per triangle). The vertex/index
+/// data is read once during build and not retained.
+inline BlasBuild build_mesh_blas(const float* vertices, uint32_t vertex_stride_bytes,
+                                 uint32_t vertex_count,
+                                 const uint32_t* indices, uint32_t triangle_count)
+{
+    BlasBuild out;
+    if (!vertices || !indices || triangle_count == 0 || vertex_count == 0
+        || vertex_stride_bytes == 0 || (vertex_stride_bytes % sizeof(float)) != 0) {
+        return out;
+    }
+    const uint32_t floats_per_vertex = vertex_stride_bytes / sizeof(float);
+
+    vector<detail::BlasTriInfo> tris;
+    tris.resize(triangle_count);
+    for (uint32_t t = 0; t < triangle_count; ++t) {
+        const uint32_t i0 = indices[t * 3 + 0];
+        const uint32_t i1 = indices[t * 3 + 1];
+        const uint32_t i2 = indices[t * 3 + 2];
+        if (i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count) {
+            // Malformed mesh; bail out empty so the shader skips RT
+            // for it instead of risking OOB reads.
+            return BlasBuild{};
+        }
+        const float* v0 = vertices + static_cast<size_t>(i0) * floats_per_vertex;
+        const float* v1 = vertices + static_cast<size_t>(i1) * floats_per_vertex;
+        const float* v2 = vertices + static_cast<size_t>(i2) * floats_per_vertex;
+        auto& ti = tris[t];
+        ti.index = t;
+        for (int j = 0; j < 3; ++j) {
+            const float a = v0[j], b = v1[j], c = v2[j];
+            ti.aabb_min[j] = std::min({a, b, c});
+            ti.aabb_max[j] = std::max({a, b, c});
+            ti.center[j]   = (ti.aabb_min[j] + ti.aabb_max[j]) * 0.5f;
+        }
+    }
+
+    out.nodes.push_back({});
+    out.root_index = 0;
+    detail::blas_fill_node(out, 0, tris, 0, tris.size());
+    return out;
+}
+
+} // namespace velk
+
+#endif // VELK_RENDER_BLAS_H

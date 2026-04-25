@@ -4,6 +4,7 @@
 #include <velk/ext/object.h>
 #include <velk/vector.h>
 
+#include <velk-render/blas.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program_data_buffer.h>
@@ -68,6 +69,13 @@ public:
                                 ::velk::ITextureResolver* resolver = nullptr) const override;
     IBuffer::Ptr get_data_buffer(::velk::ITextureResolver* resolver = nullptr) override;
 
+    /// Stores a pre-built BLAS for this primitive. Subsequent
+    /// `get_data_buffer` calls serialise the nodes + triangle indices
+    /// after the MeshStaticData header so the RT path can walk the
+    /// per-primitive acceleration structure instead of doing a linear
+    /// triangle scan.
+    void set_rt_blas(BlasBuild blas) override;
+
 private:
     IMeshBuffer::Ptr buffer_;
     uint32_t vertex_offset_ = 0;
@@ -82,8 +90,14 @@ private:
     uint32_t uv1_offset_ = 0;
 
     /// Lazily allocated on first get_data_buffer call. Holds
-    /// MeshStaticData. Stable GPU address across frames.
+    /// MeshStaticData followed by the BLAS node array and the BLAS
+    /// triangle-index array. Stable GPU address across frames.
     ::velk::IProgramDataBuffer::Ptr rt_data_buffer_;
+
+    /// Pre-built BLAS for the RT path. Empty until `set_rt_blas` runs;
+    /// `get_draw_data_size` and `write_draw_data` include the BLAS
+    /// payload only when populated.
+    BlasBuild rt_blas_;
 };
 
 /// Concrete IMesh container. Stores a list of primitives and a lazily

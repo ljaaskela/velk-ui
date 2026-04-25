@@ -28,15 +28,18 @@ float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
         L = to_light / t_max;
     }
 
-    // Bias along the surface normal, which is always unambiguously off
-    // the receiving face. Biasing along L self-intersects at grazing
-    // angles (cos(N, L) -> 0 leaves the origin on the surface).
-    // Scene-scale: a few units tolerates float precision at km-range
-    // distances without leaving a visible gap on close surfaces.
-    vec3 n = normalize(world_normal);
+    // Bias along L (toward the light) rather than the surface normal:
+    // double-sided thin geometry (awnings, banners) can have its
+    // visible-face normal pointing away from the light, in which case
+    // a normal-bias would push the origin into the back face and
+    // self-shadow. L-biasing always moves into the lit half-space.
+    // Magnitude tuned for meter-scale scenes; pixel-scale UIs would
+    // want a per-camera or per-light bias.
     Ray r;
-    r.origin = world_pos + n * 0.5;
+    r.origin = world_pos + L * 0.005;
     r.dir    = L;
+    // Trim t_max so the ray doesn't hit the light's own fixture mesh.
+    t_max = max(t_max - 0.005, 0.0);
 
     return trace_any_hit(r, t_max) ? 0.0 : 1.0;
 }

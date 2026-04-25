@@ -1113,6 +1113,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
             case PixelFormat::RGBA8:      vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
             case PixelFormat::RGBA8_SRGB: vk_format = VK_FORMAT_R8G8B8A8_SRGB; break;
             case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            case PixelFormat::RGBA32F:    vk_format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         }
     }
     const bool is_color_attachment = (desc.usage == TextureUsage::ColorAttachment);
@@ -1305,6 +1306,7 @@ void VkBackend::upload_texture(TextureId texture, const uint8_t* pixels, int wid
     size_t bpp = 4;
     if (td.format == PixelFormat::R8) bpp = 1;
     else if (td.format == PixelFormat::RGBA16F) bpp = 8;
+    else if (td.format == PixelFormat::RGBA32F) bpp = 16;
     size_t data_size = static_cast<size_t>(width) * height * bpp;
 
     // Create staging buffer
@@ -2460,6 +2462,7 @@ RenderTargetGroup VkBackend::create_render_target_group(
             case PixelFormat::RGBA8:      vk_f = VK_FORMAT_R8G8B8A8_UNORM; break;
             case PixelFormat::RGBA8_SRGB: vk_f = VK_FORMAT_R8G8B8A8_SRGB; break;
             case PixelFormat::RGBA16F:    vk_f = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            case PixelFormat::RGBA32F:    vk_f = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         }
         gd.vk_formats.push_back(vk_f);
     }

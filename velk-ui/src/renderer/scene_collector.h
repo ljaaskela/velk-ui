@@ -65,7 +65,8 @@ VELK_GPU_STRUCT MeshStaticData
     uint32_t ibo_offset;      ///< bytes from buffer_addr to first index this primitive uses.
     uint32_t triangle_count;
     uint32_t vertex_stride;   ///< bytes per vertex (32 for VelkVertex3D).
-    uint64_t _pad;            ///< pad to 32 B (VELK_GPU_STRUCT is alignas(16)).
+    uint32_t blas_root;       ///< root index in the trailing BLAS node array.
+    uint32_t blas_node_count; ///< length of the trailing BLAS node array.
 };
 static_assert(sizeof(MeshStaticData) == 32, "MeshStaticData layout mismatch");
 
@@ -122,6 +123,15 @@ struct ShapeSite
     /// IDrawData::get_data_buffer. Null for non-mesh shapes.
     IMeshPrimitive* mesh_primitive = nullptr;
     bool has_mesh_data = false;
+
+    /// World-space AABB enclosing this shape. Populated by
+    /// emit_shapes_for_element so build_scene_bvh can union them into
+    /// per-node BVH AABBs (the BVH outer ray_aabb test culls against
+    /// these). Independent of geometry.{origin,u_axis,...}, which are
+    /// per-kind data (basis vectors for analytic, AABB-min/max for mesh)
+    /// that the inner intersect functions consume.
+    float aabb_min[3] = { 0, 0, 0 };
+    float aabb_max[3] = { 0, 0, 0 };
 };
 
 // Scene-wide BVH node. Matches the GLSL `BvhNode` layout (48 bytes)
@@ -199,6 +209,14 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
     const float eh = es->size.height;
     const float ed = es->size.depth;
 
+    // Element-level world AABB: works as a sane default for shape
+    // kinds whose `geometry` fields are basis vectors, not AABB
+    // min/max (i.e. analytics, 2D rects). Mesh shapes overwrite this
+    // with their own tight per-primitive world AABB below.
+    aabb elem_aabb = es->world_aabb;
+    const ::velk::vec3 elem_min = elem_aabb.min();
+    const ::velk::vec3 elem_max = elem_aabb.max();
+
     for (size_t j = 0; j < storage->attachment_count(); ++j) {
         auto* visual = interface_cast<IVisual>(storage->get_attachment(j));
         if (!visual) continue;
@@ -254,6 +272,8 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
                 s.params[0] = std::min({ew, eh, ed}) * 0.5f;
             }
             s.shape_kind = shape_kind;
+            site.aabb_min[0] = elem_min.x; site.aabb_min[1] = elem_min.y; site.aabb_min[2] = elem_min.z;
+            site.aabb_max[0] = elem_max.x; site.aabb_max[1] = elem_max.y; site.aabb_max[2] = elem_max.z;
             cb(site);
             continue;
         }
@@ -329,6 +349,8 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
                     s.u_axis[0] = wmax[0]; s.u_axis[1] = wmax[1]; s.u_axis[2] = wmax[2];
                     s.color[0] = tint.r; s.color[1] = tint.g; s.color[2] = tint.b; s.color[3] = tint.a;
                     s.shape_kind = kRtShapeKindMesh;
+                    site.aabb_min[0] = wmin[0]; site.aabb_min[1] = wmin[1]; site.aabb_min[2] = wmin[2];
+                    site.aabb_max[0] = wmax[0]; site.aabb_max[1] = wmax[1]; site.aabb_max[2] = wmax[2];
 
                     // Per-frame instance data: world matrices + a
                     // pointer placeholder. The renderer callback fills
@@ -404,6 +426,8 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx, F&& cb)
             s.color[0] = cr; s.color[1] = cg; s.color[2] = cb_; s.color[3] = ca;
             s.params[0] = radius;
             s.shape_param = shape_param;
+            site.aabb_min[0] = elem_min.x; site.aabb_min[1] = elem_min.y; site.aabb_min[2] = elem_min.z;
+            site.aabb_max[0] = elem_max.x; site.aabb_max[1] = elem_max.y; site.aabb_max[2] = elem_max.z;
             cb(site);
         }
     }
@@ -474,13 +498,21 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
         auto [elem, self] = queue.front();
         queue.pop_front();
 
-        // Emit this element's shapes contiguously.
+        // Emit this element's shapes contiguously, accumulating their
+        // world AABBs into this node's AABB.
         uint32_t first_shape = static_cast<uint32_t>(out.shapes.size());
+        constexpr float kInf = 1e30f;
+        float nmin[3] = { kInf,  kInf,  kInf};
+        float nmax[3] = {-kInf, -kInf, -kInf};
         emit_shapes_for_element(elem.get(), ctx, [&](ShapeSite& site) {
             cb(site);
             out.shapes.push_back(site.geometry);
             out.mesh_instances.push_back(
                 site.has_mesh_data ? site.mesh_instance : MeshInstanceData{});
+            for (int k = 0; k < 3; ++k) {
+                if (site.aabb_min[k] < nmin[k]) nmin[k] = site.aabb_min[k];
+                if (site.aabb_max[k] > nmax[k]) nmax[k] = site.aabb_max[k];
+            }
         });
         uint32_t shape_count = static_cast<uint32_t>(out.shapes.size()) - first_shape;
 
@@ -497,19 +529,45 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
             ++child_count;
         }
 
-        // Fill the reserved slot from the element's cached world_aabb.
+        // Per-node AABB starts from the emitted shapes' AABBs. The
+        // post-BFS pass below expands it to enclose all descendants
+        // (which haven't been visited yet here).
         GpuBvhNode& node = out.nodes[self];
-        auto es = read_state<IElement>(elem);
-        aabb world = es ? es->world_aabb : aabb::zero();
-        vec3 lo = world.min();
-        vec3 hi = world.max();
-        node.aabb_min[0] = lo.x; node.aabb_min[1] = lo.y; node.aabb_min[2] = lo.z; node.aabb_min[3] = 0.f;
-        node.aabb_max[0] = hi.x; node.aabb_max[1] = hi.y; node.aabb_max[2] = hi.z; node.aabb_max[3] = 0.f;
+        for (int k = 0; k < 3; ++k) {
+            node.aabb_min[k] = nmin[k];
+            node.aabb_max[k] = nmax[k];
+        }
+        node.aabb_min[3] = 0.f;
+        node.aabb_max[3] = 0.f;
         node.first_shape = first_shape;
         node.shape_count = shape_count;
         node.first_child = first_child;
         node.child_count = child_count;
     }
+
+    // Post-pass: expand each parent's AABB to enclose its children's
+    // AABBs. Children always have higher node indices than their parent
+    // (BFS), so walking nodes in reverse index order processes
+    // children before parents — by the time we visit `self`, all its
+    // descendants are already finalised. The outer ray_aabb test in
+    // trace_any_hit_bvh / trace_closest_hit_bvh requires this enclosure
+    // invariant: if a parent rejects a ray, its descendants are not
+    // visited, so a parent AABB tighter than its children's union
+    // would silently drop occluders.
+    for (size_t i = out.nodes.size(); i > 0; --i) {
+        GpuBvhNode& n = out.nodes[i - 1];
+        for (uint32_t c = 0; c < n.child_count; ++c) {
+            const GpuBvhNode& kid = out.nodes[n.first_child + c];
+            // Skip empty children (no shapes, no descendants -> inverted
+            // AABB) so they don't pull the parent toward infinity.
+            if (kid.aabb_min[0] > kid.aabb_max[0]) continue;
+            for (int k = 0; k < 3; ++k) {
+                if (kid.aabb_min[k] < n.aabb_min[k]) n.aabb_min[k] = kid.aabb_min[k];
+                if (kid.aabb_max[k] > n.aabb_max[k]) n.aabb_max[k] = kid.aabb_max[k];
+            }
+        }
+    }
+
     return out;
 }
 

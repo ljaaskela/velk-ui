@@ -20,7 +20,8 @@ VELK_GPU_STRUCT MeshStaticData
     uint32_t ibo_offset;
     uint32_t triangle_count;
     uint32_t vertex_stride;
-    uint64_t _pad;
+    uint32_t blas_root;
+    uint32_t blas_node_count;
 };
 static_assert(sizeof(MeshStaticData) == 32, "MeshStaticData layout drift");
 
@@ -66,7 +67,10 @@ size_t MeshPrimitive::get_draw_data_size() const
     // skips the upload entirely (and scene_collector skips the emit).
     if (topology_ != MeshTopology::TriangleList) return 0;
     if (!buffer_ || index_count_ == 0 || vertex_stride_ == 0) return 0;
-    return sizeof(MeshStaticData);
+    size_t total = sizeof(MeshStaticData);
+    total += rt_blas_.nodes.size() * sizeof(BlasNode);
+    total += rt_blas_.triangle_indices.size() * sizeof(uint32_t);
+    return total;
 }
 
 ReturnValue MeshPrimitive::write_draw_data(void* out, size_t size,
@@ -82,8 +86,34 @@ ReturnValue MeshPrimitive::write_draw_data(void* out, size_t size,
     s.ibo_offset    = static_cast<uint32_t>(buffer_->get_ibo_offset()) + index_offset_;
     s.triangle_count = index_count_ / 3;
     s.vertex_stride = vertex_stride_;
-    std::memcpy(out, &s, sizeof(s));
+    s.blas_root      = rt_blas_.root_index;
+    s.blas_node_count = static_cast<uint32_t>(rt_blas_.nodes.size());
+
+    auto* dst = static_cast<uint8_t*>(out);
+    std::memcpy(dst, &s, sizeof(s));
+    size_t off = sizeof(s);
+
+    const size_t nodes_bytes = rt_blas_.nodes.size() * sizeof(BlasNode);
+    if (nodes_bytes > 0) {
+        if (off + nodes_bytes > size) return ReturnValue::Fail;
+        std::memcpy(dst + off, rt_blas_.nodes.data(), nodes_bytes);
+        off += nodes_bytes;
+    }
+    const size_t tri_bytes = rt_blas_.triangle_indices.size() * sizeof(uint32_t);
+    if (tri_bytes > 0) {
+        if (off + tri_bytes > size) return ReturnValue::Fail;
+        std::memcpy(dst + off, rt_blas_.triangle_indices.data(), tri_bytes);
+    }
     return ReturnValue::Success;
+}
+
+void MeshPrimitive::set_rt_blas(BlasBuild blas)
+{
+    rt_blas_ = std::move(blas);
+    // Force the persistent buffer to re-serialise on next get_data_buffer
+    // call: dropping the existing buffer makes the next call allocate a
+    // fresh one with the new size and content.
+    rt_data_buffer_ = nullptr;
 }
 
 IBuffer::Ptr MeshPrimitive::get_data_buffer(::velk::ITextureResolver* resolver)

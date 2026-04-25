@@ -647,6 +647,21 @@ IMesh::Ptr build_mesh(IMeshBuilder& builder, const cgltf_data* /*data*/,
             uv1_buffer_out,
             r.v_offset * static_cast<uint32_t>(sizeof(float) * 2));
         if (!prim) continue;
+
+        // Build a per-primitive BLAS so RT shadow + path-trace queries
+        // skip the linear triangle scan. We have the CPU vbo + ibo
+        // around right here; nodes/triangle-indices are uploaded with
+        // the primitive's MeshStaticData on first GPU pickup.
+        const uint32_t tri_count = r.i_count / 3;
+        if (tri_count > 0) {
+            const uint32_t* prim_indices = ibo.data() + r.i_offset;
+            const float*    vbo_floats   = reinterpret_cast<const float*>(vbo.data());
+            const uint32_t  total_vertex_count = static_cast<uint32_t>(vbo.size());
+            auto blas = ::velk::build_mesh_blas(
+                vbo_floats, kVertexStride, total_vertex_count,
+                prim_indices, tri_count);
+            prim->set_rt_blas(std::move(blas));
+        }
         if (r.material) {
             // glTF materials are deduplicated to our `materials` array
             // by index. Look up by pointer offset.
