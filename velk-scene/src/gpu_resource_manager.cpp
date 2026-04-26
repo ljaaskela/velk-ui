@@ -2,7 +2,7 @@
 
 #include <velk/api/velk.h>
 
-namespace velk::ui {
+namespace velk {
 
 TextureId GpuResourceManager::find_texture(ISurface* surf) const
 {
@@ -171,4 +171,4 @@ void GpuResourceManager::shutdown(IRenderBackend& backend)
     pipeline_map_.clear();
 }
 
-} // namespace velk::ui
+} // namespace velk

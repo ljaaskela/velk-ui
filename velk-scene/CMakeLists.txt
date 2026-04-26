@@ -51,6 +51,9 @@ add_library(velk_scene SHARED
     # Public interfaces (scene model + renderer surface)
     include/velk-scene/plugin.h
     include/velk-scene/types.h
+    include/velk-scene/api/element.h
+    include/velk-scene/api/scene.h
+    include/velk-scene/api/trait.h
     include/velk-scene/interface/intf_scene_plugin.h
     include/velk-scene/interface/intf_scene.h
     include/velk-scene/interface/intf_scene_observer.h

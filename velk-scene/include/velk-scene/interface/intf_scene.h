@@ -12,7 +12,7 @@
 #include <velk-scene/interface/intf_element.h>
 #include <velk-scene/types.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Filter for IScene::find_elements.
@@ -152,6 +152,6 @@ public:
     virtual ::velk::IBvh::Ptr get_default_bvh() const = 0;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_SCENE_H

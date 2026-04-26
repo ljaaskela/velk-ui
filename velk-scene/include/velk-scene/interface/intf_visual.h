@@ -15,7 +15,7 @@ namespace velk {
 class IRenderContext;
 }
 
-namespace velk::ui {
+namespace velk {
 
 /** @brief Controls when a visual draws relative to an element's children. */
 enum class VisualPhase : uint8_t
@@ -127,6 +127,6 @@ public:
     )
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_VISUAL_H

@@ -18,7 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 void FrameSnippetRegistry::begin_frame()
 {
@@ -248,4 +248,4 @@ uint64_t FrameSnippetRegistry::resolve_data_buffer(IDrawData* dd, FrameContext& 
     return addr;
 }
 
-} // namespace velk::ui
+} // namespace velk

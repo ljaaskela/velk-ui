@@ -5,7 +5,7 @@
 
 #include "view_renderer.h"
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Per-view compute pass that consumes the G-buffer and produces
@@ -48,6 +48,6 @@ private:
     uint64_t composite_pipeline_key_ = 0;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_DEFERRED_LIGHTER_H

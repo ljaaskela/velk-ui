@@ -5,13 +5,13 @@
 #include <velk/api/state.h>
 
 #include <velk-render/interface/intf_render_trait.h>
-#include <velk-ui/api/trait.h>
+#include <velk-scene/api/trait.h>
 #include <velk-scene/interface/intf_element.h>
 #include <velk-scene/interface/intf_scene.h>
 #include <velk-scene/plugin.h>
 #include <velk-ui/plugin.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Convenience wrapper around IElement.
@@ -106,9 +106,9 @@ private:
 /** @brief Creates a new empty element with no layout constraints or visual representation. */
 inline Element create_element()
 {
-    return Element(instance().create<IElement>(scene::ClassId::Element));
+    return Element(instance().create<IElement>(::velk::ClassId::Element));
 }
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_API_ELEMENT_H

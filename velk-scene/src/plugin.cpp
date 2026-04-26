@@ -4,18 +4,18 @@
 #include "renderer.h"
 #include "scene.h"
 
-namespace velk::scene {
+namespace velk {
 
 ::velk::ReturnValue ScenePlugin::initialize(::velk::IVelk& velk,
                                             ::velk::PluginConfig& /*config*/)
 {
-    auto rv = register_type<::velk::ui::Element>(velk);
-    rv &= register_type<::velk::ui::Scene>(velk);
+    auto rv = register_type<::velk::impl::Element>(velk);
+    rv &= register_type<::velk::impl::Scene>(velk);
 
     // Renderer: low instance count (one per app), alloc-on-demand.
     ::velk::TypeOptions alloc;
     alloc.policy = ::velk::CreationPolicy::Alloc;
-    rv &= register_type<::velk::ui::Renderer>(velk, alloc);
+    rv &= register_type<::velk::Renderer>(velk, alloc);
     return rv;
 }
 
@@ -24,4 +24,4 @@ namespace velk::scene {
     return ::velk::ReturnValue::Success;
 }
 
-} // namespace velk::scene
+} // namespace velk

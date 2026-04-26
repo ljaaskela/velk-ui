@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 namespace {
 
@@ -378,4 +378,4 @@ void Rasterizer::shutdown(FrameContext& ctx)
     render_target_entries_.clear();
 }
 
-} // namespace velk::ui
+} // namespace velk

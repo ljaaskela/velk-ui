@@ -16,7 +16,7 @@ class IRenderContext;
 class IDrawData;
 } // namespace velk
 
-namespace velk::ui {
+namespace velk {
 
 class FrameDataManager;
 struct FrameContext;
@@ -148,6 +148,6 @@ private:
     vector<IBuffer::Ptr>     frame_data_buffers_;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_FRAME_SNIPPET_REGISTRY_H

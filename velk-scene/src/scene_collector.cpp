@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 namespace {
 
@@ -609,4 +609,4 @@ void enumerate_scene_lights(const SceneState& scene_state, LightCb cb, void* use
         });
 }
 
-} // namespace velk::ui
+} // namespace velk

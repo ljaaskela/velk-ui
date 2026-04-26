@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <velk-scene/types.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Bit flags for the element pipeline phases.
@@ -81,6 +81,6 @@ public:
     )
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_TRAIT_H

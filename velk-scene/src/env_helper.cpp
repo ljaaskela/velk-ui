@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-namespace velk::ui {
+namespace velk {
 
 namespace {
 
@@ -84,4 +84,4 @@ EnvResolved ensure_env_ready(ICamera& camera, FrameContext& ctx)
     return out;
 }
 
-} // namespace velk::ui
+} // namespace velk

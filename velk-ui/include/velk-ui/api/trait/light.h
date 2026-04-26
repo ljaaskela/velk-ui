@@ -21,7 +21,7 @@ namespace velk::ui {
  *   auto sun = trait::render::create_directional_light(
  *       ::velk::color::white(), 1.f);
  *   sun.add_technique(create_rt_shadow());   // not wired up yet
- *   auto elem = ui::create_element();
+ *   auto elem = ::velk::create_element();
  *   elem.add_trait(sun);
  */
 class Light : public RenderTrait

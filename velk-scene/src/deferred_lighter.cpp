@@ -22,7 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 namespace {
 
@@ -342,4 +342,4 @@ void DeferredLighter::shutdown(FrameContext& /*ctx*/)
     compiled_pipelines_.clear();
 }
 
-} // namespace velk::ui
+} // namespace velk

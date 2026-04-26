@@ -17,7 +17,7 @@
 #include "frame_data_manager.h"
 #include "gpu_resource_manager.h"
 
-namespace velk::ui {
+namespace velk {
 
 class FrameSnippetRegistry;
 
@@ -221,6 +221,6 @@ public:
     virtual void shutdown(FrameContext& /*ctx*/) {}
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_VIEW_RENDERER_H

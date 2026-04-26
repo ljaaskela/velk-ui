@@ -3,7 +3,7 @@
 
 #include <velk/common.h>
 
-namespace velk::scene {
+namespace velk {
 
 namespace ClassId {
 
@@ -24,6 +24,6 @@ inline constexpr Uid ScenePlugin{"81d179c5-7e55-4623-98e8-b458c30147f9"};
 
 } // namespace PluginId
 
-} // namespace velk::scene
+} // namespace velk
 
 #endif // VELK_SCENE_PLUGIN_H

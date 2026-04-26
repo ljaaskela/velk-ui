@@ -25,7 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 namespace {
 
@@ -536,4 +536,4 @@ void RayTracer::shutdown(FrameContext& ctx)
     (void)ctx;
 }
 
-} // namespace velk::ui
+} // namespace velk

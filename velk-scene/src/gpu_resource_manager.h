@@ -13,7 +13,7 @@
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/intf_texture_resolver.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Manages GPU resource upload tracking and deferred destruction.
@@ -120,6 +120,6 @@ private:
     vector<IBuffer::WeakPtr> observed_env_resources_;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_GPU_RESOURCE_MANAGER_H

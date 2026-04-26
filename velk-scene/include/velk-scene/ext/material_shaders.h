@@ -3,7 +3,7 @@
 
 #include <velk-render/ext/element_vertex.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Alias for the shared element vertex shader.
@@ -14,6 +14,6 @@ namespace velk::ui {
  */
 inline constexpr string_view rect_material_vertex_src = ::velk::ext::element_vertex_src;
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_EXT_MATERIAL_SHADERS_H

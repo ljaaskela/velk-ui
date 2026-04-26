@@ -9,7 +9,7 @@
 #include <velk-render/frustum.h>
 #include <velk-render/interface/intf_camera.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Per-view renderer that emits classic graphics draw passes.
@@ -87,6 +87,6 @@ private:
                                     vector<RenderPass>& out_passes);
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_RASTERIZER_H

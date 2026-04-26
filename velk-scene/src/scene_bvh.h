@@ -10,7 +10,7 @@
 #include <velk-render/interface/intf_bvh.h>
 #include <velk-scene/plugin.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief IBvh implementation backed by an IScene tree walk.
@@ -30,7 +30,7 @@ namespace impl {
 class SceneBvh : public ::velk::ext::ObjectCore<SceneBvh, ::velk::IBvh>
 {
 public:
-    VELK_CLASS_UID(::velk::scene::ClassId::SceneBvh, "SceneBvh");
+    VELK_CLASS_UID(::velk::ClassId::SceneBvh, "SceneBvh");
 
     SceneBvh() = default;
 
@@ -127,6 +127,6 @@ private:
 
 using SceneBvh = impl::SceneBvh;
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_SCENE_BVH_H

@@ -12,7 +12,7 @@ namespace velk {
 class IShadowTechnique;
 } // namespace velk
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Per-view renderer that produces a compute-dispatch + blit pass.
@@ -44,6 +44,6 @@ private:
     uint64_t ensure_pipeline(FrameContext& ctx);
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_RAY_TRACER_H

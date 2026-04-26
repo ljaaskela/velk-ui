@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace velk::ui {
+namespace velk {
 
 enum class DirtyFlags : uint8_t
 {
@@ -89,11 +89,9 @@ enum class RenderMode : uint8_t
     TraitOnly   ///< Render only to render-to-texture traits; skip surface.
 };
 
-enum class BlendMode : uint8_t
-{
-    Opaque,    ///< No blending, overwrite destination.
-    SrcAlpha   ///< Standard alpha blending: srcAlpha, oneMinusSrcAlpha (default).
-};
+// BlendMode is defined in velk-render/render_types.h (Alpha / Opaque) —
+// that enum is shared with the pipeline state and there's no value in
+// keeping a duplicate here.
 
 enum class HAlign : uint8_t
 {
@@ -116,6 +114,6 @@ enum class TextLayout : uint8_t
     WordWrap    ///< Wraps at bounds width at word boundaries; also respects \n.
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_TYPES_H

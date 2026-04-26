@@ -6,7 +6,7 @@
 
 #include <velk-scene/interface/intf_trait.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Trait interface for rendering an element's subtree into a texture.
@@ -27,6 +27,6 @@ public:
     )
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_RENDER_TO_TEXTURE_H

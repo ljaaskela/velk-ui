@@ -31,7 +31,7 @@
 #include <condition_variable>
 #include <mutex>
 
-namespace velk::ui {
+namespace velk {
 
 class Renderer : public ::velk::ext::Object<Renderer, IRendererInternal, IRenderer, IGpuResourceObserver>
 {
@@ -141,6 +141,6 @@ private:
     std::condition_variable slot_cv_;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_RENDERER_IMPL_H

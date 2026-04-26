@@ -25,7 +25,7 @@
 #define LAYOUT_LOG(...) ((void)0)
 #endif
 
-namespace velk::ui {
+namespace velk::impl {
 
 namespace {
 
@@ -41,7 +41,7 @@ namespace {
 IScenePlugin* scene_plugin()
 {
     auto plugin = ::velk::instance().plugin_registry().find_plugin(
-        ::velk::scene::PluginId::ScenePlugin);
+        ::velk::PluginId::ScenePlugin);
     return interface_cast<IScenePlugin>(plugin.get());
 }
 
@@ -522,4 +522,4 @@ IHierarchy::Node Scene::node_of(const IObject::Ptr& object) const
     return logical_.node_of(object).hierarchy_node();
 }
 
-} // namespace velk::ui
+} // namespace velk::impl

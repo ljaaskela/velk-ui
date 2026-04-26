@@ -5,7 +5,7 @@
 
 #include <velk-scene/interface/intf_scene.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Plugin-level scene-services interface.
@@ -24,7 +24,7 @@ namespace velk::ui {
  *
  * Reach it via:
  *   auto* plugin = velk::instance().plugin_registry()
- *                       .find_plugin(scene::PluginId::ScenePlugin).get();
+ *                       .find_plugin(PluginId::ScenePlugin).get();
  *   auto* svc = interface_cast<IScenePlugin>(plugin);
  */
 class IScenePlugin : public Interface<IScenePlugin>
@@ -40,6 +40,6 @@ public:
     virtual void unregister_scene(IScene* scene) = 0;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_SCENE_INTF_SCENE_PLUGIN_H

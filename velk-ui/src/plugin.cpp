@@ -98,7 +98,7 @@ void VelkUiPlugin::post_update(const IPlugin::PostUpdateInfo& info)
     // Scene::update afterwards merges resulting dirty notifications
     // and finalises per-frame state.
     auto plugin_ptr = ::velk::instance().plugin_registry().find_plugin(
-        ::velk::scene::PluginId::ScenePlugin);
+        ::velk::PluginId::ScenePlugin);
     auto* scene_svc = interface_cast<IScenePlugin>(plugin_ptr.get());
     if (!scene_svc) return;
 

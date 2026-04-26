@@ -64,7 +64,7 @@ velk::Topology to_backend_topology(velk::MeshTopology mt)
 
 } // namespace
 
-namespace velk::ui {
+namespace velk {
 
 void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* observer,
                                     IRenderContext* render_ctx)
@@ -801,4 +801,4 @@ uint64_t BatchBuilder::write_material_once(IProgram* prog, FrameDataManager& fra
     return addr;
 }
 
-} // namespace velk::ui
+} // namespace velk

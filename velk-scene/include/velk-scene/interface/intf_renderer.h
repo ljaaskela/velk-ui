@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace velk::ui {
+namespace velk {
 
 /** @brief Describes which cameras to render for a given surface. */
 struct ViewDesc
@@ -169,6 +169,6 @@ public:
     virtual void shutdown() = 0;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_RENDERER_H

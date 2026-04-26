@@ -15,7 +15,7 @@
 #include <velk-scene/interface/intf_scene.h>
 #include <velk-scene/interface/intf_visual.h>
 
-namespace velk::ui {
+namespace velk {
 
 // GPU-side shape record. Mirrors the RtShape struct declared in the RT
 // compute prelude (and the deferred compute shader). Geometry + material
@@ -220,6 +220,6 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx,
 void enumerate_scene_lights(const SceneState& scene_state,
                             LightCb cb, void* user);
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_SCENE_COLLECTOR_H

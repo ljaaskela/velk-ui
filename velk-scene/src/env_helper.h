@@ -7,7 +7,7 @@
 
 #include "view_renderer.h"
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Result of ensuring a camera's environment is GPU-ready.
@@ -35,6 +35,6 @@ struct EnvResolved
  */
 EnvResolved ensure_env_ready(ICamera& camera, FrameContext& ctx);
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_ENV_HELPER_H

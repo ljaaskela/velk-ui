@@ -12,7 +12,7 @@
 
 #include <velk-render/api/shadow_technique.h>
 #include <velk-render/plugin.h>
-#include <velk-ui/api/element.h>
+#include <velk-scene/api/element.h>
 #include <velk-ui/api/trait/light.h>
 #include <velk-ui/api/trait/trs.h>
 #include <velk-ui/api/visual/mesh.h>
@@ -257,7 +257,7 @@ IStore::Ptr GltfAsset::instantiate() const
     // keeps the asset's X and Z axes intact so signage faces the same
     // direction as in the source asset; only Y flips, which is what we
     // actually want.
-    auto root = ::velk::ui::create_element();
+    auto root = ::velk::create_element();
     auto root_obj = interface_pointer_cast<IObject>(static_cast<IElement::Ptr>(root));
     store.add("gltf:node:root", root_obj);
     hier.set_root(root_obj);

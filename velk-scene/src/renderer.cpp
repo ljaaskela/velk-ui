@@ -26,7 +26,7 @@
 #define RENDER_LOG(...) ((void)0)
 #endif
 
-namespace velk::ui {
+namespace velk {
 
 constexpr string_view velk_ui_glsl = R"(
 // Universal per-instance record shared by every visual (rect,
@@ -981,4 +981,4 @@ void Renderer::shutdown()
 }
 
 
-} // namespace velk::ui
+} // namespace velk

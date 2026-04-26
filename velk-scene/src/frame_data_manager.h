@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Manages per-frame GPU data buffers.
@@ -77,6 +77,6 @@ private:
     Slot* active_ = nullptr;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_FRAME_DATA_MANAGER_H

@@ -10,12 +10,12 @@
 #include <velk-scene/plugin.h>
 #include <velk-scene/types.h>
 
-namespace velk::ui {
+namespace velk::impl {
 
 class Element : public ::velk::ext::Object<Element, IElement, IMetadataObserver, ISceneObserver>
 {
 public:
-    VELK_CLASS_UID(::velk::scene::ClassId::Element, "Element");
+    VELK_CLASS_UID(::velk::ClassId::Element, "Element");
 
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;
 
@@ -39,6 +39,6 @@ private:
     DirtyFlags pending_dirty_ = DirtyFlags::None;
 };
 
-} // namespace velk::ui
+} // namespace velk::impl
 
 #endif // VELK_UI_ELEMENT_H

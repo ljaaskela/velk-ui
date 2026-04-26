@@ -9,7 +9,7 @@
 
 #include <cstring>
 
-namespace velk::ui::impl {
+namespace velk::impl {
 
 namespace {
 
@@ -126,4 +126,4 @@ void SceneBvh::rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& fra
     }
 }
 
-} // namespace velk::ui::impl
+} // namespace velk::impl

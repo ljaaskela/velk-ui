@@ -4,7 +4,7 @@
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
 
-#include <velk-ui/api/element.h>
+#include <velk-scene/api/element.h>
 #include <velk-ui/interface/intf_layout_trait.h>
 #include <velk-ui/interface/intf_transform_trait.h>
 #include <velk-scene/interface/intf_visual.h>

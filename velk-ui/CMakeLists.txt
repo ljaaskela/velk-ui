@@ -83,11 +83,8 @@ add_library(velk_ui SHARED
     include/velk-ui/ext/trait.h
     include/velk-ui/api/trait/fixed_size.h
     include/velk-ui/api/trait/stack.h
-    include/velk-ui/api/element.h
     include/velk-ui/api/material/gradient.h
-    include/velk-ui/api/scene.h
     include/velk-ui/api/camera.h
-    include/velk-ui/api/trait.h
     include/velk-ui/api/visual/visual.h
     include/velk-ui/api/visual/rect.h
     include/velk-ui/api/visual/rounded_rect.h

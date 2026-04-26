@@ -5,7 +5,7 @@
 
 #include <velk-scene/interface/intf_trait.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Base API wrapper for all element traits (constraints, visuals, etc.).
@@ -28,6 +28,6 @@ public:
     operator ITrait::Ptr() const { return as_ptr<ITrait>(); }
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_API_TRAIT_H

@@ -5,7 +5,7 @@
 #include <velk/interface/resource/intf_resource.h>
 #include <velk-render/interface/material/intf_material.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief An equirectangular HDR environment map for skybox rendering.
@@ -43,6 +43,6 @@ public:
     virtual IMaterial::Ptr get_material() const = 0;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_INTF_ENVIRONMENT_H

@@ -4,7 +4,7 @@
 
 #include <cstring>
 
-namespace velk::ui {
+namespace velk {
 
 uint64_t FrameDataManager::write(const void* data, size_t size, size_t alignment)
 {
@@ -119,4 +119,4 @@ void FrameDataManager::ensure_slot(Slot& slot, IRenderBackend& backend)
     alloc_slot(slot, backend);
 }
 
-} // namespace velk::ui
+} // namespace velk

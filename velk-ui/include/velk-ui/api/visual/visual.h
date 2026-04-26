@@ -5,7 +5,7 @@
 
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-ui/api/mesh.h>
-#include <velk-ui/api/trait.h>
+#include <velk-scene/api/trait.h>
 #include <velk-scene/interface/intf_visual.h>
 
 namespace velk::ui {

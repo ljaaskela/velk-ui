@@ -4,12 +4,12 @@
 #include <velk/api/future.h>
 #include <velk/api/hierarchy.h>
 
-#include <velk-ui/api/element.h>
+#include <velk-scene/api/element.h>
 #include <velk-scene/interface/intf_scene.h>
 #include <velk-scene/plugin.h>
 #include <velk-ui/plugin.h>
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Convenience wrapper around IScene.
@@ -149,7 +149,7 @@ public:
  */
 inline Scene create_scene(string_view path = {})
 {
-    auto obj = instance().create<IObject>(scene::ClassId::Scene);
+    auto obj = instance().create<IObject>(::velk::ClassId::Scene);
     Scene s(std::move(obj));
     if (s && !path.empty()) {
         s.load_from(path).get_result();
@@ -157,6 +157,6 @@ inline Scene create_scene(string_view path = {})
     return s;
 }
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_API_SCENE_H

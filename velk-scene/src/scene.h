@@ -13,12 +13,12 @@
 
 #include <shared_mutex>
 
-namespace velk::ui {
+namespace velk::impl {
 
 class Scene : public ::velk::ext::Object<Scene, IScene>
 {
 public:
-    VELK_CLASS_UID(::velk::scene::ClassId::Scene, "Scene");
+    VELK_CLASS_UID(::velk::ClassId::Scene, "Scene");
 
     Scene();
     ~Scene() override;
@@ -85,6 +85,6 @@ private:
     bool initialized_ = false;
 };
 
-} // namespace velk::ui
+} // namespace velk::impl
 
 #endif // VELK_UI_SCENE_H

@@ -21,7 +21,7 @@
 #include "frame_data_manager.h"
 #include "gpu_resource_manager.h"
 
-namespace velk::ui {
+namespace velk {
 
 /**
  * @brief Builds draw batches from the visual list and converts them to GPU draw calls.
@@ -176,6 +176,6 @@ private:
     std::unordered_map<IProgram*, uint64_t> frame_material_addrs_;
 };
 
-} // namespace velk::ui
+} // namespace velk
 
 #endif // VELK_UI_BATCH_BUILDER_H

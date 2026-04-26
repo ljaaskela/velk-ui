@@ -7,7 +7,7 @@
 #include <velk-scene/interface/intf_scene.h>
 #include <velk-scene/interface/intf_trait.h>
 
-namespace velk::ui {
+namespace velk::impl {
 
 void Element::on_attached(IScene& scene)
 {
@@ -124,4 +124,4 @@ void Element::subscribe_traits()
     }
 }
 
-} // namespace velk::ui
+} // namespace velk::impl
