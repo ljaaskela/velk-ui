@@ -78,6 +78,9 @@ public:
     /** @brief Sets the layout bounds for this scene. */
     virtual void set_geometry(aabb geometry) = 0;
 
+    /** @brief Returns the layout bounds previously set via set_geometry. */
+    virtual aabb get_geometry() const = 0;
+
     /**
      * @brief Processes one frame: runs layout solver, collects visual changes,
      *        and rebuilds the visual list if draw order changed.
@@ -97,17 +100,31 @@ public:
     virtual void notify_dirty(IElement& element, DirtyFlags flags) = 0;
 
     /**
+     * @brief Returns the dirty flags accumulated since the last update.
+     *
+     * Pre-update consumers (the layout pass run by velk-ui's plugin)
+     * use this to skip work when nothing pending touches their concern
+     * — e.g. don't run the layout solver when no element has notified
+     * `Layout`. Cleared inside `update()`.
+     */
+    virtual DirtyFlags pending_dirty() const = 0;
+
+    /**
      * @brief Returns elements hit by a ray, in hit order (front to back).
      *
-     * Only elements with an IInputTrait attachment participate in hit testing.
-     * Coordinates are in world space.
+     * Coordinates are in world space. Pass a non-empty @p filter to restrict
+     * results to elements whose attachments implement the listed trait
+     * interfaces (e.g. `IInputTrait` for hit-testing pointer events). Empty
+     * filter matches every element on the ray path.
      *
      * @param origin    Ray origin in world space.
      * @param direction Ray direction in world space.
      * @param max_count Maximum number of hits to return (0 = unlimited).
+     * @param filter    Optional trait filter; same semantics as `find_elements`.
      */
     virtual vector<IElement::Ptr> ray_cast(vec3 origin, vec3 direction,
-                                           size_t max_count = 0) const = 0;
+                                           size_t max_count = 0,
+                                           const ElementQuery& filter = {}) const = 0;
 
     /**
      * @brief Returns elements matching @p query, in pre-order tree traversal.

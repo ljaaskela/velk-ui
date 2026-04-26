@@ -6,6 +6,7 @@
 
 #include <velk-ui/api/element.h>
 #include <velk-scene/interface/intf_scene.h>
+#include <velk-scene/plugin.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {
@@ -148,7 +149,7 @@ public:
  */
 inline Scene create_scene(string_view path = {})
 {
-    auto obj = instance().create<IObject>(ClassId::Scene);
+    auto obj = instance().create<IObject>(scene::ClassId::Scene);
     Scene s(std::move(obj));
     if (s && !path.empty()) {
         s.load_from(path).get_result();

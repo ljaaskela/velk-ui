@@ -2,6 +2,7 @@
 
 #include "element.h"
 #include "renderer.h"
+#include "scene.h"
 
 namespace velk::scene {
 
@@ -9,6 +10,7 @@ namespace velk::scene {
                                             ::velk::PluginConfig& /*config*/)
 {
     auto rv = register_type<::velk::ui::Element>(velk);
+    rv &= register_type<::velk::ui::Scene>(velk);
 
     // Renderer: low instance count (one per app), alloc-on-demand.
     ::velk::TypeOptions alloc;

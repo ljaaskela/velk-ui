@@ -7,9 +7,7 @@ namespace velk::ui {
 
 namespace ClassId {
 
-/** @brief Scene graph. Owns the element hierarchy, runs layout, and pushes changes to the renderer. */
-inline constexpr Uid Scene{"03779f51-3fb0-45d7-9a9e-a25ef0a42dce"};
-// Note: Element moved to velk-scene/plugin.h.
+// Note: Element + Scene moved to velk-scene/plugin.h.
 // Note: SceneBvh moved to velk-scene/plugin.h.
 
 namespace Constraint {

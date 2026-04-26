@@ -1,5 +1,9 @@
 #include "plugin.h"
 
+#include <velk/interface/intf_plugin_registry.h>
+#include <velk-scene/interface/intf_scene_plugin.h>
+#include <velk-scene/plugin.h>
+
 #include "camera.h"
 #include "constraint/fixed_size.h"
 #include "import/align_type_extension.h"
@@ -13,7 +17,7 @@
 #include "input/input_dispatcher.h"
 #include "layout/stack.h"
 #include "material/gradient_material.h"
-#include "scene.h"
+#include "layout_solver.h"
 #include "trait/light.h"
 #include "transform/look_at.h"
 #include "transform/matrix.h"
@@ -36,8 +40,7 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
 {
     config.enableUpdate = true;
 
-    auto rv = register_type<Scene>(velk);
-    rv &= register_type<Stack>(velk);
+    auto rv = register_type<Stack>(velk);
     rv &= register_type<FixedSize>(velk);
     rv &= register_type<RectVisual>(velk);
     rv &= register_type<RoundedRectVisual>(velk);
@@ -88,9 +91,30 @@ ReturnValue VelkUiPlugin::shutdown(IVelk&)
 
 void VelkUiPlugin::post_update(const IPlugin::PostUpdateInfo& info)
 {
-    for (auto* scene : Scene::live_scenes()) {
-        scene->update(info.info);
-    }
+    // Pre-update: run velk-ui's LayoutSolver against every live scene
+    // before its own update() runs. The solver is the velk-ui side of
+    // Scene::update — it materialises the constraints + transforms +
+    // AABB propagation that scene-model itself doesn't know about.
+    // Scene::update afterwards merges resulting dirty notifications
+    // and finalises per-frame state.
+    auto plugin_ptr = ::velk::instance().plugin_registry().find_plugin(
+        ::velk::scene::PluginId::ScenePlugin);
+    auto* scene_svc = interface_cast<IScenePlugin>(plugin_ptr.get());
+    if (!scene_svc) return;
+
+    LayoutSolver solver;
+    struct Ctx { LayoutSolver* solver; const IPlugin::PostUpdateInfo* info; };
+    Ctx ctx{&solver, &info};
+    scene_svc->for_each_scene(+[](IScene* scene, void* user) {
+        if (!scene) return;
+        auto& c = *static_cast<Ctx*>(user);
+        if ((scene->pending_dirty() & DirtyFlags::Layout) != DirtyFlags::None) {
+            if (auto* h = interface_cast<IHierarchy>(scene)) {
+                c.solver->solve(*h, scene->get_geometry());
+            }
+        }
+        scene->update(c.info->info);
+    }, &ctx);
 }
 
 } // namespace velk::ui

@@ -5,10 +5,11 @@
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
+#include <velk/interface/intf_plugin_registry.h>
 #include <velk/interface/intf_store.h>
 
-#include <velk-ui/interface/intf_input_trait.h>
 #include <velk-scene/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_scene_plugin.h>
 #include <velk/interface/resource/intf_resource.h>
 #include <velk/interface/resource/intf_resource_store.h>
 #include <velk/plugins/importer/api/importer.h>
@@ -35,21 +36,29 @@ IHierarchy* get_hierarchy(Hierarchy& h)
 
 } // namespace
 
-vector<Scene*>& Scene::live_scenes()
+namespace {
+
+IScenePlugin* scene_plugin()
 {
-    static vector<Scene*> scenes;
-    return scenes;
+    auto plugin = ::velk::instance().plugin_registry().find_plugin(
+        ::velk::scene::PluginId::ScenePlugin);
+    return interface_cast<IScenePlugin>(plugin.get());
 }
+
+} // namespace
 
 Scene::Scene()
 {
-    live_scenes().push_back(this);
+    if (auto* sp = scene_plugin()) {
+        sp->register_scene(this);
+    }
 }
 
 Scene::~Scene()
 {
-    auto& scenes = live_scenes();
-    scenes.erase(std::remove(scenes.begin(), scenes.end(), this), scenes.end());
+    if (auto* sp = scene_plugin()) {
+        sp->unregister_scene(this);
+    }
 }
 
 IFuture::Ptr Scene::load_from(string_view path)
@@ -174,9 +183,13 @@ void Scene::update(const UpdateInfo& info)
     }
     dirty_elements_.clear();
 
-    if ((dirty_ & DirtyFlags::Layout) != DirtyFlags::None) {
-        solver_.solve(*h, geometry_);
-    }
+    // Layout (constraint solving + transform/AABB propagation) is run
+    // by an external pre-update hook owned by whichever layer provides
+    // the constraint traits — velk-ui's plugin runs its LayoutSolver
+    // before invoking scene->update() each frame. Scene itself no
+    // longer touches layout, keeping the scene-model layer free of UI
+    // policy.
+    (void)h;
 
     // `redraw_list_` already contains every element whose own
     // on_state_changed fired this frame (see the dirty_elements_ loop
@@ -205,9 +218,11 @@ void Scene::notify_dirty(IElement& element, DirtyFlags flags)
 {
     std::unique_lock lock(state_mutex_);
     dirty_elements_.push_back(&element);
+    dirty_ |= flags;
 }
 
-vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t max_count) const
+vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t max_count,
+                                       const ElementQuery& filter) const
 {
     std::shared_lock lock(state_mutex_);
 
@@ -243,14 +258,21 @@ vector<IElement::Ptr> Scene::ray_cast(vec3 origin, vec3 /*direction*/, size_t ma
 
         auto* storage = interface_cast<IObjectStorage>(elem);
         if (!storage) continue;
-        bool has_trait = false;
-        for (size_t j = 0; j < storage->attachment_count(); ++j) {
-            if (interface_cast<IInputTrait>(storage->get_attachment(j))) {
-                has_trait = true;
-                break;
+        // Trait filter: every required UID in `filter.traits` must be
+        // implemented by at least one of the element's attachments. An
+        // empty filter accepts every element (raw geometric hit test).
+        bool keep = true;
+        for (auto required : filter.traits) {
+            bool found = false;
+            for (size_t j = 0; j < storage->attachment_count(); ++j) {
+                if (storage->get_attachment(j)->get_interface(required) != nullptr) {
+                    found = true;
+                    break;
+                }
             }
+            if (!found) { keep = false; break; }
         }
-        if (!has_trait) continue;
+        if (!keep) continue;
 
         auto reader = read_state<IElement>(elem);
         if (!reader) continue;

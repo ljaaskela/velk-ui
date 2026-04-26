@@ -48,12 +48,14 @@ void Element::on_state_changed(string_view name, IMetadata& owner, Uid interface
         return;
     }
 
-    bool was_clean = (pending_dirty_ == DirtyFlags::None);
     pending_dirty_ |= flag;
-
-    if (was_clean) {
-        scene->notify_dirty(*this, flag);
-    }
+    // Always notify so the scene's aggregate `dirty_` sees every flag
+    // (consumers like the pre-update layout pass query that aggregate
+    // before any per-element consume runs). Scene::notify_dirty's
+    // dirty_elements_ list can take duplicate pushes — consume_dirty
+    // clears pending_dirty_ on the first visit so later visits become
+    // no-ops without affecting redraw_list bookkeeping.
+    scene->notify_dirty(*this, flag);
 }
 
 DirtyFlags Element::consume_dirty()
@@ -102,11 +104,8 @@ void Element::subscribe_trait(const IInterface::Ptr& attachment)
                 if (!scene) {
                     return ReturnValue::NothingToDo;
                 }
-                bool was_clean = (pending_dirty_ == DirtyFlags::None);
                 pending_dirty_ |= flags;
-                if (was_clean) {
-                    scene->notify_dirty(*this, flags);
-                }
+                scene->notify_dirty(*this, flags);
                 return ReturnValue::Success;
             });
         }

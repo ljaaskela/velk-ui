@@ -4,8 +4,6 @@ add_library(velk_ui SHARED
     src/camera.h
     src/camera.cpp
     src/trait/light.h
-    src/scene.h
-    src/scene.cpp
     src/layout_solver.h
     src/layout_solver.cpp
     src/layout/stack.h

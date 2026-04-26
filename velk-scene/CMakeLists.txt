@@ -17,6 +17,8 @@ add_library(velk_scene SHARED
     # Concrete scene-model implementations
     src/element.h
     src/element.cpp
+    src/scene.h
+    src/scene.cpp
 
     # Renderer + render paths
     src/renderer.h
@@ -49,6 +51,7 @@ add_library(velk_scene SHARED
     # Public interfaces (scene model + renderer surface)
     include/velk-scene/plugin.h
     include/velk-scene/types.h
+    include/velk-scene/interface/intf_scene_plugin.h
     include/velk-scene/interface/intf_scene.h
     include/velk-scene/interface/intf_scene_observer.h
     include/velk-scene/interface/intf_element.h
@@ -60,7 +63,7 @@ add_library(velk_scene SHARED
     include/velk-scene/ext/material_shaders.h
 )
 
-target_link_libraries(velk_scene PRIVATE velk velk_render)
+target_link_libraries(velk_scene PRIVATE velk velk_importer velk_render)
 
 target_include_directories(velk_scene
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

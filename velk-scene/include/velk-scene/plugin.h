@@ -10,6 +10,9 @@ namespace ClassId {
 /** @brief UI element node. Holds position, size, transform, and z-index. */
 inline constexpr Uid Element{"074fde67-68e0-43fb-b52d-265665f301ee"};
 
+/** @brief Scene graph. Owns the element hierarchy, runs layout, and pushes changes to the renderer. */
+inline constexpr Uid Scene{"03779f51-3fb0-45d7-9a9e-a25ef0a42dce"};
+
 /** @brief Scene-wide BVH attachment; implements IBvh. Installed by the renderer on first frame. */
 inline constexpr Uid SceneBvh{"d9678826-947d-4f92-beee-5746340fe072"};
 
