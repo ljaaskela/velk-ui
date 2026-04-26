@@ -3,9 +3,9 @@
 #include <velk/interface/intf_metadata.h>
 #include <velk/interface/intf_object_storage.h>
 
-#include <velk-ui/interface/intf_render_to_texture.h>
-#include <velk-ui/interface/intf_scene.h>
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_scene.h>
+#include <velk-scene/interface/intf_trait.h>
 
 namespace velk::ui {
 

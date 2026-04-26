@@ -1,8 +1,8 @@
 #ifndef VELK_UI_INTF_TRANSFORM_TRAIT_H
 #define VELK_UI_INTF_TRANSFORM_TRAIT_H
 
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_trait.h>
 
 namespace velk::ui {
 

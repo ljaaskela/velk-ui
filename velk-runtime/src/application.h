@@ -12,8 +12,8 @@
 #include <velk-runtime/plugin.h>
 #include <velk-ui/api/element.h>
 #include <velk-ui/api/scene.h>
-#include <velk-ui/interface/intf_renderer.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_renderer.h>
+#include <velk-scene/interface/intf_scene.h>
 #include <velk-ui/plugins/text/api/text_visual.h>
 
 #include <chrono>

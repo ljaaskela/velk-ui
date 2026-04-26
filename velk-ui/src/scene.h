@@ -8,9 +8,9 @@
 #include <velk/ext/object.h>
 #include <velk/vector.h>
 
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_scene.h>
-#include <velk-ui/interface/intf_scene_observer.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_scene.h>
+#include <velk-scene/interface/intf_scene_observer.h>
 #include <velk-ui/plugin.h>
 
 #include <shared_mutex>

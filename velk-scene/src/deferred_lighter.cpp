@@ -16,7 +16,7 @@
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/intf_window_surface.h>
 #include <velk-render/interface/intf_camera.h>
-#include <velk-ui/interface/intf_environment.h>
+#include <velk-scene/interface/intf_environment.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -190,14 +190,16 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     // silently calling the wrong function. When a second technique
     // lands we'll switch to composed dispatch like RayTracer.
     vector<GpuLight> lights;
-    enumerate_scene_lights(scene_state, [&](LightSite& site) {
-        if (auto tech = find_shadow_technique(site.light)) {
-            if (tech->get_snippet_fn_name() == string_view("velk_shadow_rt")) {
-                site.base.flags[1] = 1;
+    enumerate_scene_lights(scene_state,
+        +[](void* u, LightSite& site) {
+            auto& out = *static_cast<vector<GpuLight>*>(u);
+            if (auto tech = find_shadow_technique(site.light)) {
+                if (tech->get_snippet_fn_name() == string_view("velk_shadow_rt")) {
+                    site.base.flags[1] = 1;
+                }
             }
-        }
-        lights.push_back(site.base);
-    });
+            out.push_back(site.base);
+        }, &lights);
     uint64_t lights_addr = 0;
     if (!lights.empty() && ctx.frame_buffer) {
         lights_addr = ctx.frame_buffer->write(lights.data(), lights.size() * sizeof(GpuLight));

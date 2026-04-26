@@ -5,7 +5,7 @@
 #include <velk/string.h>
 
 #include <velk-ui/interface/intf_font.h>
-#include <velk-ui/types.h>
+#include <velk-scene/types.h>
 
 namespace velk::ui {
 

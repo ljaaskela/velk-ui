@@ -5,7 +5,7 @@
 #include <velk/api/hierarchy.h>
 
 #include <velk-ui/api/element.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_scene.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {

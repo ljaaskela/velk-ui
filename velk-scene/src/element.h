@@ -5,17 +5,17 @@
 #include <velk/ext/object.h>
 #include <velk/interface/intf_metadata_observer.h>
 
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_scene_observer.h>
-#include <velk-ui/plugin.h>
-#include <velk-ui/types.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_scene_observer.h>
+#include <velk-scene/plugin.h>
+#include <velk-scene/types.h>
 
 namespace velk::ui {
 
 class Element : public ::velk::ext::Object<Element, IElement, IMetadataObserver, ISceneObserver>
 {
 public:
-    VELK_CLASS_UID(ClassId::Element, "Element");
+    VELK_CLASS_UID(::velk::scene::ClassId::Element, "Element");
 
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;
 

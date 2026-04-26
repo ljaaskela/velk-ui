@@ -17,7 +17,7 @@
 #include <velk-render/interface/intf_shadow_technique.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/intf_camera.h>
-#include <velk-ui/interface/intf_environment.h>
+#include <velk-scene/interface/intf_environment.h>
 
 #include <algorithm>
 #include <cmath>
@@ -302,49 +302,64 @@ void RayTracer::build_passes(ViewEntry& entry,
     // Materials resolve through the shared snippet registry so the
     // primary buffer and BVH use the same material ids.
     vector<RtShape> shapes;
-    enumerate_scene_shapes(scene_state, ctx.render_ctx, [&](ShapeSite& site) {
-        auto mat = site.paint
-            ? ctx.snippets->resolve_material(site.paint, ctx)
-            : FrameSnippetRegistry::MaterialRef{};
-        if (site.paint && mat.mat_id == 0) {
-            return;
-        }
-        uint32_t tex_id = 0;
-        if (site.draw_entry && site.draw_entry->texture_key != 0) {
-            auto* surf = reinterpret_cast<ISurface*>(
-                static_cast<uintptr_t>(site.draw_entry->texture_key));
-            tex_id = ctx.resources->find_texture(surf);
-            if (tex_id == 0) {
-                uint64_t rt_id = get_render_target_id(surf);
-                if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
+    struct ShapeCollect {
+        FrameContext& ctx;
+        vector<RtShape>& shapes;
+    };
+    ShapeCollect shape_state{ctx, shapes};
+    enumerate_scene_shapes(scene_state, ctx.render_ctx,
+        +[](void* u, ShapeSite& site) {
+            auto& s = *static_cast<ShapeCollect*>(u);
+            auto& ctx = s.ctx;
+            auto mat = site.paint
+                ? ctx.snippets->resolve_material(site.paint, ctx)
+                : FrameSnippetRegistry::MaterialRef{};
+            if (site.paint && mat.mat_id == 0) {
+                return;
             }
-        }
-        site.geometry.material_id = mat.mat_id;
-        site.geometry.material_data_addr = mat.mat_addr;
-        site.geometry.texture_id = tex_id;
-        if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
-            uint32_t kind = ctx.snippets->register_intersect(analytic, *ctx.render_ctx);
-            if (kind != 0) site.geometry.shape_kind = kind;
-        }
-        if (site.has_mesh_data && ctx.frame_buffer) {
-            if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
-                site.mesh_instance.mesh_static_addr =
-                    ctx.snippets->resolve_data_buffer(dd, ctx);
+            uint32_t tex_id = 0;
+            if (site.draw_entry && site.draw_entry->texture_key != 0) {
+                auto* surf = reinterpret_cast<ISurface*>(
+                    static_cast<uintptr_t>(site.draw_entry->texture_key));
+                tex_id = ctx.resources->find_texture(surf);
+                if (tex_id == 0) {
+                    uint64_t rt_id = get_render_target_id(surf);
+                    if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
+                }
             }
-            site.geometry.mesh_data_addr = ctx.frame_buffer->write(
-                &site.mesh_instance, sizeof(site.mesh_instance));
-        }
-        shapes.push_back(site.geometry);
-    });
+            site.geometry.material_id = mat.mat_id;
+            site.geometry.material_data_addr = mat.mat_addr;
+            site.geometry.texture_id = tex_id;
+            if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
+                uint32_t kind = ctx.snippets->register_intersect(analytic, *ctx.render_ctx);
+                if (kind != 0) site.geometry.shape_kind = kind;
+            }
+            if (site.has_mesh_data && ctx.frame_buffer) {
+                if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
+                    site.mesh_instance.mesh_static_addr =
+                        ctx.snippets->resolve_data_buffer(dd, ctx);
+                }
+                site.geometry.mesh_data_addr = ctx.frame_buffer->write(
+                    &site.mesh_instance, sizeof(site.mesh_instance));
+            }
+            s.shapes.push_back(site.geometry);
+        }, &shape_state);
 
     vector<GpuLight> lights;
-    enumerate_scene_lights(scene_state, [&](LightSite& site) {
-        if (auto tech = find_shadow_technique(site.light)) {
-            site.base.flags[1] =
-                ctx.snippets->register_shadow_tech(tech.get(), *ctx.render_ctx);
-        }
-        lights.push_back(site.base);
-    });
+    struct LightCollect {
+        FrameContext& ctx;
+        vector<GpuLight>& lights;
+    };
+    LightCollect light_state{ctx, lights};
+    enumerate_scene_lights(scene_state,
+        +[](void* u, LightSite& site) {
+            auto& s = *static_cast<LightCollect*>(u);
+            if (auto tech = find_shadow_technique(site.light)) {
+                site.base.flags[1] =
+                    s.ctx.snippets->register_shadow_tech(tech.get(), *s.ctx.render_ctx);
+            }
+            s.lights.push_back(site.base);
+        }, &light_state);
 
     uint64_t lights_addr = 0;
     if (!lights.empty()) {

@@ -5,7 +5,7 @@
 #include <velk/string_view.h>
 
 #include <velk-render/ext/element_vertex.h>
-#include <velk-ui/ext/material_shaders.h>
+#include <velk-scene/ext/material_shaders.h>
 
 #include <cstdio>
 #include <cstring>

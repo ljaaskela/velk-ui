@@ -14,7 +14,7 @@
 #include <velk-ui/api/scene.h>
 #include <velk-ui/api/trait/fixed_size.h>
 #include <velk-ui/api/visual/rect.h>
-#include <velk-ui/interface/intf_element.h>
+#include <velk-scene/interface/intf_element.h>
 #include <velk-ui/plugins/text/api/font.h>
 #include <velk-ui/plugins/text/api/text_visual.h>
 
@@ -30,6 +30,7 @@ bool Application::init(const ApplicationConfig& config)
     // Load all standard plugins.
     reg.load_plugin_from_path("velk_ui.dll");
     reg.load_plugin_from_path("velk_render.dll");
+    reg.load_plugin_from_path("velk_scene.dll");
     reg.load_plugin_from_path("velk_vk.dll");
     reg.load_plugin_from_path("velk_text.dll");
     reg.load_plugin_from_path("velk_image.dll");

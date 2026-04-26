@@ -8,7 +8,7 @@
 #include <velk/interface/intf_store.h>
 
 #include <velk-ui/interface/intf_input_trait.h>
-#include <velk-ui/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_render_to_texture.h>
 #include <velk/interface/resource/intf_resource.h>
 #include <velk/interface/resource/intf_resource_store.h>
 #include <velk/plugins/importer/api/importer.h>

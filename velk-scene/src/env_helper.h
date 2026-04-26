@@ -3,7 +3,7 @@
 
 #include <velk-render/interface/intf_camera.h>
 #include <velk-render/interface/intf_render_backend.h>
-#include <velk-ui/interface/intf_environment.h>
+#include <velk-scene/interface/intf_environment.h>
 
 #include "view_renderer.h"
 

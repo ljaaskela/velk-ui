@@ -3,7 +3,7 @@
 
 #include <velk/api/object.h>
 
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_trait.h>
 
 namespace velk::ui {
 

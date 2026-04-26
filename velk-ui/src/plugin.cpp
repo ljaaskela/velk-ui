@@ -2,7 +2,6 @@
 
 #include "camera.h"
 #include "constraint/fixed_size.h"
-#include "element.h"
 #include "import/align_type_extension.h"
 #include "import/dim_type_extension.h"
 #include "import/light_type_extension.h"
@@ -14,7 +13,6 @@
 #include "input/input_dispatcher.h"
 #include "layout/stack.h"
 #include "material/gradient_material.h"
-#include "renderer/renderer.h"
 #include "scene.h"
 #include "trait/light.h"
 #include "transform/look_at.h"
@@ -38,8 +36,7 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
 {
     config.enableUpdate = true;
 
-    auto rv = register_type<Element>(velk);
-    rv &= register_type<Scene>(velk);
+    auto rv = register_type<Scene>(velk);
     rv &= register_type<Stack>(velk);
     rv &= register_type<FixedSize>(velk);
     rv &= register_type<RectVisual>(velk);
@@ -64,7 +61,6 @@ ReturnValue VelkUiPlugin::initialize(IVelk& velk, PluginConfig& config)
     // Low instance count types, alloc as needed.
     ::velk::TypeOptions alloc;
     alloc.policy = ::velk::CreationPolicy::Alloc;
-    rv &= register_type<Renderer>(velk, alloc);
     rv &= register_type<DimTypeExtension>(velk, alloc);
     rv &= register_type<AlignTypeExtension>(velk, alloc);
     rv &= register_type<ProjectionTypeExtension>(velk, alloc);

@@ -9,7 +9,7 @@
 #include <velk/string_view.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/render_types.h>
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_trait.h>
 
 namespace velk {
 class IRenderContext;

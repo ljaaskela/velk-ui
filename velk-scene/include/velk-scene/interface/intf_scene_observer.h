@@ -3,7 +3,7 @@
 
 #include <velk/interface/intf_interface.h>
 
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_scene.h>
 
 namespace velk::ui {
 

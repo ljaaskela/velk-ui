@@ -7,7 +7,7 @@
 
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_window_surface.h>
-#include <velk-ui/interface/intf_element.h>
+#include <velk-scene/interface/intf_element.h>
 
 #include <cstdint>
 

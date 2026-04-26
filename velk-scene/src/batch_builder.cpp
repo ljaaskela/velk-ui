@@ -14,7 +14,7 @@
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_raster_shader.h>
 #include "gpu_resource_manager.h"
-#include <velk-ui/interface/intf_visual.h>
+#include <velk-scene/interface/intf_visual.h>
 
 #include <algorithm>
 #include <cstdlib>

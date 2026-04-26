@@ -8,7 +8,7 @@
 #include <velk/interface/intf_metadata_observer.h>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-ui/instance_types.h>
-#include <velk-ui/interface/intf_visual.h>
+#include <velk-scene/interface/intf_visual.h>
 
 namespace velk::ui::impl {
 

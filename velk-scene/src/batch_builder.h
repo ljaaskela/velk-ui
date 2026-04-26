@@ -15,8 +15,8 @@
 #include <velk-render/interface/intf_shader_snippet.h>
 #include <velk-render/interface/intf_texture_resolver.h>
 #include <velk-render/render_types.h>
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_scene.h>
 
 #include "frame_data_manager.h"
 #include "gpu_resource_manager.h"

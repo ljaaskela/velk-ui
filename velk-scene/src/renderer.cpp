@@ -17,8 +17,8 @@
 #include <velk-render/interface/intf_camera.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_mesh.h>
-#include <velk-ui/interface/intf_environment.h>
-#include <velk-ui/interface/intf_visual.h>
+#include <velk-scene/interface/intf_environment.h>
+#include <velk-scene/interface/intf_visual.h>
 
 #ifdef VELK_RENDER_DEBUG
 #define RENDER_LOG(...) VELK_LOG(I, __VA_ARGS__)
@@ -507,63 +507,73 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 dirty = true;
                 bvh->force_full_rebuild();
             }
-            bvh->rebuild(scene, render_ctx_, frame_buffer_, dirty, [&](ShapeSite& site) {
-                auto mat = site.paint
-                    ? snippets_.resolve_material(site.paint, ctx)
-                    : FrameSnippetRegistry::MaterialRef{};
-                uint32_t tex_id = 0;
-                if (site.draw_entry && site.draw_entry->texture_key != 0) {
-                    auto* surf = reinterpret_cast<ISurface*>(
-                        static_cast<uintptr_t>(site.draw_entry->texture_key));
-                    tex_id = resources_.find_texture(surf);
-                    if (tex_id == 0) {
-                        uint64_t rt_id = get_render_target_id(surf);
-                        if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
+            struct BvhBuildState {
+                Renderer*               self;
+                FrameContext&           ctx;
+                bool                    log;
+            };
+            BvhBuildState bvh_state{this, ctx, log_bvh_next_};
+            bvh->rebuild(scene, render_ctx_, frame_buffer_, dirty,
+                +[](void* u, ShapeSite& site) {
+                    auto& s = *static_cast<BvhBuildState*>(u);
+                    auto& ctx = s.ctx;
+                    auto& self = *s.self;
+                    auto mat = site.paint
+                        ? self.snippets_.resolve_material(site.paint, ctx)
+                        : FrameSnippetRegistry::MaterialRef{};
+                    uint32_t tex_id = 0;
+                    if (site.draw_entry && site.draw_entry->texture_key != 0) {
+                        auto* surf = reinterpret_cast<ISurface*>(
+                            static_cast<uintptr_t>(site.draw_entry->texture_key));
+                        tex_id = self.resources_.find_texture(surf);
+                        if (tex_id == 0) {
+                            uint64_t rt_id = get_render_target_id(surf);
+                            if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
+                        }
                     }
-                }
-                site.geometry.material_id = mat.mat_id;
-                site.geometry.material_data_addr = mat.mat_addr;
-                site.geometry.texture_id = tex_id;
+                    site.geometry.material_id = mat.mat_id;
+                    site.geometry.material_data_addr = mat.mat_addr;
+                    site.geometry.texture_id = tex_id;
 
-                if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
-                    uint32_t kind = snippets_.register_intersect(analytic, *render_ctx_);
-                    if (kind != 0) site.geometry.shape_kind = kind;
-                }
-
-                // Mesh-kind shapes: resolve the per-mesh static data
-                // address (stable across frames; cached on the cached
-                // shape's MeshInstanceData). The per-frame instance
-                // record itself is uploaded by SceneBvh during the
-                // re-publish pass. We just write a placeholder addr
-                // here for the first frame; SceneBvh's per-frame patch
-                // overwrites it on every subsequent frame.
-                if (site.has_mesh_data) {
-                    if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
-                        site.mesh_instance.mesh_static_addr =
-                            snippets_.resolve_data_buffer(dd, ctx);
+                    if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
+                        uint32_t kind = self.snippets_.register_intersect(analytic, *self.render_ctx_);
+                        if (kind != 0) site.geometry.shape_kind = kind;
                     }
-                    site.geometry.mesh_data_addr = frame_buffer_.write(
-                        &site.mesh_instance, sizeof(site.mesh_instance));
 
-                    if (log_bvh_next_ && site.mesh_primitive) {
-                        auto* mp = site.mesh_primitive;
-                        auto buf = mp->get_buffer();
-                        uint64_t buffer_addr = buf ? buf->get_gpu_address() : 0;
-                        uint32_t i_count = mp->get_index_count();
-                        uint32_t v_stride = mp->get_vertex_stride();
-                        uint32_t triangle_count = i_count / 3u;
-                        uint32_t ibo_offset = static_cast<uint32_t>(
-                            buf ? buf->get_ibo_offset() : 0);
-                        VELK_LOG(I, "BVH cb: inst=%p mesh_static_addr=0x%016llx "
-                                    "buffer_addr=0x%016llx ibo_offset=0x%08x "
-                                    "triangle_count=%u v_stride=%u",
-                                 (void*)mp,
-                                 (unsigned long long)site.mesh_instance.mesh_static_addr,
-                                 (unsigned long long)buffer_addr,
-                                 ibo_offset, triangle_count, v_stride);
+                    // Mesh-kind shapes: resolve the per-mesh static data
+                    // address (stable across frames; cached on the cached
+                    // shape's MeshInstanceData). The per-frame instance
+                    // record itself is uploaded by SceneBvh during the
+                    // re-publish pass. We just write a placeholder addr
+                    // here for the first frame; SceneBvh's per-frame patch
+                    // overwrites it on every subsequent frame.
+                    if (site.has_mesh_data) {
+                        if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
+                            site.mesh_instance.mesh_static_addr =
+                                self.snippets_.resolve_data_buffer(dd, ctx);
+                        }
+                        site.geometry.mesh_data_addr = self.frame_buffer_.write(
+                            &site.mesh_instance, sizeof(site.mesh_instance));
+
+                        if (s.log && site.mesh_primitive) {
+                            auto* mp = site.mesh_primitive;
+                            auto buf = mp->get_buffer();
+                            uint64_t buffer_addr = buf ? buf->get_gpu_address() : 0;
+                            uint32_t i_count = mp->get_index_count();
+                            uint32_t v_stride = mp->get_vertex_stride();
+                            uint32_t triangle_count = i_count / 3u;
+                            uint32_t ibo_offset = static_cast<uint32_t>(
+                                buf ? buf->get_ibo_offset() : 0);
+                            VELK_LOG(I, "BVH cb: inst=%p mesh_static_addr=0x%016llx "
+                                        "buffer_addr=0x%016llx ibo_offset=0x%08x "
+                                        "triangle_count=%u v_stride=%u",
+                                     (void*)mp,
+                                     (unsigned long long)site.mesh_instance.mesh_static_addr,
+                                     (unsigned long long)buffer_addr,
+                                     ibo_offset, triangle_count, v_stride);
+                        }
                     }
-                }
-            });
+                }, &bvh_state);
             scene_bvhs[scene] = bvh;
             // One-shot consumed: clear so subsequent frames don't spam.
             log_bvh_next_ = false;

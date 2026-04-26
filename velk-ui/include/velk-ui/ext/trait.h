@@ -7,9 +7,9 @@
 #include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-ui/interface/intf_layout_trait.h>
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_trait.h>
 #include <velk-ui/interface/intf_transform_trait.h>
-#include <velk-ui/interface/intf_visual.h>
+#include <velk-scene/interface/intf_visual.h>
 
 namespace velk::ui::ext {
 

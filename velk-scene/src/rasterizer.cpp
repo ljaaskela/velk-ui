@@ -11,8 +11,8 @@
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/intf_camera.h>
-#include <velk-ui/interface/intf_environment.h>
-#include <velk-ui/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_environment.h>
+#include <velk-scene/interface/intf_render_to_texture.h>
 
 #include <algorithm>
 #include <cstring>

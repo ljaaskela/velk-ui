@@ -2,10 +2,10 @@
   "version": 1,
   "comment": "Fluent RT demo. Camera + env + floor + empty grid root. The mirror grid and the floor's StandardMaterial are wired up in main.cpp.",
   "objects": [
-    { "id": "scene_root", "class": "velk-ui.Element" },
-    { "id": "camera_3d",  "class": "velk-ui.Element" },
-    { "id": "floor",      "class": "velk-ui.Element" },
-    { "id": "grid_root",  "class": "velk-ui.Element" }
+    { "id": "scene_root", "class": "velk-scene.Element" },
+    { "id": "camera_3d",  "class": "velk-scene.Element" },
+    { "id": "floor",      "class": "velk-scene.Element" },
+    { "id": "grid_root",  "class": "velk-scene.Element" }
   ],
   "hierarchies": {
     "scene": {

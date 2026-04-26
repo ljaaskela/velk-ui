@@ -6,8 +6,8 @@
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/render_types.h>
 #include <velk-runtime/interface/intf_window.h>
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_renderer.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_renderer.h>
 
 namespace velk {
 

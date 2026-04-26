@@ -23,9 +23,9 @@
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
 #include <velk-render/interface/intf_camera.h>
-#include <velk-ui/interface/intf_render_to_texture.h>
-#include <velk-ui/interface/intf_renderer.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_renderer.h>
+#include <velk-scene/interface/intf_scene.h>
 #include "scene_bvh.h"
 
 #include <condition_variable>

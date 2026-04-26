@@ -5,7 +5,7 @@
 #include <velk/interface/intf_metadata.h>
 
 #include <cstdint>
-#include <velk-ui/types.h>
+#include <velk-scene/types.h>
 
 namespace velk::ui {
 

@@ -9,8 +9,8 @@
 #include <velk/interface/intf_store.h>
 
 #include <velk-render/interface/intf_bvh.h>
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/types.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/types.h>
 
 namespace velk::ui {
 

@@ -4,7 +4,7 @@
 #include <velk/api/math_types.h>
 #include <velk/interface/intf_metadata.h>
 
-#include <velk-ui/interface/intf_trait.h>
+#include <velk-scene/interface/intf_trait.h>
 
 namespace velk::ui {
 

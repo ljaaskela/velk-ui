@@ -2,7 +2,7 @@
 #define VELK_UI_RENDER_CACHE_H
 
 #include <velk-ui/ext/trait.h>
-#include <velk-ui/interface/intf_render_to_texture.h>
+#include <velk-scene/interface/intf_render_to_texture.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui::impl {

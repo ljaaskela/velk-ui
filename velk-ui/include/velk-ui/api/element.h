@@ -6,8 +6,9 @@
 
 #include <velk-render/interface/intf_render_trait.h>
 #include <velk-ui/api/trait.h>
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_scene.h>
+#include <velk-scene/plugin.h>
 #include <velk-ui/plugin.h>
 
 namespace velk::ui {
@@ -105,7 +106,7 @@ private:
 /** @brief Creates a new empty element with no layout constraints or visual representation. */
 inline Element create_element()
 {
-    return Element(instance().create<IElement>(ClassId::Element));
+    return Element(instance().create<IElement>(scene::ClassId::Element));
 }
 
 } // namespace velk::ui

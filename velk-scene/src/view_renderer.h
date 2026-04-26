@@ -10,8 +10,8 @@
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_window_surface.h>
 #include <velk-render/render_types.h>
-#include <velk-ui/interface/intf_element.h>
-#include <velk-ui/interface/intf_scene.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-scene/interface/intf_scene.h>
 
 #include "batch_builder.h"
 #include "frame_data_manager.h"
