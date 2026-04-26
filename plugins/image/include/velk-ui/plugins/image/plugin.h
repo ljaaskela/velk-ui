@@ -13,6 +13,9 @@ inline constexpr Uid Image{"1933a69f-eb6e-438d-becb-2d9923ee84a6"};
 /** @brief Decoder turning raw image bytes into Image objects. Registered as "image". */
 inline constexpr Uid ImageDecoder{"d595679f-ed96-4af3-b208-83eb3e2d26b3"};
 
+/** @brief Encoder writing IImage pixel data to disk (PNG via stb_image_write). */
+inline constexpr Uid ImageEncoder{"457442fa-af86-4732-b2cc-4878dd06f26e"};
+
 /** @brief Equirectangular HDR environment map; implements IEnvironment, ISurface, and IBuffer. */
 inline constexpr Uid Environment{"c8531002-51c3-4b7c-abb7-5d89586d6696"};
 

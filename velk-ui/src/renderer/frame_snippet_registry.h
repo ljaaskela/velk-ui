@@ -13,6 +13,7 @@ class IProgram;
 class IShadowTechnique;
 class IAnalyticShape;
 class IRenderContext;
+class IDrawData;
 } // namespace velk
 
 namespace velk::ui {
@@ -87,6 +88,19 @@ public:
         uint64_t mat_addr = 0;
     };
     MaterialRef resolve_material(IProgram* prog, FrameContext& ctx);
+
+    /// @brief Resolves the GPU address of any IDrawData's persistent
+    ///        data buffer, ensuring the buffer is allocated and its
+    ///        bytes uploaded before returning. Caches a strong ref in
+    ///        frame_data_buffers_ so the buffer survives until the
+    ///        frame completes. Returns 0 if the object has no
+    ///        persistent buffer (e.g. zero draw-data size).
+    ///
+    /// Used by mesh primitives (which implement IDrawData for their
+    /// MeshStaticData blob) so RtShape records can capture a stable
+    /// GPU address once and only re-upload the per-instance world
+    /// matrices each frame.
+    uint64_t resolve_data_buffer(IDrawData* dd, FrameContext& ctx);
 
     const vector<MaterialInfo>&   material_info_by_id() const { return material_info_by_id_; }
     const vector<ShadowTechInfo>& shadow_tech_info_by_id() const { return shadow_tech_info_by_id_; }

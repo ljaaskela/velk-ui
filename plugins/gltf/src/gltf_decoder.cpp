@@ -586,12 +586,28 @@ IMesh::Ptr build_mesh(IMeshBuilder& builder, const cgltf_data* /*data*/,
             ibo[i_cursor + k] = prim_indices[k] + v_cursor;
         }
 
+        // Local-space AABB. Always compute from the actual position
+        // data we just loaded rather than trusting glTF's optional
+        // pos->{min,max} metadata: many assets omit it (gives zero
+        // extent), and a few carry stale values that don't match the
+        // vertex data after upstream edits. A bad local AABB collapses
+        // the consumer's world AABB and the BVH outer ray_aabb test
+        // silently misses every ray, dropping the primitive from RT
+        // shadows / picking. Y is negated below for the Y-up to Y-down
+        // import (matches the position negation in the loop above).
         aabb b{};
-        if (pos->has_min && pos->has_max) {
-            b.position = {pos->min[0], pos->min[1], pos->min[2]};
-            b.extent = {pos->max[0] - pos->min[0],
-                        pos->max[1] - pos->min[1],
-                        pos->max[2] - pos->min[2]};
+        if (v_count > 0) {
+            float mn[3] = { positions[0], positions[1], positions[2] };
+            float mx[3] = { positions[0], positions[1], positions[2] };
+            for (uint32_t k = 1; k < v_count; ++k) {
+                for (int j = 0; j < 3; ++j) {
+                    float p = positions[k * 3 + j];
+                    if (p < mn[j]) mn[j] = p;
+                    if (p > mx[j]) mx[j] = p;
+                }
+            }
+            b.position = { mn[0], -mx[1], mn[2] };
+            b.extent   = { mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2] };
         }
 
         Range r{};
@@ -643,6 +659,21 @@ IMesh::Ptr build_mesh(IMeshBuilder& builder, const cgltf_data* /*data*/,
             uv1_buffer_out,
             r.v_offset * static_cast<uint32_t>(sizeof(float) * 2));
         if (!prim) continue;
+
+        // Build a per-primitive BLAS so RT shadow + path-trace queries
+        // skip the linear triangle scan. We have the CPU vbo + ibo
+        // around right here; nodes/triangle-indices are uploaded with
+        // the primitive's MeshStaticData on first GPU pickup.
+        const uint32_t tri_count = r.i_count / 3;
+        if (tri_count > 0) {
+            const uint32_t* prim_indices = ibo.data() + r.i_offset;
+            const float*    vbo_floats   = reinterpret_cast<const float*>(vbo.data());
+            const uint32_t  total_vertex_count = static_cast<uint32_t>(vbo.size());
+            auto blas = ::velk::build_mesh_blas(
+                vbo_floats, kVertexStride, total_vertex_count,
+                prim_indices, tri_count);
+            prim->set_rt_blas(std::move(blas));
+        }
         if (r.material) {
             // glTF materials are deduplicated to our `materials` array
             // by index. Look up by pointer offset.

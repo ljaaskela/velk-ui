@@ -608,12 +608,13 @@ bool VkBackend::create_bindless_descriptor()
         return false;
     }
 
-    // Descriptor set layout: two bindings
+    // Descriptor set layout: three bindings
     //   0: variable-length sampler array (combined image+sampler) for sampled reads
-    //   1: variable-length storage-image array for compute imageStore writes
-    // Only the LAST binding may use VARIABLE_DESCRIPTOR_COUNT, so binding 1
-    // carries that flag; binding 0 uses a fixed count.
-    VkDescriptorSetLayoutBinding bindings[2]{};
+    //   1: storage-image array for compute imageStore writes (rgba8-format)
+    //   2: storage-image array for compute imageStore writes (rgba32f-format)
+    // Only the LAST binding may use VARIABLE_DESCRIPTOR_COUNT, so binding 2
+    // carries that flag; bindings 0 and 1 use fixed counts.
+    VkDescriptorSetLayoutBinding bindings[3]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = kMaxBindlessTextures;
@@ -624,7 +625,14 @@ bool VkBackend::create_bindless_descriptor()
     bindings[1].descriptorCount = kMaxBindlessTextures;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    VkDescriptorBindingFlags binding_flags[2] = {
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[2].descriptorCount = kMaxBindlessTextures;
+    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorBindingFlags binding_flags[3] = {
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
@@ -634,14 +642,14 @@ bool VkBackend::create_bindless_descriptor()
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
     flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    flags_ci.bindingCount = 2;
+    flags_ci.bindingCount = 3;
     flags_ci.pBindingFlags = binding_flags;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layout_ci.pNext = &flags_ci;
     layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    layout_ci.bindingCount = 2;
+    layout_ci.bindingCount = 3;
     layout_ci.pBindings = bindings;
 
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &descriptor_layout_) != VK_SUCCESS) {
@@ -649,17 +657,19 @@ bool VkBackend::create_bindless_descriptor()
     }
 
     // Pool
-    VkDescriptorPoolSize pool_sizes[2]{};
+    VkDescriptorPoolSize pool_sizes[3]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[0].descriptorCount = kMaxBindlessTextures;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     pool_sizes[1].descriptorCount = kMaxBindlessTextures;
+    pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    pool_sizes[2].descriptorCount = kMaxBindlessTextures;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     pool_ci.maxSets = 1;
-    pool_ci.poolSizeCount = 2;
+    pool_ci.poolSizeCount = 3;
     pool_ci.pPoolSizes = pool_sizes;
 
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &descriptor_pool_) != VK_SUCCESS) {
@@ -1113,6 +1123,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
             case PixelFormat::RGBA8:      vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
             case PixelFormat::RGBA8_SRGB: vk_format = VK_FORMAT_R8G8B8A8_SRGB; break;
             case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            case PixelFormat::RGBA32F:    vk_format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         }
     }
     const bool is_color_attachment = (desc.usage == TextureUsage::ColorAttachment);
@@ -1193,8 +1204,13 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
 
     vkUpdateDescriptorSets(device_, 1, &sampler_write, 0, nullptr);
 
-    // For storage textures, also register as a storage image (binding 1) so
-    // compute shaders can imageStore via the same bindless_index.
+    // For storage textures, also register as a storage image so compute
+    // shaders can imageStore via the same bindless_index. RGBA8-format
+    // textures land on binding 1 (matched by `image2D rgba8` in GLSL);
+    // RGBA32F-format textures land on binding 2 (matched by `image2D
+    // rgba32f`). Per-format bindings are required because Vulkan's
+    // image-format compatibility rules forbid writing rgba32f data
+    // through an rgba8-typed image view.
     if (desc.usage == TextureUsage::Storage) {
         VkDescriptorImageInfo storage_info{};
         storage_info.imageView = td.view;
@@ -1203,7 +1219,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
         VkWriteDescriptorSet storage_write{};
         storage_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         storage_write.dstSet = descriptor_set_;
-        storage_write.dstBinding = 1;
+        storage_write.dstBinding = (desc.format == PixelFormat::RGBA32F) ? 2u : 1u;
         storage_write.dstArrayElement = td.bindless_index;
         storage_write.descriptorCount = 1;
         storage_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1305,6 +1321,7 @@ void VkBackend::upload_texture(TextureId texture, const uint8_t* pixels, int wid
     size_t bpp = 4;
     if (td.format == PixelFormat::R8) bpp = 1;
     else if (td.format == PixelFormat::RGBA16F) bpp = 8;
+    else if (td.format == PixelFormat::RGBA32F) bpp = 16;
     size_t data_size = static_cast<size_t>(width) * height * bpp;
 
     // Create staging buffer
@@ -1426,6 +1443,90 @@ void VkBackend::upload_texture(TextureId texture, const uint8_t* pixels, int wid
     end_one_shot_commands(cb);
 
     vmaDestroyBuffer(allocator_, staging, staging_alloc);
+}
+
+bool VkBackend::read_texture(TextureId texture, vector<uint8_t>& out_pixels,
+                             PixelFormat& out_format, uvec2& out_dims)
+{
+    auto it = textures_.find(texture);
+    if (it == textures_.end()) {
+        return false;
+    }
+    auto& td = it->second;
+
+    size_t bpp = 4;
+    if (td.format == PixelFormat::R8) bpp = 1;
+    else if (td.format == PixelFormat::RGBA16F) bpp = 8;
+    else if (td.format == PixelFormat::RGBA32F) bpp = 16;
+    const size_t data_size = static_cast<size_t>(td.width) * td.height * bpp;
+
+    VkBufferCreateInfo buf_ci{};
+    buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_ci.size = data_size;
+    buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.flags =
+        VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VmaAllocation staging_alloc = VK_NULL_HANDLE;
+    VmaAllocationInfo staging_info{};
+    if (vmaCreateBuffer(allocator_, &buf_ci, &alloc_ci, &staging, &staging_alloc, &staging_info) !=
+        VK_SUCCESS) {
+        VELK_LOG(E, "VkBackend: failed to create texture readback staging buffer");
+        return false;
+    }
+
+    // Drain prior GPU work so any outstanding writes to this texture are
+    // visible to the upcoming transfer. Cheap in a debug-dump context.
+    vkQueueWaitIdle(graphics_queue_);
+
+    auto cb = begin_one_shot_commands();
+
+    const VkImageLayout original_layout = td.current_layout;
+
+    // Use a permissive image barrier rather than the generic
+    // transition_image_layout helper, which doesn't cover the
+    // GENERAL <-> TRANSFER_SRC pairs the readback path needs.
+    auto image_barrier = [&](VkImageLayout from, VkImageLayout to) {
+        VkImageMemoryBarrier b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = td.image;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = td.mip_levels;
+        b.subresourceRange.layerCount = 1;
+        b.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+
+    image_barrier(original_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {static_cast<uint32_t>(td.width), static_cast<uint32_t>(td.height), 1};
+    vkCmdCopyImageToBuffer(cb, td.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+
+    image_barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, original_layout);
+
+    end_one_shot_commands(cb);
+
+    out_pixels.resize(data_size);
+    std::memcpy(out_pixels.data(), staging_info.pMappedData, data_size);
+    out_format = td.format;
+    out_dims = {static_cast<uint32_t>(td.width), static_cast<uint32_t>(td.height)};
+
+    vmaDestroyBuffer(allocator_, staging, staging_alloc);
+    return true;
 }
 
 // ============================================================================
@@ -2460,6 +2561,7 @@ RenderTargetGroup VkBackend::create_render_target_group(
             case PixelFormat::RGBA8:      vk_f = VK_FORMAT_R8G8B8A8_UNORM; break;
             case PixelFormat::RGBA8_SRGB: vk_f = VK_FORMAT_R8G8B8A8_SRGB; break;
             case PixelFormat::RGBA16F:    vk_f = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+            case PixelFormat::RGBA32F:    vk_f = VK_FORMAT_R32G32B32A32_SFLOAT; break;
         }
         gd.vk_formats.push_back(vk_f);
     }

@@ -69,8 +69,11 @@ glTF coordinates / units are preserved; a `BoxTextured.glb` unit cube lands as a
 | `material` (pbrMetallicRoughness, normal, occlusion, emissive, specular) | `StandardMaterial` + one attached `IMaterialProperty` per slot (`BaseColorProperty`, `MetallicRoughnessProperty`, `NormalProperty`, `OcclusionProperty`, `EmissiveProperty`, `SpecularProperty`). |
 | `KHR_texture_transform` | `uv_offset` / `uv_rotation` / `uv_scale` on each `IMaterialProperty`. |
 | `KHR_materials_specular` | `SpecularProperty` (factor + color factor + two optional textures). |
+| `KHR_materials_pbrSpecularGlossiness` (legacy) | Converted on the fly to metallic/roughness + `KHR_materials_specular`, treating surfaces as dielectric: `baseColor = diffuseFactor`, `metallic = 0`, `roughness = 1 - glossinessFactor`, F0 derived from `specularFactor` and clamped to the dielectric range. `specularGlossinessTexture` is repacked at import time into a linear metallicRoughness texture (G = 1 - alpha) and an sRGB specular color texture (RGB copied, A forced to full strength), so per-pixel gloss and spec tint survive. |
 | `KHR_materials_emissive_strength` | `EmissiveProperty.strength`. |
+| `KHR_lights_punctual` | Per-node `Light` trait (`directional` / `point` / `spot`). Color and intensity copied 1:1; range copied for point/spot (defaults to 1000 if zero/unset); spot cone angles converted from radians (glTF) to degrees (velk). |
 | `node.translation` / `rotation` / `scale` | `Trs` trait (vec3, quat, vec3). `matrix` nodes are decomposed into TRS. |
+| Coordinate system | glTF is right-handed Y-up; velk is Y-down. The importer attaches a 180-degree X rotation to the synthetic root, mapping gltf +Y (up) to world up. Triangle winding is preserved (rotation, not reflection), so the default `front_face = Clockwise` continues to apply. The asset's gltf +Z direction faces the opposite way in world space as a side effect. |
 | `node.mesh` | `MeshVisual` trait referencing the cached `IMesh`. |
 | `scene` | One synthetic root `IElement` wrapping the scene's root nodes (glTF scenes can have multiple root nodes; velk hierarchies have one). |
 
@@ -83,12 +86,13 @@ A glTF file with multiple scenes uses `scene[data.scene]` (the default) if prese
 - `.glb` (single file with embedded buffers and images).
 - External `.gltf` + `.bin` + sibling images-
 - Static meshes, per-node TRS transforms, material tree with KHR_texture_transform / KHR_materials_specular / KHR_materials_emissive_strength.
+- Legacy `KHR_materials_pbrSpecularGlossiness` assets via factor-only conversion (per-pixel glossiness texture data is dropped; F0 caps at 0.04, so highly reflective dielectrics will look matte until a metal-from-spec heuristic lands).
 - Any glTF `extensionsRequired` not on the safelist above causes the load to fail cleanly.
 - Per-texture sampler wrap / filter / mipmap from glTF sampler records.
 
 **Not yet supported:**
 
-- Skinning, animations, morph targets, cameras, punctual lights.
+- Skinning, animations, morph targets, cameras.
 - Draco / meshopt compression.
 - KTX2 / Basis textures.
 - MikkTSpace tangent generation when the asset ships a normal map without TANGENT (vendored, not yet invoked).

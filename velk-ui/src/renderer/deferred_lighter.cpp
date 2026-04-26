@@ -74,6 +74,7 @@ uint64_t DeferredLighter::ensure_pipeline(FrameContext& ctx)
     append_literal("    switch (shape.shape_kind) {\n");
     append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
     append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
+    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
     char buf[128];
     for (auto id : intersect_ids) {
         if (id < 3 || id - 3 >= intersect_info_by_id.size()) continue;
@@ -137,6 +138,30 @@ void DeferredLighter::build_passes(ViewEntry& entry,
         entry.deferred_height = h;
     }
     if (entry.deferred_output_tex == 0) return;
+
+    // Per-view diagnostic image for RT-shadow debugging. Allocated once
+    // and resized with the view; carries (buffer_addr_lo, buffer_addr_hi,
+    // ibo_offset, triangle_count) per pixel as RGBA32F bits. Always
+    // allocated for now (the GLSL write site is gated by the push
+    // constant), so the F12 dump path always has something to read.
+    if (entry.shadow_debug_tex != 0 &&
+        (entry.shadow_debug_width != w || entry.shadow_debug_height != h)) {
+        if (ctx.resources) {
+            ctx.resources->defer_texture_destroy(
+                entry.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
+        }
+        entry.shadow_debug_tex = 0;
+    }
+    if (entry.shadow_debug_tex == 0) {
+        TextureDesc td{};
+        td.width = w;
+        td.height = h;
+        td.format = PixelFormat::RGBA32F;
+        td.usage = TextureUsage::Storage;
+        entry.shadow_debug_tex = ctx.backend->create_texture(td);
+        entry.shadow_debug_width = w;
+        entry.shadow_debug_height = h;
+    }
 
     // Compose the compute pipeline for the current frame's visual
     // intersect set. Different sets compose to different shader variants;
@@ -229,7 +254,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
         uint32_t height;           // 40
         uint32_t light_count;      // 44
         uint32_t env_texture_id;   // 48
-        uint32_t _pad0;            // 52
+        uint32_t shadow_debug_image_id; // 52  RGBA32F debug image, 0 = disabled
         uint64_t lights_addr;      // 56
         uint64_t env_data_addr;    // 64
         uint64_t globals_addr;     // 72 - pointer to GlobalData (carries inv_vp + BVH)
@@ -250,6 +275,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     pc.height = static_cast<uint32_t>(h);
     pc.light_count = static_cast<uint32_t>(lights.size());
     pc.env_texture_id = env_texture_id;
+    pc.shadow_debug_image_id = entry.shadow_debug_tex;
     pc.lights_addr = lights_addr;
     pc.env_data_addr = env_data_addr;
     pc.globals_addr = entry.frame_globals_addr;
@@ -296,6 +322,13 @@ void DeferredLighter::on_view_removed(ViewEntry& entry, FrameContext& ctx)
         entry.deferred_output_tex = 0;
         entry.deferred_width = 0;
         entry.deferred_height = 0;
+    }
+    if (entry.shadow_debug_tex != 0 && ctx.resources) {
+        ctx.resources->defer_texture_destroy(
+            entry.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
+        entry.shadow_debug_tex = 0;
+        entry.shadow_debug_width = 0;
+        entry.shadow_debug_height = 0;
     }
 }
 

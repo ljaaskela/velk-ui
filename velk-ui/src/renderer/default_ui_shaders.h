@@ -255,6 +255,7 @@ inline string compose_eval_fragment(string_view driver_template,
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2D gStorageImages[];
+layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D gStorageImagesF32[];
 
 // Mirrors C++ GpuLight (80 bytes) in ray_tracer.cpp / deferred_lighter.cpp.
 struct Light {
@@ -285,7 +286,7 @@ layout(push_constant) uniform PC {
     uint height;               // 40
     uint light_count;          // 44
     uint env_texture_id;       // 48
-    uint _pad0;                // 52
+    uint shadow_debug_image_id;// 52  RGBA32F storage image; 0 = disabled
     LightList lights;          // 56
     _EnvParamsBuf env_params;  // 64
     GlobalData globals;        // 72
@@ -387,6 +388,186 @@ bool intersect_sphere(Ray ray, RtShape shape, out RayHit hit)
     return true;
 }
 
+// Forward decl: ray_aabb is defined further down with the BVH walker.
+bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit);
+
+// Triangle-mesh intersector (shape_kind == 255). Walks the per-mesh
+// BLAS that lives in the trailing region of the primitive's
+// MeshStaticData buffer. Ray is transformed into mesh-local space so
+// vertex data stays untouched and instances share buffers.
+bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
+{
+    // World-space AABB quick reject.
+    {
+        float t_aabb;
+        if (!ray_aabb(ray, shape.origin.xyz, shape.u_axis.xyz, 1e30, t_aabb)) return false;
+    }
+    MeshInstancePtr inst_ptr = MeshInstancePtr(shape.mesh_data_addr);
+    MeshInstanceData inst = inst_ptr.data;
+    if (inst.mesh_static_addr == uint64_t(0)) return false;
+    MeshStaticPtr st_ptr = MeshStaticPtr(inst.mesh_static_addr);
+    MeshStaticData st = st_ptr.data;
+    if (st.triangle_count == 0u || st.vertex_stride == 0u) return false;
+    if (st.blas_node_count == 0u) return false;
+
+    // Ray into mesh-local space. Normalize the local direction so MT's
+    // numerical thresholds (`abs(det) < 1e-7`, `tt < 1e-4`) stay
+    // calibrated against mesh-edge magnitudes regardless of world
+    // scale. Without this, instances scaled up by a large world
+    // matrix produce a tiny local `ld`, which makes every triangle's
+    // `det` collapse below the rejection threshold and silently drops
+    // the entire instance from shadow casting (the bistro mm-scale
+    // chairs were the original symptom). Track the original local-dir
+    // length so the returned `hit.t` can be converted back to
+    // world-space distance for the caller's `t_max` comparison.
+    vec3 lo = (inst.inv_world * vec4(ray.origin, 1.0)).xyz;
+    vec3 ld_unnorm = (inst.inv_world * vec4(ray.dir, 0.0)).xyz;
+    float ld_scale = length(ld_unnorm);
+    if (ld_scale < 1e-30) return false;
+    vec3 ld = ld_unnorm / ld_scale;
+
+    MeshIndices  ib = MeshIndices (st.buffer_addr + uint64_t(st.ibo_offset));
+    MeshVertices vb = MeshVertices(st.buffer_addr + uint64_t(st.vbo_offset));
+    uint floats_per_vert = st.vertex_stride >> 2u;  // stride is bytes; floats = bytes/4
+
+    // The MeshStaticData buffer layout is:
+    //   [MeshStaticData header: 32 B]
+    //   [BvhNode[blas_node_count]:  48 B each]
+    //   [uint  [blas_tri_count]:    4 B each]
+    BlasNodeList blas_nodes = BlasNodeList(inst.mesh_static_addr + uint64_t(32));
+    BlasTriList  blas_tris  = BlasTriList(
+        inst.mesh_static_addr + uint64_t(32)
+        + uint64_t(st.blas_node_count) * uint64_t(48));
+
+    Ray local_ray;
+    local_ray.origin = lo;
+    local_ray.dir    = ld;
+
+    bool  found = false;
+    float best_t = 1e30;
+    float best_u = 0.0;
+    float best_v = 0.0;
+    uint  best_o0 = 0u;
+    uint  best_o1 = 0u;
+    uint  best_o2 = 0u;
+
+    // BLAS walk. Stack depth 32 fits any reasonable tree (a perfectly
+    // balanced binary BVH at depth 32 holds 2^32 leaves).
+    uint stack[32];
+    int sp = 0;
+    if (st.blas_node_count == 0u) return false;
+    stack[sp++] = st.blas_root;
+    while (sp > 0) {
+        uint ni = uint(stack[--sp]);
+        BvhNode node = blas_nodes.data[ni];
+        float t_aabb;
+        if (!ray_aabb(local_ray, node.aabb_min.xyz, node.aabb_max.xyz, best_t, t_aabb)) continue;
+
+        if (node.shape_count > 0u) {
+            // Leaf: test triangles.
+            for (uint k = 0u; k < node.shape_count; ++k) {
+                uint tri = blas_tris.data[node.first_shape + k];
+                uint base = tri * 3u;
+                uint i0 = ib.data[base + 0u];
+                uint i1 = ib.data[base + 1u];
+                uint i2 = ib.data[base + 2u];
+                uint o0 = i0 * floats_per_vert;
+                uint o1 = i1 * floats_per_vert;
+                uint o2 = i2 * floats_per_vert;
+                vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
+                vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
+                vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+
+                // Möller-Trumbore. The det rejection threshold scales
+                // with the actual edge magnitudes so meshes whose
+                // local-space coordinates are tiny (e.g. instances
+                // with a large baked-in world scale) don't have every
+                // triangle silently filtered out as "near-parallel".
+                // The same scaling applies to the per-hit `tt` floor
+                // so it's a meaningful "ignore self-intersection"
+                // distance regardless of mesh scale.
+                vec3 e1 = v1 - v0;
+                vec3 e2 = v2 - v0;
+                vec3 p  = cross(ld, e2);
+                float det = dot(e1, p);
+                float det_scale = max(length(e1) * length(p), 1e-30);
+                if (abs(det) < 1e-7 * det_scale) continue;
+                float inv_det = 1.0 / det;
+                vec3 to_v0 = lo - v0;
+                float u = dot(to_v0, p) * inv_det;
+                if (u < 0.0 || u > 1.0) continue;
+                vec3 q = cross(to_v0, e1);
+                float v = dot(ld, q) * inv_det;
+                if (v < 0.0 || u + v > 1.0) continue;
+                float tt = dot(e2, q) * inv_det;
+                float tt_floor = 1e-4 * max(length(e1), length(e2));
+                if (tt < tt_floor || tt >= best_t) continue;
+                best_t = tt;
+                best_u = u;
+                best_v = v;
+                best_o0 = o0;
+                best_o1 = o1;
+                best_o2 = o2;
+                found = true;
+            }
+        } else {
+            // Front-to-back ordered descent for binary inner nodes.
+            // Push the far child first so the near one pops next; for
+            // closest-hit on a triangle BLAS this lets the far subtree
+            // get culled by `best_t` once a near hit lands.
+            if (node.child_count == 2u) {
+                BvhNode l = blas_nodes.data[node.first_child];
+                BvhNode r = blas_nodes.data[node.first_child + 1u];
+                float t_l, t_r;
+                bool h_l = ray_aabb(local_ray, l.aabb_min.xyz, l.aabb_max.xyz, best_t, t_l);
+                bool h_r = ray_aabb(local_ray, r.aabb_min.xyz, r.aabb_max.xyz, best_t, t_r);
+                if (h_l && h_r) {
+                    if (t_l <= t_r) {
+                        if (sp < 32) stack[sp++] = node.first_child + 1u;
+                        if (sp < 32) stack[sp++] = node.first_child;
+                    } else {
+                        if (sp < 32) stack[sp++] = node.first_child;
+                        if (sp < 32) stack[sp++] = node.first_child + 1u;
+                    }
+                } else if (h_l) {
+                    if (sp < 32) stack[sp++] = node.first_child;
+                } else if (h_r) {
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                }
+            } else {
+                for (uint c = 0u; c < node.child_count; ++c) {
+                    if (sp < 32) stack[sp++] = node.first_child + c;
+                }
+            }
+        }
+    }
+    if (!found) return false;
+
+    // Interpolate per-vertex normal and UV from the closest hit's
+    // barycentrics. Vertex layout (VelkVertex3D, 32 B): pos[0..2],
+    // normal[3..5], uv[6..7]. Möller-Trumbore's (u, v) make
+    // (1-u-v, u, v) the weights for (V0, V1, V2).
+    float w = 1.0 - best_u - best_v;
+    vec3 n0 = vec3(vb.data[best_o0 + 3u], vb.data[best_o0 + 4u], vb.data[best_o0 + 5u]);
+    vec3 n1 = vec3(vb.data[best_o1 + 3u], vb.data[best_o1 + 4u], vb.data[best_o1 + 5u]);
+    vec3 n2 = vec3(vb.data[best_o2 + 3u], vb.data[best_o2 + 4u], vb.data[best_o2 + 5u]);
+    vec3 best_n = normalize(n0 * w + n1 * best_u + n2 * best_v);
+    vec2 uv0 = vec2(vb.data[best_o0 + 6u], vb.data[best_o0 + 7u]);
+    vec2 uv1 = vec2(vb.data[best_o1 + 6u], vb.data[best_o1 + 7u]);
+    vec2 uv2 = vec2(vb.data[best_o2 + 6u], vb.data[best_o2 + 7u]);
+    vec2 best_uv = uv0 * w + uv1 * best_u + uv2 * best_v;
+
+    // Convert local hit to world-space ray parameter.
+    vec3 hit_local = lo + ld * best_t;
+    vec3 hit_world = (inst.world * vec4(hit_local, 1.0)).xyz;
+    hit.t      = length(hit_world - ray.origin);
+    hit.uv     = best_uv;
+    hit.normal = normalize(mat3(inst.world) * best_n);
+    hit.shape_index = 0u;
+    return true;
+}
+)"
+                                                                      R"(
 // Forward declaration. The DeferredLighter composer appends the
 // dispatch body (plus any visual-contributed intersect snippets) when
 // compiling the compute pipeline variant for the current scene's
@@ -431,8 +612,35 @@ bool trace_any_hit_bvh(Ray ray, float t_max)
             if (intersect_shape(ray, s, h) && h.t > 0.0 && h.t < t_max) return true;
         }
 
-        for (uint i = 0u; i < node.child_count; ++i) {
-            if (sp < 32) stack[sp++] = node.first_child + i;
+        // Front-to-back ordered descent for binary inner nodes:
+        // visit the child whose AABB the ray hits NEAREST first, so
+        // any-hit can return early without walking the far subtree.
+        // Falls back to natural order for non-binary or single-child
+        // nodes (none today, but kept defensive).
+        if (node.child_count == 2u) {
+            BvhNode l = pc.globals.bvh_nodes.data[node.first_child];
+            BvhNode r = pc.globals.bvh_nodes.data[node.first_child + 1u];
+            float t_l, t_r;
+            bool h_l = ray_aabb(ray, l.aabb_min.xyz, l.aabb_max.xyz, t_max, t_l);
+            bool h_r = ray_aabb(ray, r.aabb_min.xyz, r.aabb_max.xyz, t_max, t_r);
+            // Push far child first so the near one pops next.
+            if (h_l && h_r) {
+                if (t_l <= t_r) {
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                    if (sp < 32) stack[sp++] = node.first_child;
+                } else {
+                    if (sp < 32) stack[sp++] = node.first_child;
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                }
+            } else if (h_l) {
+                if (sp < 32) stack[sp++] = node.first_child;
+            } else if (h_r) {
+                if (sp < 32) stack[sp++] = node.first_child + 1u;
+            }
+        } else {
+            for (uint i = 0u; i < node.child_count; ++i) {
+                if (sp < 32) stack[sp++] = node.first_child + i;
+            }
         }
     }
     return false;
@@ -462,12 +670,29 @@ float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
     // moves into the lit half-space regardless of which way the normal
     // happens to face. Magnitude is small to work at meter scale; for
     // pixel-scale scenes a per-camera or per-light bias would be ideal.
+    // Hybrid N + L bias. Pure L-bias works for axis-aligned rays
+    // (origin moves enough off the receiver in any one axis) but for
+    // tilted rays the L component along the receiver's normal can be
+    // small, leaving the origin essentially on the receiver. Adding an
+    // explicit N-step pushes off the receiver regardless of L's tilt.
+    // Sign on N follows L so we always move toward the lit side, which
+    // also handles thin double-sided geometry (back face whose normal
+    // points away from the light).
+    vec3 nrm = normalize(world_normal);
+    vec3 n_bias = nrm * (sign(dot(nrm, L)) * 0.005);
     Ray r;
-    r.origin = world_pos + L * 0.005;
+    r.origin = world_pos + n_bias + L * 0.005;
     r.dir    = L;
-    // Pull t_max slightly short of the light position so the ray
-    // doesn't hit the light's own fixture mesh on the way in.
-    t_max = max(t_max - 0.005, 0.0);
+    // Light-end exclusion zone: ignore occluders in the last 5% of the
+    // ray (5 mm minimum). Without this, point / spot lights mounted
+    // inside a fixture (lamp shade, sconce, hanging bulb) are fully
+    // self-occluded by the fixture geometry and never reach any
+    // surface. 5% covers typical fixture sizes for lights at meter
+    // scale; the 5 mm floor handles small/close lights without going
+    // negative. Directional lights have t_max = 1e30 so the margin
+    // is irrelevant for them.
+    float margin = max(0.005, t_max * 0.05);
+    t_max = max(t_max - margin, 0.0);
     return trace_any_hit_bvh(r, t_max) ? 0.0 : 1.0;
 }
 
@@ -638,9 +863,49 @@ void main()
         vec3 F_env = fresnel_schlick(NdotV, F0);
         vec3 kD_env = (vec3(1.0) - F_env) * (1.0 - metallic);
 
+        // RT ambient occlusion: one short any-hit ray along N. Without
+        // this the env term is unshadowed and dominates outdoor scenes,
+        // so geometry-cast shadows are invisible even when per-light
+        // shadow rays correctly occlude. Binary visibility is crude
+        // (real RT-AO would integrate hemispherical samples) but catches
+        // the dominant case where surfaces sit under overhangs / inside
+        // pockets reading sky they cannot actually see. Range is short
+        // (interior-crevice scale) because at scene scale a longer ray
+        // hits something for nearly every pixel in dense scenes, and
+        // binary occlusion at that point goes black instead of softly
+        // darker. Skipped when no BVH exists so non-RT scenes are
+        // unaffected.
+        // Contact-shadow / ambient occlusion: one short any-hit ray
+        // along the surface normal. Approximates "how much of the
+        // hemisphere above this surface is blocked by close geometry".
+        // Range is short (interior-crevice scale) — we don't try to
+        // catch full furniture-sized contact shadows here because a
+        // longer ray on dense scenes blacks out vertical surfaces
+        // (every wall has something within a meter). For real
+        // long-range contact shadow we'd want stochastic hemisphere
+        // sampling + temporal accumulation; binary single-ray
+        // visibility just covers the obvious crevice case.
+        float ao = 1.0;
+        if (pc.globals.bvh_node_count != 0u) {
+            const float ao_range = 0.3;
+            Ray ao_r;
+            ao_r.origin = world_pos + N * 0.01;
+            ao_r.dir    = N;
+            ao = trace_any_hit_bvh(ao_r, ao_range) ? 0.0 : 1.0;
+        }
+
+        // AO modulates env_diffuse only (the hemisphere-irradiance
+        // approximation that the AO ray actually approximates). It
+        // does NOT modulate env_specular — a mirror reflection is
+        // the radiance arriving along the reflection direction, which
+        // is occluded by whatever sits along *that* ray, not by what
+        // sits along the surface normal. Multiplying specular by AO
+        // makes a metallic sphere on a floor go black on its lower
+        // hemisphere because its outward-pointing normals all point
+        // toward the nearby floor.
         rgb = direct_diffuse * (1.0 - metallic)
             + direct_specular
-            + kD_env * albedo.rgb * env_diffuse
+            + kD_env * albedo.rgb * env_diffuse * ao
             + F_env * env_specular;
     }
 
@@ -924,6 +1189,99 @@ bool intersect_sphere(Ray ray, RtShape shape, out RayHit hit)
     return true;
 }
 
+// Forward decl: ray_aabb is defined further down with the BVH walker.
+bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit);
+
+// Triangle-mesh intersector for the RT path (shape_kind == 255). Same
+// math as the deferred_lighting compute's copy near the top of this
+// file; duplicated here because the RT prelude is a separate string
+// fed to a different compute pipeline. When a second consumer arrives
+// we'll factor the body out into a shared GLSL snippet.
+bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
+{
+    {
+        float t_aabb;
+        if (!ray_aabb(ray, shape.origin.xyz, shape.u_axis.xyz, 1e30, t_aabb)) return false;
+    }
+
+    MeshInstancePtr inst_ptr = MeshInstancePtr(shape.mesh_data_addr);
+    MeshInstanceData inst = inst_ptr.data;
+    if (inst.mesh_static_addr == uint64_t(0)) return false;
+    MeshStaticPtr st_ptr = MeshStaticPtr(inst.mesh_static_addr);
+    MeshStaticData st = st_ptr.data;
+    if (st.triangle_count == 0u || st.vertex_stride == 0u) return false;
+
+    vec3 lo = (inst.inv_world * vec4(ray.origin, 1.0)).xyz;
+    vec3 ld = (inst.inv_world * vec4(ray.dir,    0.0)).xyz;
+
+    MeshIndices  ib = MeshIndices (st.buffer_addr + uint64_t(st.ibo_offset));
+    MeshVertices vb = MeshVertices(st.buffer_addr + uint64_t(st.vbo_offset));
+    uint floats_per_vert = st.vertex_stride >> 2u;
+
+    bool  found = false;
+    float best_t = 1e30;
+    float best_u = 0.0;
+    float best_v = 0.0;
+    uint  best_o0 = 0u;
+    uint  best_o1 = 0u;
+    uint  best_o2 = 0u;
+
+    for (uint t = 0u; t < st.triangle_count; ++t) {
+        uint i0 = ib.data[t * 3u + 0u];
+        uint i1 = ib.data[t * 3u + 1u];
+        uint i2 = ib.data[t * 3u + 2u];
+        uint o0 = i0 * floats_per_vert;
+        uint o1 = i1 * floats_per_vert;
+        uint o2 = i2 * floats_per_vert;
+        vec3 v0 = vec3(vb.data[o0], vb.data[o0 + 1u], vb.data[o0 + 2u]);
+        vec3 v1 = vec3(vb.data[o1], vb.data[o1 + 1u], vb.data[o1 + 2u]);
+        vec3 v2 = vec3(vb.data[o2], vb.data[o2 + 1u], vb.data[o2 + 2u]);
+        vec3 e1 = v1 - v0;
+        vec3 e2 = v2 - v0;
+        vec3 p  = cross(ld, e2);
+        float det = dot(e1, p);
+        if (abs(det) < 1e-7) continue;
+        float inv_det = 1.0 / det;
+        vec3 to_v0 = lo - v0;
+        float u = dot(to_v0, p) * inv_det;
+        if (u < 0.0 || u > 1.0) continue;
+        vec3 q = cross(to_v0, e1);
+        float v = dot(ld, q) * inv_det;
+        if (v < 0.0 || u + v > 1.0) continue;
+        float tt = dot(e2, q) * inv_det;
+        if (tt < 1e-4 || tt >= best_t) continue;
+        best_t = tt;
+        best_u = u;
+        best_v = v;
+        best_o0 = o0;
+        best_o1 = o1;
+        best_o2 = o2;
+        found = true;
+    }
+    if (!found) return false;
+
+    // Interpolate per-vertex normal and UV from the closest hit's
+    // barycentrics. Vertex layout (VelkVertex3D, 32 B): pos[0..2],
+    // normal[3..5], uv[6..7]. Möller-Trumbore's (u, v) make
+    // (1-u-v, u, v) the weights for (V0, V1, V2).
+    float w = 1.0 - best_u - best_v;
+    vec3 n0 = vec3(vb.data[best_o0 + 3u], vb.data[best_o0 + 4u], vb.data[best_o0 + 5u]);
+    vec3 n1 = vec3(vb.data[best_o1 + 3u], vb.data[best_o1 + 4u], vb.data[best_o1 + 5u]);
+    vec3 n2 = vec3(vb.data[best_o2 + 3u], vb.data[best_o2 + 4u], vb.data[best_o2 + 5u]);
+    vec3 best_n = normalize(n0 * w + n1 * best_u + n2 * best_v);
+    vec2 uv0 = vec2(vb.data[best_o0 + 6u], vb.data[best_o0 + 7u]);
+    vec2 uv1 = vec2(vb.data[best_o1 + 6u], vb.data[best_o1 + 7u]);
+    vec2 uv2 = vec2(vb.data[best_o2 + 6u], vb.data[best_o2 + 7u]);
+    vec2 best_uv = uv0 * w + uv1 * best_u + uv2 * best_v;
+
+    vec3 hit_local = lo + ld * best_t;
+    vec3 hit_world = (inst.world * vec4(hit_local, 1.0)).xyz;
+    hit.t      = length(hit_world - ray.origin);
+    hit.uv     = best_uv;
+    hit.normal = normalize(mat3(inst.world) * best_n);
+    return true;
+}
+)" R"(
 // Forward declaration: the RT composer generates the dispatch body
 // after material / shadow-tech / intersect snippets have been
 // included. Built-in cases (rect/cube/sphere) forward to the

@@ -21,7 +21,12 @@ enum class GBufferAttachment : uint32_t
 {
     Albedo         = 0, ///< RGBA8      rgb = surface albedo, a = alpha.
     Normal         = 1, ///< RGBA16F    xyz = world-space normal, w = unused.
-    WorldPos       = 2, ///< RGBA16F    xyz = world position, w = unused (will hold view depth later).
+    WorldPos       = 2, ///< RGBA32F    xyz = world position, w = unused. Full float because
+                        ///  RGBA16F's ~3 decimal digits of precision quantizes a typical
+                        ///  100 m scene to ~0.1 m steps, which collapses entire raster
+                        ///  triangles into a single shader-visible position and breaks
+                        ///  any per-pixel computation that needs world-space coords
+                        ///  (notably RT shadows: triangle-granularity hit/miss).
     MaterialParams = 3, ///< RGBA8      r = metallic, g = roughness, b = lighting mode, a = unused.
     Count          = 4
 };
@@ -30,7 +35,7 @@ enum class GBufferAttachment : uint32_t
 inline constexpr PixelFormat kGBufferFormats[static_cast<uint32_t>(GBufferAttachment::Count)] = {
     PixelFormat::RGBA8,    // Albedo
     PixelFormat::RGBA16F,  // Normal
-    PixelFormat::RGBA16F,  // WorldPos
+    PixelFormat::RGBA32F,  // WorldPos (precision-critical; see comment above)
     PixelFormat::RGBA8,    // MaterialParams
 };
 

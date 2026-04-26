@@ -89,6 +89,12 @@ public:
 
     void invalidate() override { dirty_ = true; }
 
+    /// Clears the cached topology so the next `rebuild` re-walks every
+    /// shape and re-fires the shape callback, regardless of the AABB
+    /// hash check. Used by debug hooks that need to observe per-shape
+    /// emit-time state on demand.
+    void force_full_rebuild() { cached_nodes_.clear(); }
+
 private:
     /// Hash all visual-bearing elements' world_aabbs to detect
     /// geometry-only changes without re-emitting shapes. Walks the
@@ -100,6 +106,14 @@ private:
     // signals the scene is clean.
     vector<GpuBvhNode> cached_nodes_;
     vector<RtShape>    cached_shapes_;
+    /// Parallel to cached_shapes_: per-shape MeshInstanceData payload
+    /// (zeroed for non-mesh kinds). Re-uploaded each frame so the
+    /// mesh_data_addr GPU pointer stays valid as the per-frame buffer
+    /// rotates. The instance struct holds the per-element world
+    /// matrices plus a stable pointer to the mesh-owned static buffer
+    /// (resolved once by the renderer's BVH callback during a fresh
+    /// rebuild).
+    vector<MeshInstanceData> cached_mesh_instances_;
     uint64_t cached_aabb_hash_ = 0;  ///< Hash of visual-aabbs at last build.
 
     uint64_t nodes_addr_ = 0;
@@ -137,11 +151,26 @@ void SceneBvh::rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& fra
         auto build = build_scene_bvh(scene, ctx, std::forward<F>(shape_cb));
         cached_nodes_ = std::move(build.nodes);
         cached_shapes_ = std::move(build.shapes);
+        cached_mesh_instances_ = std::move(build.mesh_instances);
         root_ = build.root_index;
         node_count_ = static_cast<uint32_t>(cached_nodes_.size());
         shape_count_ = static_cast<uint32_t>(cached_shapes_.size());
         cached_aabb_hash_ = current_hash ? current_hash : hash_visual_aabbs(scene);
         dirty_ = false;
+    }
+
+    // Re-upload per-shape MeshInstanceData each frame and patch the
+    // cached shapes' mesh_data_addr to point at this frame's buffer
+    // copy. The shape callback only fires on a dirty rebuild, so the
+    // address it stamped was only valid for that one frame; without
+    // this re-stamp pass the next frame's shadow / RT shaders would
+    // dereference a stale pointer into a recycled buffer. (The
+    // mesh-static buffer pointer inside MeshInstanceData is stable
+    // across frames so we don't have to re-resolve it here.)
+    for (size_t i = 0; i < cached_shapes_.size() && i < cached_mesh_instances_.size(); ++i) {
+        if (cached_shapes_[i].shape_kind != kRtShapeKindMesh) continue;
+        cached_shapes_[i].mesh_data_addr = frame_buffer.write(
+            &cached_mesh_instances_[i], sizeof(MeshInstanceData));
     }
 
     // Always re-publish into the current frame buffer. Nodes + shapes

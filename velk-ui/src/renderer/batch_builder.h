@@ -4,6 +4,7 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-render/frustum.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
@@ -67,6 +68,10 @@ public:
         vector<uint8_t> instance_data;
         uint32_t instance_stride = 0;
         uint32_t instance_count = 0;
+        // Union of every contained instance's world_aabb. Used by
+        // build_*_draw_calls to skip the batch entirely when the
+        // camera frustum doesn't intersect any of its instances.
+        aabb world_aabb = aabb::empty();
         IProgram::Ptr material;
         IShaderSnippet::Ptr visual_discard;
         // Precomputed key perturbation for the gbuffer pipeline cache;
@@ -96,13 +101,19 @@ public:
     /** @brief Rebuilds batches from the visual list, pre-filtering render target subtrees. */
     void rebuild_batches(const SceneState& state, vector<Batch>& out_batches);
 
-    /** @brief Converts batches to GPU draw calls, writing data to the frame buffer. */
+    /**
+     * @brief Converts batches to GPU draw calls, writing data to the frame buffer.
+     * @param frustum Optional view frustum for early culling. Batches whose
+     *                aggregate world_aabb falls fully outside the frustum are
+     *                skipped. Pass nullptr to disable culling.
+     */
     void build_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
                           FrameDataManager& frame_data, GpuResourceManager& resources,
                           uint64_t globals_gpu_addr,
                           const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
                           IRenderContext* render_ctx,
-                          IGpuResourceObserver* observer);
+                          IGpuResourceObserver* observer,
+                          const ::velk::render::Frustum* frustum = nullptr);
 
     /**
      * @brief Same as build_draw_calls, but emits deferred-pipeline draw
@@ -119,7 +130,8 @@ public:
                                   uint64_t globals_gpu_addr,
                                   IRenderContext* render_ctx,
                                   RenderTargetGroup target_group,
-                                  IGpuResourceObserver* observer);
+                                  IGpuResourceObserver* observer,
+                                  const ::velk::render::Frustum* frustum = nullptr);
 
     /** @brief Removes an element from the cache. */
     void evict(IElement* element) { element_cache_.erase(element); }

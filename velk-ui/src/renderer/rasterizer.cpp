@@ -109,9 +109,9 @@ void Rasterizer::build_passes(ViewEntry& entry,
     float vp_h = has_viewport ? entry.viewport.height * sh : sh;
 
     uint64_t globals_gpu_addr = 0;
+    mat4 vp_mat = mat4::identity();
     if (vp_w > 0 && vp_h > 0) {
         FrameGlobals globals{};
-        mat4 vp_mat;
         if (camera) {
             auto cam_es = read_state<IElement>(entry.camera_element);
             mat4 cam_world = cam_es ? cam_es->world_matrix : mat4::identity();
@@ -146,20 +146,33 @@ void Rasterizer::build_passes(ViewEntry& entry,
     // reach the canonical GlobalData for this view via a pointer.
     entry.frame_globals_addr = globals_gpu_addr;
 
+    // Frustum extracted from this view's view-projection so per-view
+    // frustum culling can skip batches whose aggregate world AABB
+    // doesn't intersect the camera. Only meaningful when we actually
+    // built a vp_mat above (vp_w > 0 && vp_h > 0).
+    ::velk::render::Frustum frustum;
+    const ::velk::render::Frustum* frustum_ptr = nullptr;
+    if (camera && vp_w > 0 && vp_h > 0) {
+        frustum = ::velk::render::extract_frustum(vp_mat);
+        frustum_ptr = &frustum;
+    }
+
     if (deferred_view) {
         emit_deferred_gbuffer_pass(entry, ctx, static_cast<int>(vp_w),
-                                   static_cast<int>(vp_h), globals_gpu_addr, out_passes);
+                                   static_cast<int>(vp_h), globals_gpu_addr,
+                                   frustum_ptr, out_passes);
     } else {
         float vp_x = has_viewport ? entry.viewport.x * sw : 0;
         float vp_y = has_viewport ? entry.viewport.y * sh : 0;
         emit_forward_pass(entry, ctx, globals_gpu_addr,
-                          {vp_x, vp_y, vp_w, vp_h}, out_passes);
+                          {vp_x, vp_y, vp_w, vp_h}, frustum_ptr, out_passes);
     }
 }
 
 void Rasterizer::emit_forward_pass(ViewEntry& entry, FrameContext& ctx,
                                    uint64_t globals_gpu_addr,
                                    const rect& viewport,
+                                   const ::velk::render::Frustum* frustum,
                                    vector<RenderPass>& out_passes)
 {
     vector<DrawCall> draw_calls;
@@ -170,7 +183,8 @@ void Rasterizer::emit_forward_pass(ViewEntry& entry, FrameContext& ctx,
                                         globals_gpu_addr,
                                         ctx.pipeline_map,
                                         ctx.render_ctx,
-                                        ctx.observer);
+                                        ctx.observer,
+                                        frustum);
 
     RenderPass pass;
     pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
@@ -182,6 +196,7 @@ void Rasterizer::emit_forward_pass(ViewEntry& entry, FrameContext& ctx,
 void Rasterizer::emit_deferred_gbuffer_pass(ViewEntry& entry, FrameContext& ctx,
                                             int width, int height,
                                             uint64_t globals_gpu_addr,
+                                            const ::velk::render::Frustum* frustum,
                                             vector<RenderPass>& out_passes)
 {
     auto gbuffer_group = ensure_gbuffer(entry, width, height, ctx);
@@ -195,7 +210,8 @@ void Rasterizer::emit_deferred_gbuffer_pass(ViewEntry& entry, FrameContext& ctx,
                                                 globals_gpu_addr,
                                                 ctx.render_ctx,
                                                 gbuffer_group,
-                                                ctx.observer);
+                                                ctx.observer,
+                                                frustum);
 
     RenderPass g_pass;
     g_pass.kind = PassKind::GBufferFill;

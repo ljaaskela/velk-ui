@@ -4,6 +4,7 @@
 #include <velk/api/math_types.h>
 #include <velk/array_view.h>
 #include <velk/interface/intf_metadata.h>
+#include <velk/vector.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +41,7 @@ enum class PixelFormat : uint8_t
     RGBA8_SRGB, ///< 4 bytes per pixel, sRGB-tagged (auto-linearised on sample).
     R8,         ///< 1 byte per pixel, glyph atlases.
     RGBA16F,    ///< 8 bytes per pixel, 16-bit float per channel (HDR).
+    RGBA32F,    ///< 16 bytes per pixel, 32-bit float per channel (precision-critical, e.g. world position).
 };
 
 /// Describes a GPU buffer to create.
@@ -239,6 +241,23 @@ public:
 
     /** @brief Uploads pixel data to a texture via a staging buffer. */
     virtual void upload_texture(TextureId texture, const uint8_t* pixels, int width, int height) = 0;
+
+    /**
+     * @brief Reads back a texture's pixels from the GPU into host memory.
+     *
+     * Synchronous: allocates a host-readable staging buffer, submits a
+     * `vkCmdCopyImageToBuffer` (mip 0 only), waits for completion, copies
+     * the bytes into @p out_pixels, and tears the staging buffer down.
+     * Restores the texture's prior layout so subsequent rendering is
+     * unaffected. Intended for debug dumps and golden-image tests; do
+     * not call inside a hot frame.
+     *
+     * @return false if the texture id is unknown or the staging
+     *         allocation fails. On success, @p out_pixels contains
+     *         `width * height * bytes_per_pixel(format)` bytes.
+     */
+    virtual bool read_texture(TextureId texture, vector<uint8_t>& out_pixels,
+                              PixelFormat& out_format, uvec2& out_dims) = 0;
 
     /// @}
     /// @name Multi-attachment render targets (MRT)

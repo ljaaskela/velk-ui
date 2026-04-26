@@ -9,6 +9,8 @@ add_library(velk_image SHARED
     src/image.cpp
     src/image_decoder.h
     src/image_decoder.cpp
+    src/image_encoder.h
+    src/image_encoder.cpp
     src/image_material.h
     src/image_material.cpp
     src/image_visual.h
