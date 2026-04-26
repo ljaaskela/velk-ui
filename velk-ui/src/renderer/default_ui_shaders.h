@@ -511,8 +511,33 @@ bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
                 found = true;
             }
         } else {
-            for (uint c = 0u; c < node.child_count; ++c) {
-                if (sp < 32) stack[sp++] = node.first_child + c;
+            // Front-to-back ordered descent for binary inner nodes.
+            // Push the far child first so the near one pops next; for
+            // closest-hit on a triangle BLAS this lets the far subtree
+            // get culled by `best_t` once a near hit lands.
+            if (node.child_count == 2u) {
+                BvhNode l = blas_nodes.data[node.first_child];
+                BvhNode r = blas_nodes.data[node.first_child + 1u];
+                float t_l, t_r;
+                bool h_l = ray_aabb(local_ray, l.aabb_min.xyz, l.aabb_max.xyz, best_t, t_l);
+                bool h_r = ray_aabb(local_ray, r.aabb_min.xyz, r.aabb_max.xyz, best_t, t_r);
+                if (h_l && h_r) {
+                    if (t_l <= t_r) {
+                        if (sp < 32) stack[sp++] = node.first_child + 1u;
+                        if (sp < 32) stack[sp++] = node.first_child;
+                    } else {
+                        if (sp < 32) stack[sp++] = node.first_child;
+                        if (sp < 32) stack[sp++] = node.first_child + 1u;
+                    }
+                } else if (h_l) {
+                    if (sp < 32) stack[sp++] = node.first_child;
+                } else if (h_r) {
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                }
+            } else {
+                for (uint c = 0u; c < node.child_count; ++c) {
+                    if (sp < 32) stack[sp++] = node.first_child + c;
+                }
             }
         }
     }
@@ -587,8 +612,35 @@ bool trace_any_hit_bvh(Ray ray, float t_max)
             if (intersect_shape(ray, s, h) && h.t > 0.0 && h.t < t_max) return true;
         }
 
-        for (uint i = 0u; i < node.child_count; ++i) {
-            if (sp < 32) stack[sp++] = node.first_child + i;
+        // Front-to-back ordered descent for binary inner nodes:
+        // visit the child whose AABB the ray hits NEAREST first, so
+        // any-hit can return early without walking the far subtree.
+        // Falls back to natural order for non-binary or single-child
+        // nodes (none today, but kept defensive).
+        if (node.child_count == 2u) {
+            BvhNode l = pc.globals.bvh_nodes.data[node.first_child];
+            BvhNode r = pc.globals.bvh_nodes.data[node.first_child + 1u];
+            float t_l, t_r;
+            bool h_l = ray_aabb(ray, l.aabb_min.xyz, l.aabb_max.xyz, t_max, t_l);
+            bool h_r = ray_aabb(ray, r.aabb_min.xyz, r.aabb_max.xyz, t_max, t_r);
+            // Push far child first so the near one pops next.
+            if (h_l && h_r) {
+                if (t_l <= t_r) {
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                    if (sp < 32) stack[sp++] = node.first_child;
+                } else {
+                    if (sp < 32) stack[sp++] = node.first_child;
+                    if (sp < 32) stack[sp++] = node.first_child + 1u;
+                }
+            } else if (h_l) {
+                if (sp < 32) stack[sp++] = node.first_child;
+            } else if (h_r) {
+                if (sp < 32) stack[sp++] = node.first_child + 1u;
+            }
+        } else {
+            for (uint i = 0u; i < node.child_count; ++i) {
+                if (sp < 32) stack[sp++] = node.first_child + i;
+            }
         }
     }
     return false;

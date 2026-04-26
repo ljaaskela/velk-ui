@@ -127,7 +127,71 @@ inline void blas_fill_node(BlasBuild& out, uint32_t my_idx,
               [axis](const BlasTriInfo& a, const BlasTriInfo& b) {
                   return a.center[axis] < b.center[axis];
               });
-    const size_t mid = begin + count / 2;
+
+    // SAH split: pick the candidate split position whose
+    // surface-area heuristic cost beats both the leaf cost and any
+    // other split. Same algorithm as the TLAS builder in
+    // velk-ui/src/renderer/scene_collector.h::build_scene_bvh.
+    constexpr float kCostTraversal = 1.0f;
+    constexpr float kCostIntersect = 1.5f;
+    auto surface_area = [](const float lo[3], const float hi[3]) {
+        const float dx = std::max(0.f, hi[0] - lo[0]);
+        const float dy = std::max(0.f, hi[1] - lo[1]);
+        const float dz = std::max(0.f, hi[2] - lo[2]);
+        return 2.f * (dx * dy + dy * dz + dz * dx);
+    };
+
+    // Right-to-left sweep: right_lo[i] / right_hi[i] = AABB of
+    // tris[begin + i .. end). Only allocated when we need them.
+    vector<float> right_lo(count * 3);
+    vector<float> right_hi(count * 3);
+    {
+        float lo[3] = { kInf,  kInf,  kInf};
+        float hi[3] = {-kInf, -kInf, -kInf};
+        for (size_t i = count; i-- > 0;) {
+            const auto& t = tris[begin + i];
+            for (int k = 0; k < 3; ++k) {
+                if (t.aabb_min[k] < lo[k]) lo[k] = t.aabb_min[k];
+                if (t.aabb_max[k] > hi[k]) hi[k] = t.aabb_max[k];
+                right_lo[i * 3 + k] = lo[k];
+                right_hi[i * 3 + k] = hi[k];
+            }
+        }
+    }
+
+    const float parent_sa = surface_area(bmin, bmax);
+    const float leaf_cost = kCostIntersect * static_cast<float>(count);
+
+    float best_cost = leaf_cost;
+    size_t best_split = 0; // 0 == fall back to leaf
+
+    float left_lo[3] = { kInf,  kInf,  kInf};
+    float left_hi[3] = {-kInf, -kInf, -kInf};
+    for (size_t j = 0; j + 1 < count; ++j) {
+        const auto& t = tris[begin + j];
+        for (int k = 0; k < 3; ++k) {
+            if (t.aabb_min[k] < left_lo[k]) left_lo[k] = t.aabb_min[k];
+            if (t.aabb_max[k] > left_hi[k]) left_hi[k] = t.aabb_max[k];
+        }
+        const float left_sa = surface_area(left_lo, left_hi);
+        const float right_sa = surface_area(
+            right_lo.data() + (j + 1) * 3, right_hi.data() + (j + 1) * 3);
+        const float l_count = static_cast<float>(j + 1);
+        const float r_count = static_cast<float>(count - j - 1);
+        const float cost = kCostTraversal + kCostIntersect *
+            (left_sa * l_count + right_sa * r_count) / std::max(parent_sa, 1e-30f);
+        if (cost < best_cost) {
+            best_cost = cost;
+            best_split = j + 1;
+        }
+    }
+
+    if (best_split == 0) {
+        emit_leaf();
+        return;
+    }
+
+    const size_t mid = begin + best_split;
 
     const uint32_t left_idx  = static_cast<uint32_t>(out.nodes.size());
     out.nodes.push_back({});

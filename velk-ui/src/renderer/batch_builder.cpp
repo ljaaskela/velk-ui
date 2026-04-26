@@ -361,6 +361,7 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                     std::memcpy(batch.instance_data.data() + data_offset, world.m, sizeof(world.m));
 
                     batch.instance_count++;
+                    batch.world_aabb = aabb::merge(batch.world_aabb, elem_state->world_aabb);
                 }
             }
         }
@@ -455,11 +456,15 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
                                     uint64_t globals_gpu_addr,
                                     const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
                                     IRenderContext* render_ctx,
-                                    IGpuResourceObserver* observer)
+                                    IGpuResourceObserver* observer,
+                                    const ::velk::render::Frustum* frustum)
 {
     VELK_PERF_SCOPE("renderer.build_draw_calls");
 
     for (auto& batch : batches) {
+        if (frustum && !::velk::render::aabb_in_frustum(*frustum, batch.world_aabb)) {
+            continue;
+        }
         uint64_t instances_addr =
             frame_data.write(batch.instance_data.data(), batch.instance_data.size());
         if (!instances_addr) {
@@ -578,7 +583,8 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
                                             uint64_t globals_gpu_addr,
                                             IRenderContext* render_ctx,
                                             RenderTargetGroup target_group,
-                                            IGpuResourceObserver* observer)
+                                            IGpuResourceObserver* observer,
+                                            const ::velk::render::Frustum* frustum)
 {
     VELK_PERF_SCOPE("renderer.build_gbuffer_draw_calls");
 
@@ -587,6 +593,9 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
     }
 
     for (auto& batch : batches) {
+        if (frustum && !::velk::render::aabb_in_frustum(*frustum, batch.world_aabb)) {
+            continue;
+        }
         uint64_t instances_addr =
             frame_data.write(batch.instance_data.data(), batch.instance_data.size());
         if (!instances_addr) {

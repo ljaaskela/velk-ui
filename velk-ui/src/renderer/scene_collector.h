@@ -635,7 +635,77 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
                   [axis](const ShapeRef& a, const ShapeRef& b) {
                       return a.centroid[axis] < b.centroid[axis];
                   });
-        const size_t mid = item.begin + count / 2;
+
+        // SAH split: among the `count - 1` candidate split positions
+        // along the sorted axis, pick the one minimising the surface
+        // area heuristic
+        //   cost(k) = c_t + c_i * (sa(L)*|L| + sa(R)*|R|) / sa(parent)
+        // and compare against the leaf cost `c_i * count`. If the
+        // best split is more expensive than a leaf we fall back to a
+        // leaf — even if `count > kLeafThreshold` — since SAH says
+        // the descent overhead exceeds the per-shape intersection cost.
+        constexpr float kCostTraversal = 1.0f;
+        constexpr float kCostIntersect = 1.5f;
+        auto surface_area = [](const float lo[3], const float hi[3]) {
+            float dx = std::max(0.f, hi[0] - lo[0]);
+            float dy = std::max(0.f, hi[1] - lo[1]);
+            float dz = std::max(0.f, hi[2] - lo[2]);
+            return 2.f * (dx * dy + dy * dz + dz * dx);
+        };
+
+        // Right-to-left sweep: right_lo[i] / right_hi[i] is the AABB
+        // of refs[item.begin + i .. item.end). Sized `count`, the
+        // last entry covers exactly the last shape.
+        vector<float> right_lo(count * 3);
+        vector<float> right_hi(count * 3);
+        {
+            float lo[3] = { kInf, kInf, kInf};
+            float hi[3] = {-kInf,-kInf,-kInf};
+            for (size_t i = count; i-- > 0;) {
+                const uint32_t idx = refs[item.begin + i].index;
+                for (int k = 0; k < 3; ++k) {
+                    lo[k] = std::min(lo[k], shape_aabb_min[idx * 3 + k]);
+                    hi[k] = std::max(hi[k], shape_aabb_max[idx * 3 + k]);
+                    right_lo[i * 3 + k] = lo[k];
+                    right_hi[i * 3 + k] = hi[k];
+                }
+            }
+        }
+
+        const float parent_sa = surface_area(bmin, bmax);
+        const float leaf_cost = kCostIntersect * static_cast<float>(count);
+
+        float best_cost = leaf_cost;
+        size_t best_split = 0; // 0 == "no split, emit leaf"
+
+        float left_lo[3] = { kInf, kInf, kInf};
+        float left_hi[3] = {-kInf,-kInf,-kInf};
+        for (size_t j = 0; j + 1 < count; ++j) {
+            const uint32_t idx = refs[item.begin + j].index;
+            for (int k = 0; k < 3; ++k) {
+                left_lo[k] = std::min(left_lo[k], shape_aabb_min[idx * 3 + k]);
+                left_hi[k] = std::max(left_hi[k], shape_aabb_max[idx * 3 + k]);
+            }
+            const float left_sa = surface_area(left_lo, left_hi);
+            const float right_sa = surface_area(
+                right_lo.data() + (j + 1) * 3, right_hi.data() + (j + 1) * 3);
+            const float l_count = static_cast<float>(j + 1);
+            const float r_count = static_cast<float>(count - j - 1);
+            const float cost = kCostTraversal + kCostIntersect *
+                (left_sa * l_count + right_sa * r_count) / std::max(parent_sa, 1e-30f);
+            if (cost < best_cost) {
+                best_cost = cost;
+                best_split = j + 1;
+            }
+        }
+
+        if (best_split == 0) {
+            // Splitting is no better than a flat leaf at this node.
+            emit_leaf();
+            continue;
+        }
+
+        const size_t mid = item.begin + best_split;
 
         const uint32_t left_idx  = static_cast<uint32_t>(out.nodes.size());
         out.nodes.push_back({});

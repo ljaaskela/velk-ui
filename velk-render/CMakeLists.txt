@@ -31,6 +31,7 @@ add_library(velk_render SHARED
     src/primitive_meshes.cpp
     include/velk-render/debug/render_target_dump.h
     include/velk-render/blas.h
+    include/velk-render/frustum.h
     include/velk-render/interface/intf_mesh.h
     include/velk-render/interface/intf_primitive_shape.h
     src/rt_shadow.h

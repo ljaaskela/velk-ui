@@ -6,6 +6,7 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-render/frustum.h>
 #include <velk-render/interface/intf_camera.h>
 
 namespace velk::ui {
@@ -74,6 +75,7 @@ private:
     void emit_forward_pass(ViewEntry& view, FrameContext& ctx,
                            uint64_t globals_gpu_addr,
                            const rect& viewport,
+                           const ::velk::render::Frustum* frustum,
                            vector<RenderPass>& out_passes);
 
     // Deferred path: G-buffer fill only. DeferredLighter emits the
@@ -81,6 +83,7 @@ private:
     void emit_deferred_gbuffer_pass(ViewEntry& view, FrameContext& ctx,
                                     int width, int height,
                                     uint64_t globals_gpu_addr,
+                                    const ::velk::render::Frustum* frustum,
                                     vector<RenderPass>& out_passes);
 };
 
