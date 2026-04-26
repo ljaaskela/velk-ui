@@ -6,7 +6,7 @@
 
 #include <velk-scene/api/element.h>
 #include <velk-ui/interface/intf_layout_trait.h>
-#include <velk-ui/interface/intf_transform_trait.h>
+#include <velk-scene/interface/intf_transform_trait.h>
 #include <velk-scene/interface/intf_visual.h>
 
 #ifdef VELK_LAYOUT_DEBUG

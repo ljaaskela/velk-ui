@@ -7,16 +7,16 @@
 #include <velk-render/api/material/shader_material.h>
 #include <velk-render/api/render_context.h>
 #include <velk-runtime/api/application.h>
-#include <velk-ui/api/camera.h>
+#include <velk-scene/api/camera.h>
 #include <velk-scene/api/element.h>
 #include <velk-ui/api/input/click.h>
 #include <velk-ui/api/material/gradient.h>
 #include <velk-scene/api/scene.h>
 #include <velk-ui/api/trait/fixed_size.h>
-#include <velk-ui/api/trait/orbit.h>
-#include <velk-ui/api/trait/trs.h>
+#include <velk-scene/api/trait/orbit.h>
+#include <velk-scene/api/trait/trs.h>
 #include <velk-ui/api/visual/rect.h>
-#include <velk-ui/api/visual/visual.h>
+#include <velk-scene/api/visual/visual.h>
 #include <velk-ui/plugins/gltf/interface/intf_gltf_asset.h>
 #include <velk-render/interface/intf_camera.h>
 
@@ -41,7 +41,7 @@ int main(int argc, char* argv[])
     wc.width = kWidth;
     wc.height = kHeight;
     wc.title = "velk-ui";
-    // wc.update_rate = velk::UpdateRate::Unlimited;
+    wc.update_rate = velk::UpdateRate::Unlimited;
 
     auto app = velk::create_app(config);
     auto window = app.create_window(wc);
@@ -61,24 +61,24 @@ int main(int argc, char* argv[])
     // The dashboard scene has two cameras: an ortho camera (no orbit trait)
     // and a perspective camera with an orbit trait. Find them by trait.
     auto camera = scene.find_first<velk::ICamera>();   // first camera in pre-order = ortho
-    auto camera_3d = scene.find_first<velk::ui::IOrbit>(); // only the perspective one has orbit
+    auto camera_3d = scene.find_first<velk::IOrbit>(); // only the perspective one has orbit
 
     if (camera) {
-        velk::ui::Camera(camera.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
+        velk::Camera(camera.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
         app.add_view(window, camera, {0.5f, 0, 0.5f, 1.0f});
     }
     if (camera_3d) {
-        velk::ui::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
+        velk::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
         app.add_view(window, camera_3d, {0, 0, .5f, 1.0f});
     }
 
     // Orbit camera control via input dispatcher events.
-    velk::ui::OrbitTrait orbit;
+    velk::OrbitTrait orbit;
     bool orbit_dragging = false;
     double orbit_last_x = 0.0, orbit_last_y = 0.0;
 
     if (camera_3d) {
-        orbit = velk::ui::OrbitTrait(camera_3d.find_trait<velk::ui::IOrbit>());
+        orbit = velk::OrbitTrait(camera_3d.find_trait<velk::IOrbit>());
     }
 
     auto* dispatcher = window.input();
@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
         } else if (e.action == velk::ui::PointerAction::Move && orbit_dragging && orbit) {
             float dx = e.position.x - static_cast<float>(orbit_last_x);
             float dy = e.position.y - static_cast<float>(orbit_last_y);
-            auto state = velk::read_state<velk::ui::IOrbit>(static_cast<velk::ui::IOrbit::Ptr>(orbit));
+            auto state = velk::read_state<velk::IOrbit>(static_cast<velk::IOrbit::Ptr>(orbit));
             if (state) {
                 orbit.set_yaw(state->yaw + dx * 0.3f);
                 orbit.set_pitch(state->pitch + dy * 0.3f);
@@ -109,8 +109,8 @@ int main(int argc, char* argv[])
             if (!orbit) {
                 return;
             }
-            auto state = velk::read_state<velk::ui::IOrbit>(
-                static_cast<velk::ui::IOrbit::Ptr>(orbit));
+            auto state = velk::read_state<velk::IOrbit>(
+                static_cast<velk::IOrbit::Ptr>(orbit));
             if (state) {
                 float factor = (e.delta.y > 0) ? 0.9f : 1.1f;
                 orbit.set_distance(state->distance * factor);
@@ -140,7 +140,7 @@ int main(int argc, char* argv[])
             auto root = velk::create_element();
             auto sz =
                 velk::ui::trait::layout::create_fixed_size(velk::dim::px(640), velk::dim::px(1080));
-            auto tr = velk::ui::trait::transform::create_trs();
+            auto tr = velk::trait::transform::create_trs();
             tr.set_translate({offset, offset, offset});
             auto vis = velk::ui::trait::visual::create_text();
             vis.set_text(ipsum);
@@ -166,7 +166,7 @@ int main(int argc, char* argv[])
             auto store = asset->instantiate();
             if (store) {
                 auto host = velk::create_element();
-                auto host_trs = velk::ui::trait::transform::create_trs();
+                auto host_trs = velk::trait::transform::create_trs();
                 host_trs.set_translate({0.f, 0.f, 0.f});
                 host_trs.set_scale({200.f, 200.f, 200.f});
                 host.add_trait(host_trs);
@@ -252,7 +252,7 @@ void main()
             sm.set_input<float>("scale", 8.0f);
 
             auto header = scene.root().child_at(0).child_at(0);
-            auto v = velk::ui::Visual2D(header.find_attachment<velk::IVisual>());
+            auto v = velk::Visual2D(header.find_attachment<velk::IVisual>());
             v.set_paint(sm);
         }
     }

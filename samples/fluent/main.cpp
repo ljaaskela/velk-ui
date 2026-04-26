@@ -20,17 +20,17 @@
 #include <velk-render/interface/intf_camera.h>
 #include <velk-render/interface/intf_image.h>
 #include <velk-runtime/api/application.h>
-#include <velk-ui/api/camera.h>
+#include <velk-scene/api/camera.h>
 #include <velk-scene/api/element.h>
-#include <velk-ui/api/mesh.h>
+#include <velk-scene/api/mesh.h>
 #include <velk-scene/api/scene.h>
 #include <velk-ui/api/trait/fixed_size.h>
-#include <velk-ui/api/trait/light.h>
-#include <velk-ui/api/trait/orbit.h>
-#include <velk-ui/api/trait/trs.h>
-#include <velk-ui/api/visual/cube.h>
+#include <velk-scene/api/trait/light.h>
+#include <velk-scene/api/trait/orbit.h>
+#include <velk-scene/api/trait/trs.h>
+#include <velk-scene/api/visual/cube.h>
 #include <velk-ui/api/visual/rounded_rect.h>
-#include <velk-ui/api/visual/sphere.h>
+#include <velk-scene/api/visual/sphere.h>
 #include <velk-ui/interface/intf_texture_visual.h>
 #include <velk-ui/plugins/image/api/image.h>
 #include <velk-ui/plugins/image/plugin.h>
@@ -86,7 +86,7 @@ void build_mirror_grid(velk::Scene& scene, velk::Element grid_root)
             auto tile = velk::create_element();
             auto sz = velk::ui::trait::layout::create_fixed_size(
                 velk::dim::px(kTileW), velk::dim::px(kTileH));
-            auto tr = velk::ui::trait::transform::create_trs();
+            auto tr = velk::trait::transform::create_trs();
             float cx = x0 + col * (kTileW + kGapX);
             float cy = y0 + row * (kTileH + kGapY);
             tr.set_translate({cx, cy, 0.f});
@@ -137,12 +137,12 @@ int main(int /*argc*/, char* /*argv*/[])
     auto scene = velk::create_scene("app://scenes/fluent.json");
     scene.set_geometry(velk::aabb::from_size({static_cast<float>(kWidth), static_cast<float>(kHeight)}));
 
-    auto camera_3d = scene.find_first<velk::ui::IOrbit>();
-    velk::ui::OrbitTrait orbit;
+    auto camera_3d = scene.find_first<velk::IOrbit>();
+    velk::OrbitTrait orbit;
     if (camera_3d) {
-        velk::ui::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Deferred);
+        velk::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Deferred);
         app.add_view(window, camera_3d, {0, 0, 1.f, 1.f});
-        orbit = velk::ui::OrbitTrait(camera_3d.find_trait<velk::ui::IOrbit>());
+        orbit = velk::OrbitTrait(camera_3d.find_trait<velk::IOrbit>());
     } else {
         VELK_LOG(E, "Fluent scene has no orbit camera; window will be blank.");
     }
@@ -155,7 +155,7 @@ int main(int /*argc*/, char* /*argv*/[])
 
         // Rough matte floor. Gives the mirrors something to reflect below
         // the horizon and breaks the symmetry with the sky reflection.
-        if (auto floor_vis = velk::ui::Visual2D(floor.find_trait<velk::IVisual>())) {
+        if (auto floor_vis = velk::Visual2D(floor.find_trait<velk::IVisual>())) {
             floor_vis.set_paint(velk::material::create_standard(
                 velk::color{0.45f, 0.42f, 0.40f, 1.f}, /*metallic=*/0.8f, /*roughness=*/0.2f));
         }
@@ -168,12 +168,12 @@ int main(int /*argc*/, char* /*argv*/[])
     // light element's forward axis (-Z), so the Trs rotation below
     // tilts the sun to a nice angle.
     {
-        auto sun_light = velk::ui::trait::render::create_directional_light(
+        auto sun_light = velk::trait::render::create_directional_light(
             velk::color{1.f, 0.96f, 0.88f, 1.f}, /*intensity=*/2.5f);
         sun_light.add_technique(velk::technique::create_rt_shadow());
 
         auto sun = velk::create_element();
-        auto sun_trs = velk::ui::trait::transform::create_trs();
+        auto sun_trs = velk::trait::transform::create_trs();
         sun_trs.set_rotation({35.f, 25.f, 0.f}); // pitch down (+Y forward) + yaw right
         sun.add_trait(sun_trs);
         sun.add_trait(sun_light);
@@ -183,18 +183,18 @@ int main(int /*argc*/, char* /*argv*/[])
     // Animated 3D accents in front of the mirror grid. Cube + sphere,
     // orbiting the grid center on opposite phases. Using StandardMaterial
     // so they reflect the environment just like the tiles.
-    velk::ui::Trs cube_trs;
-    velk::ui::Trs sphere_trs;
+    velk::Trs cube_trs;
+    velk::Trs sphere_trs;
     {
         auto cube = velk::create_element();
         auto cube_sz = velk::ui::trait::layout::create_fixed_size(
             velk::dim::px(140.f), velk::dim::px(140.f), velk::dim::px(140.f));
-        cube_trs = velk::ui::trait::transform::create_trs();
-        auto cube_vis = velk::ui::trait::visual::create_cube();
+        cube_trs = velk::trait::transform::create_trs();
+        auto cube_vis = velk::trait::visual::create_cube();
         // Build the cube mesh up-front so its primitive's material can
         // be set at authoring time. Procedural meshes share their
         // IMeshBuffer across calls; the primitive object is per-caller.
-        velk::ui::Mesh cube_mesh(ctx.build_cube());
+        velk::Mesh cube_mesh(ctx.build_cube());
         cube_mesh.set_material(0, velk::material::create_standard(
             velk::color{0.95f, 0.7f, 0.4f, 1.f}, /*metallic=*/0.9f, /*roughness=*/0.15f));
         cube_vis.set_mesh(cube_mesh);
@@ -211,7 +211,7 @@ int main(int /*argc*/, char* /*argv*/[])
             auto text = velk::create_element();
             auto text_sz = velk::ui::trait::layout::create_fixed_size(
                 velk::dim::px(900.f), velk::dim::px(180.f));
-            auto text_trs = velk::ui::trait::transform::create_trs();
+            auto text_trs = velk::trait::transform::create_trs();
             text_trs.set_translate({-450.f, 450.f, 650.f});
             auto tv = velk::ui::trait::visual::create_text();
             tv.set_text("velk-ui");
@@ -235,9 +235,9 @@ int main(int /*argc*/, char* /*argv*/[])
         auto sphere = velk::create_element();
         auto sphere_sz = velk::ui::trait::layout::create_fixed_size(
             velk::dim::px(180.f), velk::dim::px(180.f), velk::dim::px(180.f));
-        sphere_trs = velk::ui::trait::transform::create_trs();
-        auto sphere_vis = velk::ui::trait::visual::create_sphere();
-        velk::ui::Mesh sphere_mesh(ctx.build_sphere());
+        sphere_trs = velk::trait::transform::create_trs();
+        auto sphere_vis = velk::trait::visual::create_sphere();
+        velk::Mesh sphere_mesh(ctx.build_sphere());
         sphere_mesh.set_material(0, velk::material::create_standard(
             velk::color{0.4f, 0.6f, 0.95f, 1.f}, /*metallic=*/0.3f, /*roughness=*/0.08f));
         sphere_vis.set_mesh(sphere_mesh);
@@ -260,7 +260,7 @@ int main(int /*argc*/, char* /*argv*/[])
         } else if (e.action == velk::ui::PointerAction::Move && orbit_dragging && orbit) {
             float dx = e.position.x - static_cast<float>(orbit_last_x);
             float dy = e.position.y - static_cast<float>(orbit_last_y);
-            auto state = velk::read_state<velk::ui::IOrbit>(static_cast<velk::ui::IOrbit::Ptr>(orbit));
+            auto state = velk::read_state<velk::IOrbit>(static_cast<velk::IOrbit::Ptr>(orbit));
             if (state) {
                 orbit.set_yaw(state->yaw + dx * 0.3f);
                 orbit.set_pitch(state->pitch + dy * 0.3f);
@@ -275,7 +275,7 @@ int main(int /*argc*/, char* /*argv*/[])
         [&](const velk::ui::ScrollEvent& e) {
             if (!orbit) return;
             auto state =
-                velk::read_state<velk::ui::IOrbit>(static_cast<velk::ui::IOrbit::Ptr>(orbit));
+                velk::read_state<velk::IOrbit>(static_cast<velk::IOrbit::Ptr>(orbit));
             if (state) {
                 float factor = (e.delta.y > 0) ? 0.9f : 1.1f;
                 orbit.set_distance(state->distance * factor);
@@ -314,7 +314,7 @@ int main(int /*argc*/, char* /*argv*/[])
                 auto store = asset->instantiate();
                 if (store) {
                     auto host = velk::create_element();
-                    auto host_trs = velk::ui::trait::transform::create_trs();
+                    auto host_trs = velk::trait::transform::create_trs();
                     host_trs.set_translate(pos);
                     host_trs.set_scale({200.f, 200.f, 200.f});
                     host.add_trait(host_trs);

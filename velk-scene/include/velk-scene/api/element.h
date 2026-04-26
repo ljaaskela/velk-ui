@@ -9,7 +9,6 @@
 #include <velk-scene/interface/intf_element.h>
 #include <velk-scene/interface/intf_scene.h>
 #include <velk-scene/plugin.h>
-#include <velk-ui/plugin.h>
 
 namespace velk {
 

@@ -8,7 +8,7 @@
 #include <thread>
 #include <velk-render/api/render_context.h>
 #include <velk-runtime/interface/intf_window.h>
-#include <velk-ui/api/camera.h>
+#include <velk-scene/api/camera.h>
 #include <velk-scene/api/element.h>
 #include <velk-ui/api/renderer.h>
 #include <velk-scene/api/scene.h>
@@ -326,7 +326,7 @@ void Application::set_performance_overlay(const IObject::Ptr& window,
     auto camera_elem = ::velk::create_element();
     scene.add(root, camera_elem);
 
-    auto camera_trait = ui::trait::render::create_camera();
+    auto camera_trait = ::velk::trait::render::create_camera();
     camera_trait.set_projection(::velk::Projection::Ortho);
     camera_elem.add_trait(camera_trait);
 
