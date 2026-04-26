@@ -2,6 +2,7 @@
 #define VELK_RENDER_INTF_IMAGE_H
 
 #include <velk/interface/resource/intf_resource.h>
+#include <velk/string_view.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/render_types.h>
 
@@ -67,6 +68,54 @@ public:
     virtual void init_from_pixels(string_view uri, int width, int height,
                                   PixelFormat format,
                                   const uint8_t* pixels, size_t pixel_size) = 0;
+};
+
+/**
+ * @brief Encodes an `IImage` to disk in a chosen file format.
+ *
+ * Decoupled from `IImage` so that encoding backends can be swapped or
+ * extended (additional formats, host-side metadata, alternative
+ * compressors) without touching every image producer. Instantiate via
+ * `velk::instance().create<IImageWriter>(<encoder ClassId>)`; the image
+ * plugin registers a default implementation.
+ *
+ * Chain: IInterface -> IImageWriter
+ */
+class IImageWriter : public Interface<IImageWriter>
+{
+public:
+    /**
+     * @brief Saves @p image as a PNG file at @p path.
+     * @return true on success; false if the image format is unsupported,
+     *         the image has no readable pixel data (e.g. pixels were
+     *         freed after GPU upload), or the file could not be written.
+     */
+    virtual bool save_png(const IImage& image, string_view path) const = 0;
+
+    /**
+     * @brief Saves raw pixel data as a PNG file. Used by callers that
+     *        already have bytes (e.g. GPU readbacks) and don't want to
+     *        construct an `IImage` wrapper just to save them.
+     */
+    virtual bool save_png(int width, int height, PixelFormat format,
+                          const uint8_t* pixels, size_t pixel_size,
+                          string_view path) const = 0;
+
+    /**
+     * @brief Saves @p image as a Radiance .hdr file at @p path.
+     *
+     * Targets float-formatted images (RGBA16F, RGBA32F). Returns false
+     * for integer formats (use `save_png` for those) or if pixel data
+     * is missing / the file cannot be written.
+     */
+    virtual bool save_hdr(const IImage& image, string_view path) const = 0;
+
+    /**
+     * @brief Saves raw pixel data as a Radiance .hdr file.
+     */
+    virtual bool save_hdr(int width, int height, PixelFormat format,
+                          const uint8_t* pixels, size_t pixel_size,
+                          string_view path) const = 0;
 };
 
 } // namespace velk

@@ -5,6 +5,7 @@
 #include "environment.h"
 #include "image.h"
 #include "image_decoder.h"
+#include "image_encoder.h"
 #include "image_material.h"
 #include "image_visual.h"
 
@@ -18,6 +19,7 @@ ReturnValue ImagePlugin::initialize(IVelk& velk, PluginConfig&)
 {
     auto rv = register_type<Image>(velk);
     rv &= register_type<ImageDecoder>(velk);
+    rv &= register_type<ImageEncoder>(velk);
     rv &= register_type<ImageMaterial>(velk);
     rv &= register_type<ImageVisual>(velk);
     rv &= register_type<Environment>(velk);

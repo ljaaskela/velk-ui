@@ -586,16 +586,28 @@ IMesh::Ptr build_mesh(IMeshBuilder& builder, const cgltf_data* /*data*/,
             ibo[i_cursor + k] = prim_indices[k] + v_cursor;
         }
 
+        // Local-space AABB. Always compute from the actual position
+        // data we just loaded rather than trusting glTF's optional
+        // pos->{min,max} metadata: many assets omit it (gives zero
+        // extent), and a few carry stale values that don't match the
+        // vertex data after upstream edits. A bad local AABB collapses
+        // the consumer's world AABB and the BVH outer ray_aabb test
+        // silently misses every ray, dropping the primitive from RT
+        // shadows / picking. Y is negated below for the Y-up to Y-down
+        // import (matches the position negation in the loop above).
         aabb b{};
-        if (pos->has_min && pos->has_max) {
-            // Y is negated on vertex positions during the Y-up to Y-down
-            // import. The local-space AABB has to follow so consumers
-            // (BVH builders, layout solver) see the actual extent of the
-            // in-buffer vertices.
-            b.position = {pos->min[0], -pos->max[1], pos->min[2]};
-            b.extent = {pos->max[0] - pos->min[0],
-                        pos->max[1] - pos->min[1],
-                        pos->max[2] - pos->min[2]};
+        if (v_count > 0) {
+            float mn[3] = { positions[0], positions[1], positions[2] };
+            float mx[3] = { positions[0], positions[1], positions[2] };
+            for (uint32_t k = 1; k < v_count; ++k) {
+                for (int j = 0; j < 3; ++j) {
+                    float p = positions[k * 3 + j];
+                    if (p < mn[j]) mn[j] = p;
+                    if (p > mx[j]) mx[j] = p;
+                }
+            }
+            b.position = { mn[0], -mx[1], mn[2] };
+            b.extent   = { mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2] };
         }
 
         Range r{};

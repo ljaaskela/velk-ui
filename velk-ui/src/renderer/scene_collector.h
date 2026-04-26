@@ -484,90 +484,177 @@ BvhBuild build_scene_bvh(IScene* scene, IRenderContext* ctx, F&& cb)
     auto root_elem = interface_pointer_cast<IElement>(root_obj);
     if (!root_elem) return out;
 
-    // BFS: each item carries the element to process and the node slot
-    // reserved for its BvhNode. Siblings are enqueued together, so
-    // their node indices come out contiguous in `out.nodes`.
-    struct Item { IElement::Ptr elem; uint32_t self_index; };
-    std::deque<Item> queue;
-
-    out.nodes.push_back({});        // reserve slot for root
-    out.root_index = 0;
-    queue.push_back({root_elem, 0});
-
-    while (!queue.empty()) {
-        auto [elem, self] = queue.front();
-        queue.pop_front();
-
-        // Emit this element's shapes contiguously, accumulating their
-        // world AABBs into this node's AABB.
-        uint32_t first_shape = static_cast<uint32_t>(out.shapes.size());
-        constexpr float kInf = 1e30f;
-        float nmin[3] = { kInf,  kInf,  kInf};
-        float nmax[3] = {-kInf, -kInf, -kInf};
-        emit_shapes_for_element(elem.get(), ctx, [&](ShapeSite& site) {
+    // Step 1: collect all shapes (and their world AABBs + mesh
+    // instance data) into flat arrays via a scene tree walk. The walk
+    // order itself doesn't matter; we re-partition spatially below.
+    vector<RtShape>          shapes;
+    vector<MeshInstanceData> mesh_instances;
+    vector<float>            shape_aabb_min; // 3 floats per shape
+    vector<float>            shape_aabb_max;
+    detail::walk_scene_preorder(scene, scene->root(), [&](IElement* elem) {
+        emit_shapes_for_element(elem, ctx, [&](ShapeSite& site) {
             cb(site);
-            out.shapes.push_back(site.geometry);
-            out.mesh_instances.push_back(
+            shapes.push_back(site.geometry);
+            mesh_instances.push_back(
                 site.has_mesh_data ? site.mesh_instance : MeshInstanceData{});
-            for (int k = 0; k < 3; ++k) {
-                if (site.aabb_min[k] < nmin[k]) nmin[k] = site.aabb_min[k];
-                if (site.aabb_max[k] > nmax[k]) nmax[k] = site.aabb_max[k];
-            }
+            shape_aabb_min.push_back(site.aabb_min[0]);
+            shape_aabb_min.push_back(site.aabb_min[1]);
+            shape_aabb_min.push_back(site.aabb_min[2]);
+            shape_aabb_max.push_back(site.aabb_max[0]);
+            shape_aabb_max.push_back(site.aabb_max[1]);
+            shape_aabb_max.push_back(site.aabb_max[2]);
         });
-        uint32_t shape_count = static_cast<uint32_t>(out.shapes.size()) - first_shape;
+    });
 
-        // Reserve contiguous node slots for each child.
-        auto children_raw = scene->children_of(as_object(elem));
-        uint32_t first_child = static_cast<uint32_t>(out.nodes.size());
-        uint32_t child_count = 0;
-        for (auto& c : children_raw) {
-            auto child_elem = interface_pointer_cast<IElement>(c);
-            if (!child_elem) continue;
-            uint32_t idx = static_cast<uint32_t>(out.nodes.size());
-            out.nodes.push_back({});
-            queue.push_back({child_elem, idx});
-            ++child_count;
-        }
+    if (shapes.empty()) {
+        // Empty BVH: emit a single inverted-AABB root so trace_any_hit
+        // sees node_count > 0 but every ray rejects.
+        out.nodes.push_back({});
+        out.root_index = 0;
+        out.nodes[0].aabb_min[0] = 1.f; out.nodes[0].aabb_max[0] = -1.f;
+        return out;
+    }
 
-        // Per-node AABB starts from the emitted shapes' AABBs. The
-        // post-BFS pass below expands it to enclose all descendants
-        // (which haven't been visited yet here).
-        GpuBvhNode& node = out.nodes[self];
+    // Step 2: build a spatial median-split binary BVH over the flat
+    // shape list. The previous scene-graph BVH had bistro-style scenes
+    // putting thousands of shapes as direct children of one root node;
+    // any iterative BVH walker with a fixed traversal stack (32 / 128)
+    // silently dropped most of them, making large swaths of geometry
+    // invisible to RT shadows. A binary tree with leaf threshold 4
+    // bounds depth at ceil(log2(N/4)) — well under 32 for any
+    // realistic shape count.
+    const uint32_t shape_count = static_cast<uint32_t>(shapes.size());
+    struct ShapeRef
+    {
+        uint32_t index;        // index into the input arrays
+        float    centroid[3];
+    };
+    vector<ShapeRef> refs;
+    refs.resize(shape_count);
+    for (uint32_t i = 0; i < shape_count; ++i) {
+        refs[i].index = i;
         for (int k = 0; k < 3; ++k) {
-            node.aabb_min[k] = nmin[k];
-            node.aabb_max[k] = nmax[k];
+            refs[i].centroid[k] =
+                0.5f * (shape_aabb_min[i * 3 + k] + shape_aabb_max[i * 3 + k]);
+        }
+    }
+
+    // Recursive top-down builder. Returns the index of the node it
+    // wrote into out.nodes. Reorders refs[begin..end) so leaf shape
+    // ranges are contiguous in the output.
+    constexpr uint32_t kLeafThreshold = 4;
+    constexpr float    kInf = 1e30f;
+
+    // Reorder buffers (final shape order = leaf-traversal order).
+    vector<RtShape>          out_shapes;
+    vector<MeshInstanceData> out_mesh_instances;
+    out_shapes.reserve(shape_count);
+    out_mesh_instances.reserve(shape_count);
+
+    // We can't easily express recursion on a templated function inside
+    // another, so use an explicit work stack instead.
+    struct BuildItem
+    {
+        uint32_t self_index;
+        size_t   begin;
+        size_t   end;
+    };
+    out.nodes.push_back({});
+    out.root_index = 0;
+    vector<BuildItem> work;
+    work.push_back({0u, 0u, refs.size()});
+
+    while (!work.empty()) {
+        BuildItem item = work.back();
+        work.pop_back();
+
+        // Compute this node's AABB (union of contained shape AABBs).
+        float bmin[3] = { kInf,  kInf,  kInf};
+        float bmax[3] = {-kInf, -kInf, -kInf};
+        for (size_t i = item.begin; i < item.end; ++i) {
+            const uint32_t idx = refs[i].index;
+            for (int k = 0; k < 3; ++k) {
+                if (shape_aabb_min[idx * 3 + k] < bmin[k]) bmin[k] = shape_aabb_min[idx * 3 + k];
+                if (shape_aabb_max[idx * 3 + k] > bmax[k]) bmax[k] = shape_aabb_max[idx * 3 + k];
+            }
+        }
+        GpuBvhNode& node = out.nodes[item.self_index];
+        for (int k = 0; k < 3; ++k) {
+            node.aabb_min[k] = bmin[k];
+            node.aabb_max[k] = bmax[k];
         }
         node.aabb_min[3] = 0.f;
         node.aabb_max[3] = 0.f;
-        node.first_shape = first_shape;
-        node.shape_count = shape_count;
-        node.first_child = first_child;
-        node.child_count = child_count;
-    }
 
-    // Post-pass: expand each parent's AABB to enclose its children's
-    // AABBs. Children always have higher node indices than their parent
-    // (BFS), so walking nodes in reverse index order processes
-    // children before parents — by the time we visit `self`, all its
-    // descendants are already finalised. The outer ray_aabb test in
-    // trace_any_hit_bvh / trace_closest_hit_bvh requires this enclosure
-    // invariant: if a parent rejects a ray, its descendants are not
-    // visited, so a parent AABB tighter than its children's union
-    // would silently drop occluders.
-    for (size_t i = out.nodes.size(); i > 0; --i) {
-        GpuBvhNode& n = out.nodes[i - 1];
-        for (uint32_t c = 0; c < n.child_count; ++c) {
-            const GpuBvhNode& kid = out.nodes[n.first_child + c];
-            // Skip empty children (no shapes, no descendants -> inverted
-            // AABB) so they don't pull the parent toward infinity.
-            if (kid.aabb_min[0] > kid.aabb_max[0]) continue;
+        const size_t count = item.end - item.begin;
+
+        auto emit_leaf = [&]() {
+            const uint32_t first = static_cast<uint32_t>(out_shapes.size());
+            for (size_t i = item.begin; i < item.end; ++i) {
+                const uint32_t idx = refs[i].index;
+                out_shapes.push_back(shapes[idx]);
+                out_mesh_instances.push_back(mesh_instances[idx]);
+            }
+            node.first_shape = first;
+            node.shape_count = static_cast<uint32_t>(count);
+            node.first_child = 0;
+            node.child_count = 0;
+        };
+
+        if (count <= kLeafThreshold) {
+            emit_leaf();
+            continue;
+        }
+
+        // Pick split axis = longest centroid extent.
+        float cmin[3] = { kInf,  kInf,  kInf};
+        float cmax[3] = {-kInf, -kInf, -kInf};
+        for (size_t i = item.begin; i < item.end; ++i) {
             for (int k = 0; k < 3; ++k) {
-                if (kid.aabb_min[k] < n.aabb_min[k]) n.aabb_min[k] = kid.aabb_min[k];
-                if (kid.aabb_max[k] > n.aabb_max[k]) n.aabb_max[k] = kid.aabb_max[k];
+                if (refs[i].centroid[k] < cmin[k]) cmin[k] = refs[i].centroid[k];
+                if (refs[i].centroid[k] > cmax[k]) cmax[k] = refs[i].centroid[k];
             }
         }
+        int axis = 0;
+        const float dx = cmax[0] - cmin[0];
+        const float dy = cmax[1] - cmin[1];
+        const float dz = cmax[2] - cmin[2];
+        if (dy >= dx && dy >= dz)      axis = 1;
+        else if (dz >= dx && dz >= dy) axis = 2;
+
+        if (cmax[axis] == cmin[axis]) {
+            // All centroids coincide on the chosen axis: any sort
+            // would oscillate forever. Fall back to a leaf even if
+            // count > leaf threshold; the leaf is just slower to test
+            // but still correct.
+            emit_leaf();
+            continue;
+        }
+
+        std::sort(refs.begin() + item.begin, refs.begin() + item.end,
+                  [axis](const ShapeRef& a, const ShapeRef& b) {
+                      return a.centroid[axis] < b.centroid[axis];
+                  });
+        const size_t mid = item.begin + count / 2;
+
+        const uint32_t left_idx  = static_cast<uint32_t>(out.nodes.size());
+        out.nodes.push_back({});
+        const uint32_t right_idx = static_cast<uint32_t>(out.nodes.size());
+        out.nodes.push_back({});
+
+        node.first_shape = 0;
+        node.shape_count = 0;
+        node.first_child = left_idx;
+        node.child_count = 2;
+
+        // Push right first so left is processed first (cheaper for the
+        // refs array's cache locality on the next iteration).
+        work.push_back({right_idx, mid,        item.end});
+        work.push_back({left_idx,  item.begin, mid});
     }
 
+    out.shapes         = std::move(out_shapes);
+    out.mesh_instances = std::move(out_mesh_instances);
     return out;
 }
 

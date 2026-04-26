@@ -401,13 +401,13 @@ bool intersect_mesh(Ray ray, RtShape shape, out RayHit hit)
         float t_aabb;
         if (!ray_aabb(ray, shape.origin.xyz, shape.u_axis.xyz, 1e30, t_aabb)) return false;
     }
-
     MeshInstancePtr inst_ptr = MeshInstancePtr(shape.mesh_data_addr);
     MeshInstanceData inst = inst_ptr.data;
     if (inst.mesh_static_addr == uint64_t(0)) return false;
     MeshStaticPtr st_ptr = MeshStaticPtr(inst.mesh_static_addr);
     MeshStaticData st = st_ptr.data;
     if (st.triangle_count == 0u || st.vertex_stride == 0u) return false;
+    if (st.blas_node_count == 0u) return false;
 
     // Ray into mesh-local space.
     vec3 lo = (inst.inv_world * vec4(ray.origin, 1.0)).xyz;
@@ -596,11 +596,19 @@ float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
     // moves into the lit half-space regardless of which way the normal
     // happens to face. Magnitude is small to work at meter scale; for
     // pixel-scale scenes a per-camera or per-light bias would be ideal.
+    // Hybrid N + L bias. Pure L-bias works for axis-aligned rays
+    // (origin moves enough off the receiver in any one axis) but for
+    // tilted rays the L component along the receiver's normal can be
+    // small, leaving the origin essentially on the receiver. Adding an
+    // explicit N-step pushes off the receiver regardless of L's tilt.
+    // Sign on N follows L so we always move toward the lit side, which
+    // also handles thin double-sided geometry (back face whose normal
+    // points away from the light).
+    vec3 nrm = normalize(world_normal);
+    vec3 n_bias = nrm * (sign(dot(nrm, L)) * 0.005);
     Ray r;
-    r.origin = world_pos + L * 0.005;
+    r.origin = world_pos + n_bias + L * 0.005;
     r.dir    = L;
-    // Pull t_max slightly short of the light position so the ray
-    // doesn't hit the light's own fixture mesh on the way in.
     t_max = max(t_max - 0.005, 0.0);
     return trace_any_hit_bvh(r, t_max) ? 0.0 : 1.0;
 }
@@ -784,12 +792,38 @@ void main()
         // binary occlusion at that point goes black instead of softly
         // darker. Skipped when no BVH exists so non-RT scenes are
         // unaffected.
-        float ao = 1.0; // AO disabled while debugging shadows; re-enable later
+        // Contact-shadow / ambient occlusion: one short any-hit ray
+        // along the surface normal. Approximates "how much of the
+        // hemisphere above this surface is blocked by close geometry".
+        // Range is short (interior-crevice scale) — we don't try to
+        // catch full furniture-sized contact shadows here because a
+        // longer ray on dense scenes blacks out vertical surfaces
+        // (every wall has something within a meter). For real
+        // long-range contact shadow we'd want stochastic hemisphere
+        // sampling + temporal accumulation; binary single-ray
+        // visibility just covers the obvious crevice case.
+        float ao = 1.0;
+        if (pc.globals.bvh_node_count != 0u) {
+            const float ao_range = 0.3;
+            Ray ao_r;
+            ao_r.origin = world_pos + N * 0.01;
+            ao_r.dir    = N;
+            ao = trace_any_hit_bvh(ao_r, ao_range) ? 0.0 : 1.0;
+        }
 
+        // AO modulates env_diffuse only (the hemisphere-irradiance
+        // approximation that the AO ray actually approximates). It
+        // does NOT modulate env_specular — a mirror reflection is
+        // the radiance arriving along the reflection direction, which
+        // is occluded by whatever sits along *that* ray, not by what
+        // sits along the surface normal. Multiplying specular by AO
+        // makes a metallic sphere on a floor go black on its lower
+        // hemisphere because its outward-pointing normals all point
+        // toward the nearby floor.
         rgb = direct_diffuse * (1.0 - metallic)
             + direct_specular
             + kD_env * albedo.rgb * env_diffuse * ao
-            + F_env * env_specular * ao;
+            + F_env * env_specular;
     }
 
     rgb = velk_tonemap_aces(rgb);

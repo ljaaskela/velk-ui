@@ -35,6 +35,8 @@ public:
     TextureId create_texture(const TextureDesc& desc) override;
     void destroy_texture(TextureId texture) override;
     void upload_texture(TextureId texture, const uint8_t* pixels, int width, int height) override;
+    bool read_texture(TextureId texture, vector<uint8_t>& out_pixels,
+                      PixelFormat& out_format, uvec2& out_dims) override;
 
     RenderTargetGroup create_render_target_group(
         array_view<const PixelFormat> formats, int width, int height,

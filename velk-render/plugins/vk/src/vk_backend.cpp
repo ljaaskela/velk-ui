@@ -1430,6 +1430,90 @@ void VkBackend::upload_texture(TextureId texture, const uint8_t* pixels, int wid
     vmaDestroyBuffer(allocator_, staging, staging_alloc);
 }
 
+bool VkBackend::read_texture(TextureId texture, vector<uint8_t>& out_pixels,
+                             PixelFormat& out_format, uvec2& out_dims)
+{
+    auto it = textures_.find(texture);
+    if (it == textures_.end()) {
+        return false;
+    }
+    auto& td = it->second;
+
+    size_t bpp = 4;
+    if (td.format == PixelFormat::R8) bpp = 1;
+    else if (td.format == PixelFormat::RGBA16F) bpp = 8;
+    else if (td.format == PixelFormat::RGBA32F) bpp = 16;
+    const size_t data_size = static_cast<size_t>(td.width) * td.height * bpp;
+
+    VkBufferCreateInfo buf_ci{};
+    buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_ci.size = data_size;
+    buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.flags =
+        VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VmaAllocation staging_alloc = VK_NULL_HANDLE;
+    VmaAllocationInfo staging_info{};
+    if (vmaCreateBuffer(allocator_, &buf_ci, &alloc_ci, &staging, &staging_alloc, &staging_info) !=
+        VK_SUCCESS) {
+        VELK_LOG(E, "VkBackend: failed to create texture readback staging buffer");
+        return false;
+    }
+
+    // Drain prior GPU work so any outstanding writes to this texture are
+    // visible to the upcoming transfer. Cheap in a debug-dump context.
+    vkQueueWaitIdle(graphics_queue_);
+
+    auto cb = begin_one_shot_commands();
+
+    const VkImageLayout original_layout = td.current_layout;
+
+    // Use a permissive image barrier rather than the generic
+    // transition_image_layout helper, which doesn't cover the
+    // GENERAL <-> TRANSFER_SRC pairs the readback path needs.
+    auto image_barrier = [&](VkImageLayout from, VkImageLayout to) {
+        VkImageMemoryBarrier b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = td.image;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = td.mip_levels;
+        b.subresourceRange.layerCount = 1;
+        b.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+
+    image_barrier(original_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {static_cast<uint32_t>(td.width), static_cast<uint32_t>(td.height), 1};
+    vkCmdCopyImageToBuffer(cb, td.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+
+    image_barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, original_layout);
+
+    end_one_shot_commands(cb);
+
+    out_pixels.resize(data_size);
+    std::memcpy(out_pixels.data(), staging_info.pMappedData, data_size);
+    out_format = td.format;
+    out_dims = {static_cast<uint32_t>(td.width), static_cast<uint32_t>(td.height)};
+
+    vmaDestroyBuffer(allocator_, staging, staging_alloc);
+    return true;
+}
+
 // ============================================================================
 // Pipelines
 // ============================================================================
