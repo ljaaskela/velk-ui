@@ -5,7 +5,7 @@
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-scene/interface/intf_environment.h>
 
-#include "view_renderer.h"
+#include <velk-scene/render_path/frame_context.h>
 
 namespace velk {
 

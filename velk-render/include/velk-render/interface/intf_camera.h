@@ -16,27 +16,6 @@ enum class Projection : uint8_t
 };
 
 /**
- * @brief How the renderer produces pixels for a view driven by this camera.
- *
- * The three paths have distinct pipeline shapes:
- *   - `Forward`  → one forward raster pass, direct to surface. No G-buffer,
- *                  no deferred lighting. Right fit for 2D UI that doesn't
- *                  need PBR lighting, shadows, or GI.
- *   - `Deferred` → raster fills a G-buffer, a compute pass evaluates
- *                  lighting (direct lighting, shadow techniques, future
- *                  AO / reflections / GI), a composite pass writes the
- *                  result to the surface.
- *   - `RayTrace` → a compute-shader path tracer writes a storage image
- *                  that's blitted to the surface.
- */
-enum class RenderPath : uint8_t
-{
-    Forward,   ///< Simple forward raster. Default — cheapest, no lighting.
-    Deferred,  ///< G-buffer + compute lighting. For lit 3D scenes.
-    RayTrace,  ///< Compute-shader path tracer.
-};
-
-/**
  * @brief Camera render-trait defining how a scene is observed.
  *
  * Attached to a scene element. The world transform is supplied at
@@ -44,13 +23,17 @@ enum class RenderPath : uint8_t
  * independent of the velk-ui element hierarchy and usable from any
  * context that can produce a world matrix (game engine host, editor
  * viewport, headless renderer, ...).
+ *
+ * The render path (Forward / Deferred / RT / plugin-provided) is
+ * attached to this trait via `Camera::add_render_path` (velk-scene),
+ * not stored as an enum here, so plugins can ship custom paths
+ * without modifying ICamera.
  */
 class ICamera : public Interface<ICamera, IRenderTrait>
 {
 public:
     VELK_INTERFACE(
         (PROP, Projection, projection, Projection::Ortho),
-        (PROP, RenderPath, render_path, RenderPath::Forward),
         (PROP, float, zoom, 1.f),
         (PROP, float, scale, 1.f),
         (PROP, float, fov, 60.f),

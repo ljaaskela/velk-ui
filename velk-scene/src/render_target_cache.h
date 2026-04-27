@@ -1,7 +1,8 @@
 #ifndef VELK_UI_RENDER_TARGET_CACHE_H
 #define VELK_UI_RENDER_TARGET_CACHE_H
 
-#include "view_renderer.h"
+#include <velk-render/frame/render_pass.h>
+#include <velk-scene/render_path/frame_context.h>
 
 #include <unordered_map>
 #include <velk-render/interface/intf_render_target.h>

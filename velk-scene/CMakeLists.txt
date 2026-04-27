@@ -23,17 +23,19 @@ add_library(velk_scene SHARED
     # Renderer + render paths
     src/renderer.h
     src/renderer.cpp
-    src/view_renderer.h
     src/forward_path.h
     src/forward_path.cpp
-    src/deferred_gbuffer_path.h
-    src/deferred_gbuffer_path.cpp
-    src/deferred_lighter.h
-    src/deferred_lighter.cpp
-    src/ray_tracer.h
-    src/ray_tracer.cpp
+    src/deferred_path.h
+    src/deferred_path.cpp
+    src/rt_path.h
+    src/rt_path.cpp
     src/render_target_cache.h
     src/render_target_cache.cpp
+
+    # Public render-path interface + types
+    include/velk-scene/render_path/intf_render_path.h
+    include/velk-scene/render_path/view_entry.h
+    include/velk-scene/render_path/frame_context.h
 
     # Scene-side rendering plumbing
     src/scene_bvh.h
@@ -107,6 +109,7 @@ add_library(velk_scene SHARED
 
     # Render-feeding traits public surface
     include/velk-scene/api/render_trait.h
+    include/velk-scene/api/render_path.h
     include/velk-scene/api/camera.h
     include/velk-scene/api/trait/light.h
 

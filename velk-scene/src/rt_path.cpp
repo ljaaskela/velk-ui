@@ -1,4 +1,4 @@
-#include "ray_tracer.h"
+#include "rt_path.h"
 
 #include "default_ui_shaders.h"
 #include "env_helper.h"
@@ -44,7 +44,7 @@ void build_ortho_projection(float* out, float width, float height)
 
 } // namespace
 
-uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
+uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 {
     if (!ctx.render_ctx || !ctx.snippets) {
         return 0;
@@ -89,7 +89,7 @@ uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
     return key;
 }
 
-void RayTracer::build_passes(ViewEntry& entry,
+void RtPath::build_passes(ViewEntry& entry,
                              const SceneState& scene_state,
                              FrameContext& ctx,
                              vector<RenderPass>& out_passes)
@@ -186,8 +186,6 @@ void RayTracer::build_passes(ViewEntry& entry,
         globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
     }
-    entry.frame_globals_addr = globals_gpu_addr;
-
     // Primary rays composite in painter order, which requires a
     // separate flat shape buffer. The scene-wide BVH (in ctx) has
     // element-grouped order; it's the right structure for closest-hit
@@ -414,7 +412,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     out_passes.push_back(std::move(pass));
 }
 
-void RayTracer::on_view_removed(ViewEntry& entry, FrameContext& ctx)
+void RtPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
 {
     auto it = view_states_.find(&entry);
     if (it == view_states_.end()) return;
@@ -425,7 +423,7 @@ void RayTracer::on_view_removed(ViewEntry& entry, FrameContext& ctx)
     view_states_.erase(it);
 }
 
-void RayTracer::shutdown(FrameContext& ctx)
+void RtPath::shutdown(FrameContext& ctx)
 {
     if (ctx.resources) {
         for (auto& [v, vs] : view_states_) {

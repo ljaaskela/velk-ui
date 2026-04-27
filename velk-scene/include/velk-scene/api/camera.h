@@ -4,6 +4,7 @@
 #include <velk/api/state.h>
 
 #include <velk-render/interface/intf_camera.h>
+#include <velk-scene/api/render_path.h>
 #include <velk-scene/api/render_trait.h>
 #include <velk-scene/plugin.h>
 
@@ -28,8 +29,20 @@ public:
     auto get_projection() const { return read_state_value<ICamera>(&ICamera::State::projection); }
     void set_projection(Projection v) { write_state_value<ICamera>(&ICamera::State::projection, v); }
 
-    auto get_render_path() const { return read_state_value<ICamera>(&ICamera::State::render_path); }
-    void set_render_path(RenderPath v) { write_state_value<ICamera>(&ICamera::State::render_path, v); }
+    /// Attaches a render path to this camera. Replaces any previous
+    /// attachment of the same type.
+    ReturnValue add_render_path(const RenderPath& path)
+    {
+        return path ? add_attachment(static_cast<IRenderPath::Ptr>(path))
+                    : ReturnValue::InvalidArgument;
+    }
+
+    /// Removes a previously attached render path.
+    ReturnValue remove_render_path(const RenderPath& path)
+    {
+        return path ? remove_attachment(static_cast<IRenderPath::Ptr>(path))
+                    : ReturnValue::InvalidArgument;
+    }
 
     auto get_zoom() const { return read_state_value<ICamera>(&ICamera::State::zoom); }
     void set_zoom(float v) { write_state_value<ICamera>(&ICamera::State::zoom, v); }

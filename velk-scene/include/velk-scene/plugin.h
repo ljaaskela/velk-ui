@@ -55,6 +55,19 @@ inline constexpr Uid Light{"6267f894-7953-45df-adb2-7eaaa5fe2def"};
 
 } // namespace Render
 
+namespace Path {
+
+/** @brief Forward shading: classic raster pass over scene batches. Default fallback. */
+inline constexpr Uid Forward{"3740b799-5c09-4bd2-9330-95ce71a24e33"};
+
+/** @brief Deferred shading: G-buffer fill + compute lighting + composite blit. */
+inline constexpr Uid Deferred{"2c7dfc96-724a-4eea-b10c-b9b99a131041"};
+
+/** @brief Compute-shader path tracer. */
+inline constexpr Uid Rt{"c5a2f31b-ca23-43c0-a19a-471c3c962942"};
+
+} // namespace Path
+
 } // namespace ClassId
 
 namespace PluginId {

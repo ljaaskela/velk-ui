@@ -32,7 +32,7 @@ void build_ortho_projection(float* out, float width, float height)
 
 } // namespace
 
-void ForwardPath::prepend_environment_batch(ICamera& camera, ViewEntry& entry, FrameContext& ctx)
+void ForwardPath::prepend_environment_batch(ICamera& camera, ViewState& vs, FrameContext& ctx)
 {
     auto resolved = ensure_env_ready(camera, ctx);
     if (!resolved.env || !resolved.surface) {
@@ -59,7 +59,7 @@ void ForwardPath::prepend_environment_batch(ICamera& camera, ViewEntry& entry, F
         }
     }
 
-    entry.batches.insert(entry.batches.begin(), std::move(env_batch));
+    vs.batches.insert(vs.batches.begin(), std::move(env_batch));
 }
 
 void ForwardPath::build_passes(ViewEntry& entry,
@@ -72,11 +72,12 @@ void ForwardPath::build_passes(ViewEntry& entry,
     }
 
     auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
+    auto& vs = view_states_[&entry];
 
     if (entry.batches_dirty) {
-        ctx.batch_builder->rebuild_batches(scene_state, entry.batches);
+        ctx.batch_builder->rebuild_batches(scene_state, vs.batches);
         if (camera) {
-            prepend_environment_batch(*camera, entry, ctx);
+            prepend_environment_batch(*camera, vs, ctx);
         }
         entry.batches_dirty = false;
     }
@@ -128,7 +129,6 @@ void ForwardPath::build_passes(ViewEntry& entry,
         globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
     }
-    entry.frame_globals_addr = globals_gpu_addr;
 
     ::velk::render::Frustum frustum;
     const ::velk::render::Frustum* frustum_ptr = nullptr;
@@ -139,18 +139,18 @@ void ForwardPath::build_passes(ViewEntry& entry,
 
     float vp_x = has_viewport ? entry.viewport.x * sw : 0;
     float vp_y = has_viewport ? entry.viewport.y * sh : 0;
-    emit_pass(entry, ctx, globals_gpu_addr,
+    emit_pass(entry, vs, ctx, globals_gpu_addr,
               {vp_x, vp_y, vp_w, vp_h}, frustum_ptr, out_passes);
 }
 
-void ForwardPath::emit_pass(ViewEntry& entry, FrameContext& ctx,
+void ForwardPath::emit_pass(ViewEntry& entry, ViewState& vs, FrameContext& ctx,
                             uint64_t globals_gpu_addr,
                             const rect& viewport,
                             const ::velk::render::Frustum* frustum,
                             vector<RenderPass>& out_passes)
 {
     vector<DrawCall> draw_calls;
-    ctx.batch_builder->build_draw_calls(entry.batches,
+    ctx.batch_builder->build_draw_calls(vs.batches,
                                         draw_calls,
                                         *ctx.frame_buffer,
                                         *ctx.resources,
@@ -172,6 +172,16 @@ void ForwardPath::build_shared_passes(FrameContext& ctx, vector<RenderPass>& out
     if (ctx.render_target_cache) {
         ctx.render_target_cache->emit_passes(ctx, out_passes);
     }
+}
+
+void ForwardPath::on_view_removed(ViewEntry& view, FrameContext& /*ctx*/)
+{
+    view_states_.erase(&view);
+}
+
+void ForwardPath::shutdown(FrameContext& /*ctx*/)
+{
+    view_states_.clear();
 }
 
 } // namespace velk

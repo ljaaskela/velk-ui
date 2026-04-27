@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include "default_ui_shaders.h"
+#include "deferred_path.h"
 #include "scene_bvh.h"
 #include "scene_collector.h"
 
@@ -185,22 +186,10 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     };
     upload_default(render_ctx_->get_default_buffer(DefaultBufferType::Uv1));
 
-    // Wire deferred_lighter to its g-buffer source.
-    deferred_lighter_.set_gbuffer_source(&deferred_gbuffer_path_);
-
-    // Path dispatch table. Indexed by RenderPath enum value:
-    //   Forward  -> [forward_path]
-    //   Deferred -> [deferred_gbuffer_path, deferred_lighter]
-    //   RayTrace -> [ray_tracer]
-    // Deferred runs the lighter immediately after the G-buffer fill so
-    // attachments are written + transitioned before the compute samples.
-    path_dispatch_[static_cast<size_t>(RenderPath::Forward)]  = { &forward_path_ };
-    path_dispatch_[static_cast<size_t>(RenderPath::Deferred)] = { &deferred_gbuffer_path_, &deferred_lighter_ };
-    path_dispatch_[static_cast<size_t>(RenderPath::RayTrace)] = { &ray_tracer_ };
-
-    // Every path object enumerated for lifecycle calls
-    // (on_view_removed / on_element_removed / shutdown / build_shared_passes).
-    all_paths_ = { &forward_path_, &deferred_gbuffer_path_, &deferred_lighter_, &ray_tracer_ };
+    // Built-in fallback path for cameras with no IRenderPath attached.
+    // Instantiated through the type registry like the rest of the
+    // per-renderer plumbing.
+    default_forward_path_ = instance().create<IRenderPath>(ClassId::Path::Forward);
 }
 
 void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface,
@@ -238,7 +227,7 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
         if (it->camera_element == camera_element && it->surface == surface) {
             if (backend_) {
                 FrameContext ctx = make_frame_context();
-                for (auto* path : all_paths_) {
+                for (auto* path : seen_paths_) {
                     path->on_view_removed(*it, ctx);
                 }
                 backend_->destroy_surface(get_render_target_id(it->surface));
@@ -368,7 +357,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
             for (auto& removed : state.removed_list) {
                 batch_builder_.evict(removed.get());
                 render_target_cache_.on_element_removed(removed.get(), ctx);
-                for (auto* path : all_paths_) {
+                for (auto* path : seen_paths_) {
                     path->on_element_removed(removed.get(), ctx);
                 }
             }
@@ -645,22 +634,23 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 ctx.bvh_shape_count = 0;
             }
 
-            // Pick the sub-renderer chain via path_dispatch_.
-            auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
-            RenderPath render_path = RenderPath::Forward;
-            if (camera) {
-                auto cam_state = read_state<ICamera>(camera);
-                if (cam_state) {
-                    render_path = cam_state->render_path;
-                }
-            }
-
-            for (auto* path : path_dispatch_[static_cast<size_t>(render_path)]) {
+            // Discover the path attached to the camera trait; fall back
+            // to the built-in Forward path so trivial UI samples don't
+            // need to opt in. Cache the path in seen_paths_ so lifecycle
+            // hooks (on_view_removed / on_element_removed / shutdown)
+            // iterate every path that has held per-view state.
+            auto camera_trait = ::velk::find_attachment<ICamera>(entry.camera_element);
+            auto path_ptr = camera_trait
+                                ? ::velk::find_attachment<IRenderPath>(camera_trait.get())
+                                : IRenderPath::Ptr{};
+            IRenderPath* path = path_ptr ? path_ptr.get() : default_forward_path_.get();
+            if (path) {
+                seen_paths_.insert(path);
                 path->build_passes(entry, sit->second, ctx, view_passes);
             }
         }
 
-        for (auto* path : all_paths_) {
+        for (auto* path : seen_paths_) {
             path->build_shared_passes(ctx, slot.passes);
         }
         for (auto& p : view_passes) {
@@ -932,8 +922,18 @@ TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
     for (auto& v : views_) {
         if (v.camera_element.get() != camera_element.get()) continue;
         if (v.surface.get() != surface.get()) continue;
-        auto group = deferred_gbuffer_path_.find_gbuffer_group(const_cast<ViewEntry*>(&v));
-        if (group == 0 || !backend_) return 0;
+        auto cam_trait = ::velk::find_attachment<ICamera>(v.camera_element);
+        auto path = cam_trait
+                        ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
+                        : IRenderPath::Ptr{};
+        // The IRenderPath attached here is statically a DeferredPath if
+        // user attached one; static_cast across the unique inheritance
+        // chain. Returns 0 cleanly if the path turns out to be something
+        // else (Forward, RT, plugin path).
+        auto* deferred = path ? dynamic_cast<DeferredPath*>(path.get()) : nullptr;
+        if (!deferred || !backend_) return 0;
+        auto group = deferred->find_gbuffer_group(const_cast<ViewEntry*>(&v));
+        if (group == 0) return 0;
         return backend_->get_render_target_group_attachment(group, attachment_index);
     }
     return 0;
@@ -945,7 +945,13 @@ TextureId Renderer::get_shadow_debug_texture(const IElement::Ptr& camera_element
     for (auto& v : views_) {
         if (v.camera_element.get() != camera_element.get()) continue;
         if (v.surface.get() != surface.get()) continue;
-        return deferred_lighter_.find_shadow_debug_tex(const_cast<ViewEntry*>(&v));
+        auto cam_trait = ::velk::find_attachment<ICamera>(v.camera_element);
+        auto path = cam_trait
+                        ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
+                        : IRenderPath::Ptr{};
+        auto* deferred = path ? dynamic_cast<DeferredPath*>(path.get()) : nullptr;
+        if (!deferred) return 0;
+        return deferred->find_shadow_debug_tex(const_cast<ViewEntry*>(&v));
     }
     return 0;
 }
@@ -977,13 +983,15 @@ void Renderer::shutdown()
         {
             FrameContext ctx = make_frame_context();
             for (auto& entry : views_) {
-                for (auto* path : all_paths_) {
+                for (auto* path : seen_paths_) {
                     path->on_view_removed(entry, ctx);
                 }
             }
-            for (auto* path : all_paths_) {
+            for (auto* path : seen_paths_) {
                 path->shutdown(ctx);
             }
+            seen_paths_.clear();
+            default_forward_path_.reset();
             render_target_cache_.shutdown(ctx);
         }
 

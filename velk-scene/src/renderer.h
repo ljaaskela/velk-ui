@@ -5,16 +5,15 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include "batch_builder.h"
 #include "frame_data_manager.h"
 #include "frame_snippet_registry.h"
 #include "gpu_resource_manager.h"
-#include "deferred_gbuffer_path.h"
-#include "deferred_lighter.h"
-#include "forward_path.h"
-#include "ray_tracer.h"
 #include "render_target_cache.h"
-#include "view_renderer.h"
+#include <velk-scene/render_path/frame_context.h>
+#include <velk-scene/render_path/intf_render_path.h>
+#include <velk-scene/render_path/view_entry.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_gpu_resource.h>
@@ -132,24 +131,20 @@ private:
     // whose scene is currently in `consumed_scenes`.
     std::unordered_map<IScene*, impl::SceneBvh*> scene_bvh_cache_;
 
-    // Per-path sub-renderers. The Forward and Deferred raster paths share
-    // the RenderTargetCache (RTT subtrees can serve any view); each path
-    // owns its own per-view state via a ViewEntry* -> state map.
+    // Shared RTT (render-to-texture) subtree cache. Used by Forward +
+    // Deferred raster paths via FrameContext.
     RenderTargetCache render_target_cache_;
-    ForwardPath forward_path_;
-    DeferredGBufferPath deferred_gbuffer_path_;
-    DeferredLighter deferred_lighter_;
-    RayTracer ray_tracer_;
 
-    // Path dispatch: a view's render_path enum picks one entry; each
-    // entry is a (small) ordered list of sub-renderers run in sequence.
-    // Replaces the previous if/else inside build_frame_passes.
-    vector<IViewRenderer*> path_dispatch_[3];
+    // Built-in fallback. Used when a camera has no IRenderPath attached
+    // so trivial UI samples don't have to opt in. Created via the type
+    // registry alongside the rest of the per-renderer plumbing.
+    IRenderPath::Ptr default_forward_path_;
 
-    // Every path object is also enumerated for lifecycle calls
-    // (on_view_removed / on_element_removed / shutdown / build_shared_passes)
-    // so we don't have to spell out every member by name.
-    vector<IViewRenderer*> all_paths_;
+    // Set of paths the Renderer has dispatched to during this run.
+    // Populated by build_frame_passes; iterated for lifecycle hooks
+    // (on_view_removed, on_element_removed, shutdown, build_shared_passes)
+    // so we don't have to track which path was last used by which view.
+    std::unordered_set<IRenderPath*> seen_paths_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;
