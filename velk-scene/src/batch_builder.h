@@ -4,6 +4,8 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-render/frame/batch.h>
+#include <velk-render/frame/draw_call_emit.h>
 #include <velk-render/frame/intf_frame_data_manager.h>
 #include <velk-render/frame/intf_gpu_resource_manager.h>
 #include <velk-render/frustum.h>
@@ -60,31 +62,10 @@ public:
         vector<IBuffer::WeakPtr> gpu_resources;
     };
 
-    struct Batch
-    {
-        uint64_t pipeline_key = 0;
-        uint64_t texture_key = 0;
-        vector<uint8_t> instance_data;
-        uint32_t instance_stride = 0;
-        uint32_t instance_count = 0;
-        // Union of every contained instance's world_aabb. Used by
-        // build_*_draw_calls to skip the batch entirely when the
-        // camera frustum doesn't intersect any of its instances.
-        aabb world_aabb = aabb::empty();
-        IProgram::Ptr material;
-        IShaderSnippet::Ptr visual_discard;
-        // Precomputed key perturbation for the gbuffer pipeline cache;
-        // 0 when the visual contributes no discard snippet.
-        uint64_t discard_key_perturb = 0;
-        // Geometry input. Every batch carries the same primitive across
-        // its instances; the renderer writes vbo/ibo addresses into the
-        // DrawDataHeader and issues an indexed draw with
-        // index_count = primitive->get_index_count().
-        IMeshPrimitive::Ptr primitive;
-        // Visual's IRasterShader. Used by the deferred gbuffer
-        // composer when no paint material supplies a vertex shader.
-        IRasterShader::Ptr raster_shader;
-    };
+    /// `Batch` is now the velk-render-public `velk::Batch`. Aliased here
+    /// for source compatibility while the rest of velk-scene's batching
+    /// logic still references it as `BatchBuilder::Batch`.
+    using Batch = ::velk::Batch;
 
     struct RenderTargetPassData
     {
@@ -101,22 +82,9 @@ public:
     void rebuild_batches(const SceneState& state, vector<Batch>& out_batches);
 
     /**
-     * @brief Converts batches to GPU draw calls, writing data to the frame buffer.
-     * @param frustum Optional view frustum for early culling. Batches whose
-     *                aggregate world_aabb falls fully outside the frustum are
-     *                skipped. Pass nullptr to disable culling.
-     */
-    void build_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                          IFrameDataManager& frame_data, IGpuResourceManager& resources,
-                          uint64_t globals_gpu_addr,
-                          const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
-                          IRenderContext* render_ctx,
-                          IGpuResourceObserver* observer,
-                          const ::velk::render::Frustum* frustum = nullptr);
-
-    /**
-     * @brief Same as build_draw_calls, but emits deferred-pipeline draw
-     *        calls targeting a G-buffer render target group.
+     * @brief Same as `velk::build_draw_calls` (in velk-render), but
+     *        emits deferred-pipeline draw calls targeting a G-buffer
+     *        render target group.
      *
      * Compiles G-buffer pipeline variants on demand (one per forward
      * pipeline_key) using the material's `get_gbuffer_*_src()` when a
@@ -140,18 +108,23 @@ public:
 
     /**
      * @brief Resets per-frame state. Clears the material address cache
-     *        used by build_draw_calls so each frame uploads material
+     *        (used by both `velk::build_draw_calls` and the in-class
+     *        `build_gbuffer_draw_calls`) so each frame uploads material
      *        params once regardless of how many batches reference the
      *        same material. Also clears the render-target-pass union
      *        so each view's `rebuild_batches` this frame accumulates
-     *        into a fresh list (dedup via find_or_make_pass inside
-     *        rebuild_batches keeps shared RTTs single-emit).
+     *        into a fresh list.
      */
     void reset_frame_state()
     {
-        frame_material_addrs_.clear();
+        material_addr_cache_.clear();
         render_target_passes_.clear();
     }
+
+    /// Per-frame `IProgram*->mat_addr` cache. Shared with the
+    /// `velk::build_draw_calls` free function via FrameContext so
+    /// forward + deferred paths in one frame don't double-upload.
+    MaterialAddrCache& material_addr_cache() { return material_addr_cache_; }
 
     /** @brief Returns the element cache (for resource upload iteration). */
     const std::unordered_map<IElement*, ElementCache>& element_cache() const { return element_cache_; }
@@ -163,16 +136,9 @@ public:
     vector<RenderTargetPassData>& render_target_passes() { return render_target_passes_; }
 
 private:
-    // Writes a material's params block to the frame buffer on first
-    // sight this frame and returns its GPU address. Subsequent calls
-    // for the same IProgram return the cached address, so a material
-    // shared by N batches only pays one upload.
-    uint64_t write_material_once(IProgram* prog, IFrameDataManager& frame_data,
-                                 ::velk::ITextureResolver* resolver);
-
     std::unordered_map<IElement*, ElementCache> element_cache_;
     vector<RenderTargetPassData> render_target_passes_;
-    std::unordered_map<IProgram*, uint64_t> frame_material_addrs_;
+    MaterialAddrCache material_addr_cache_;
 };
 
 } // namespace velk

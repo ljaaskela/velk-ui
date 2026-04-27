@@ -149,16 +149,14 @@ void ForwardPath::emit_pass(ViewEntry& entry, ViewState& vs, FrameContext& ctx,
                             const ::velk::render::Frustum* frustum,
                             vector<RenderPass>& out_passes)
 {
-    vector<DrawCall> draw_calls;
-    ctx.batch_builder->build_draw_calls(vs.batches,
-                                        draw_calls,
-                                        *ctx.frame_buffer,
-                                        *ctx.resources,
-                                        globals_gpu_addr,
-                                        ctx.pipeline_map,
-                                        ctx.render_ctx,
-                                        ctx.observer,
-                                        frustum);
+    auto draw_calls = ctx.render_ctx->build_draw_calls(
+        vs.batches,
+        *ctx.frame_buffer,
+        *ctx.resources,
+        globals_gpu_addr,
+        ctx.observer,
+        ctx.batch_builder->material_addr_cache(),
+        frustum);
 
     RenderPass pass;
     pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);

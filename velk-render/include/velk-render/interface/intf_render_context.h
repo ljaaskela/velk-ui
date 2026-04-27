@@ -2,9 +2,16 @@
 #define VELK_RENDER_INTF_RENDER_CONTEXT_H
 
 #include <velk/interface/intf_metadata.h>
+#include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-render/frame/batch.h>
+#include <velk-render/frame/draw_call_emit.h>
+#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/frame/intf_gpu_resource_manager.h>
+#include <velk-render/frustum.h>
 #include <velk-render/interface/material/intf_material.h>
+#include <velk-render/interface/intf_gpu_resource.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_shader.h>
@@ -179,6 +186,28 @@ public:
      * per-slot semantics). Returns nullptr for an unknown type.
      */
     virtual IBuffer::Ptr get_default_buffer(DefaultBufferType type) const = 0;
+
+    /**
+     * @brief Converts batches to forward-pipeline draw calls.
+     *
+     * Writes per-instance data + per-draw `DrawDataHeader` into
+     * @p frame_data, resolves textures + IBO + UV1 streams via
+     * @p resources, looks up pipelines via this context's
+     * `pipeline_map()`, and returns the resulting `DrawCall` list.
+     *
+     * @param material_cache  Per-frame cache that dedupes material
+     *                        uploads across batches sharing the same
+     *                        IProgram. Clear between frames.
+     * @param frustum  Optional frustum for batch-level culling.
+     */
+    virtual vector<DrawCall> build_draw_calls(
+        const vector<Batch>& batches,
+        IFrameDataManager& frame_data,
+        IGpuResourceManager& resources,
+        uint64_t globals_gpu_addr,
+        IGpuResourceObserver* observer,
+        MaterialAddrCache& material_cache,
+        const ::velk::render::Frustum* frustum = nullptr) = 0;
 };
 
 } // namespace velk

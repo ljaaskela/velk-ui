@@ -97,15 +97,13 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, vector<RenderPass>& out_p
         rt_globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         uint64_t globals_gpu_addr = ctx.frame_buffer->write(&rt_globals, sizeof(rt_globals));
 
-        vector<DrawCall> draw_calls;
-        ctx.batch_builder->build_draw_calls(rtp.batches,
-                                            draw_calls,
-                                            *ctx.frame_buffer,
-                                            *ctx.resources,
-                                            globals_gpu_addr,
-                                            ctx.pipeline_map,
-                                            ctx.render_ctx,
-                                            ctx.observer);
+        auto draw_calls = ctx.render_ctx->build_draw_calls(
+            rtp.batches,
+            *ctx.frame_buffer,
+            *ctx.resources,
+            globals_gpu_addr,
+            ctx.observer,
+            ctx.batch_builder->material_addr_cache());
 
         RenderPass rt_pass{};
         rt_pass.target.target = rte.target;

@@ -451,130 +451,50 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
     emit_visuals(main_after, VisualPhase::AfterChildren, out_batches);
 }
 
-void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                                    IFrameDataManager& frame_data, IGpuResourceManager& resources,
-                                    uint64_t globals_gpu_addr,
-                                    const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
-                                    IRenderContext* render_ctx,
-                                    IGpuResourceObserver* observer,
-                                    const ::velk::render::Frustum* frustum)
+// build_draw_calls moved to velk-render/src/draw_call_emit.cpp.
+// build_gbuffer_draw_calls stays here for now (it pulls in shader
+// composition from default_ui_shaders.h, which moves to velk-render
+// in a follow-up PR before Phase 3.2).
+
+namespace {
+
+// Local material-cache helper used by build_gbuffer_draw_calls.
+// Mirrors the velk-render-side write_material_once but reads/writes
+// the BatchBuilder-owned MaterialAddrCache so forward + deferred
+// share dedup across paths in the same frame.
+uint64_t write_material_once(IProgram* prog, IFrameDataManager& frame_data,
+                             ITextureResolver* resolver,
+                             MaterialAddrCache& cache)
 {
-    VELK_PERF_SCOPE("renderer.build_draw_calls");
+    if (!prog) return 0;
+    auto it = cache.addrs.find(prog);
+    if (it != cache.addrs.end()) return it->second;
 
-    for (auto& batch : batches) {
-        if (frustum && !::velk::render::aabb_in_frustum(*frustum, batch.world_aabb)) {
-            continue;
+    uint64_t addr = 0;
+    if (auto* dd = interface_cast<IDrawData>(prog)) {
+        size_t sz = dd->get_draw_data_size();
+        if (sz > 0 && (sz % 16) != 0) {
+            VELK_LOG(E,
+                     "Renderer: material get_draw_data_size (%zu) is not 16-byte aligned. "
+                     "Use VELK_GPU_STRUCT for your material data.",
+                     sz);
         }
-        uint64_t instances_addr =
-            frame_data.write(batch.instance_data.data(), batch.instance_data.size());
-        if (!instances_addr) {
-            continue;
-        }
-
-        uint32_t texture_id = 0;
-        if (batch.texture_key != 0) {
-            auto* tex = reinterpret_cast<ISurface*>(batch.texture_key);
-            texture_id = resources.find_texture(tex);
-            if (texture_id == 0) {
-                uint64_t rt_id = get_render_target_id(tex);
-                if (rt_id != 0) {
-                    texture_id = static_cast<uint32_t>(rt_id);
+        if (sz > 0) {
+            void* scratch = std::malloc(sz);
+            if (scratch) {
+                std::memset(scratch, 0, sz);
+                if (dd->write_draw_data(scratch, sz, resolver) == ReturnValue::Success) {
+                    addr = frame_data.write(scratch, sz);
                 }
+                std::free(scratch);
             }
         }
-
-        IMeshPrimitive* primitive = batch.primitive.get();
-        if (!primitive) continue;
-        auto buffer = primitive->get_buffer();
-        if (!buffer) continue;
-
-        // IBO half is optional: indexed draw when ibo_size > 0, plain
-        // vkCmdDraw when 0 (e.g. TriangleStrip unit quad).
-        GpuBuffer ibo_handle = 0;
-        size_t ibo_offset = 0;
-        if (buffer->get_ibo_size() > 0) {
-            auto* buf_entry = resources.find_buffer(buffer.get());
-            if (!buf_entry || !buf_entry->handle) continue;
-            ibo_handle = buf_entry->handle;
-            ibo_offset = buffer->get_ibo_offset();
-        }
-
-        DrawDataHeader header{};
-        header.globals_address = globals_gpu_addr;
-        header.instances_address = instances_addr;
-        header.texture_id = texture_id;
-        header.instance_count = batch.instance_count;
-        header.vbo_address = buffer->get_gpu_address();
-        if (!header.vbo_address) continue;
-
-        // Resolve TEXCOORD_1: primitive's own UV1 stream if present,
-        // otherwise the context-owned default (read as index 0).
-        if (auto uv1 = primitive->get_uv1_buffer()) {
-            uint64_t uv1_base = uv1->get_gpu_address();
-            if (!uv1_base) continue;
-            header.uv1_address = uv1_base + primitive->get_uv1_offset();
-            header.uv1_enabled = 1;
-        } else if (render_ctx) {
-            auto def = render_ctx->get_default_buffer(DefaultBufferType::Uv1);
-            header.uv1_address = def ? def->get_gpu_address() : 0;
-            header.uv1_enabled = 0;
-            if (!header.uv1_address) continue;
-        } else {
-            continue;
-        }
-
-        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, static_cast<ITextureResolver*>(&resources));
-
-        constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
-        size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
-
-        auto reservation = frame_data.reserve(total_size);
-        if (!reservation.ptr) {
-            continue;
-        }
-
-        auto* dst = static_cast<uint8_t*>(reservation.ptr);
-        uint64_t draw_data_addr = reservation.gpu_addr;
-
-        std::memcpy(dst, &header, sizeof(header));
-        std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
-
-        if (!pipeline_map) {
-            continue;
-        }
-        uint64_t effective_pipeline_key = batch.pipeline_key;
-        if (effective_pipeline_key == 0 && batch.material && render_ctx) {
-            effective_pipeline_key = batch.material->get_pipeline_handle(*render_ctx);
-        }
-        auto pit = pipeline_map->find(effective_pipeline_key);
-        if (pit == pipeline_map->end()) {
-            continue;
-        }
-
-        // Lazy-register the program's pipeline for deferred destruction on
-        // program destruction. Idempotent; subscribes observer only once.
-        if (batch.material) {
-            if (resources.register_pipeline(batch.material.get(), pit->second) && observer) {
-                batch.material->add_gpu_resource_observer(observer);
-            }
-        }
-
-        DrawCall call{};
-        call.pipeline = pit->second;
-        if (ibo_handle) {
-            call.index_buffer = ibo_handle;
-            call.index_buffer_offset = ibo_offset;
-            call.index_count = primitive->get_index_count();
-        } else {
-            call.vertex_count = primitive->get_vertex_count();
-        }
-        call.instance_count = batch.instance_count;
-        call.root_constants_size = sizeof(uint64_t);
-        std::memcpy(call.root_constants, &draw_data_addr, sizeof(uint64_t));
-
-        out_calls.push_back(call);
     }
+    cache.addrs[prog] = addr;
+    return addr;
 }
+
+} // namespace
 
 void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
                                             vector<DrawCall>& out_calls,
@@ -652,7 +572,10 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
             continue;
         }
 
-        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, static_cast<ITextureResolver*>(&resources));
+        uint64_t material_addr = write_material_once(
+            batch.material.get(), frame_data,
+            static_cast<ITextureResolver*>(&resources),
+            material_addr_cache_);
 
         constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
         size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
@@ -768,37 +691,6 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
 
         out_calls.push_back(call);
     }
-}
-
-uint64_t BatchBuilder::write_material_once(IProgram* prog, IFrameDataManager& frame_data,
-                                           ::velk::ITextureResolver* resolver)
-{
-    if (!prog) return 0;
-    auto it = frame_material_addrs_.find(prog);
-    if (it != frame_material_addrs_.end()) return it->second;
-
-    uint64_t addr = 0;
-    if (auto* dd = interface_cast<IDrawData>(prog)) {
-        size_t sz = dd->get_draw_data_size();
-        if (sz > 0 && (sz % 16) != 0) {
-            VELK_LOG(E,
-                     "Renderer: material get_draw_data_size (%zu) is not 16-byte aligned. "
-                     "Use VELK_GPU_STRUCT for your material data.",
-                     sz);
-        }
-        if (sz > 0) {
-            void* scratch = std::malloc(sz);
-            if (scratch) {
-                std::memset(scratch, 0, sz);
-                if (dd->write_draw_data(scratch, sz, resolver) == ReturnValue::Success) {
-                    addr = frame_data.write(scratch, sz);
-                }
-                std::free(scratch);
-            }
-        }
-    }
-    frame_material_addrs_[prog] = addr;
-    return addr;
 }
 
 } // namespace velk

@@ -85,6 +85,8 @@ add_library(velk_render SHARED
     include/velk-render/frame/intf_frame_data_manager.h
     include/velk-render/frame/intf_frame_snippet_registry.h
     include/velk-render/frame/render_pass.h
+    include/velk-render/frame/batch.h
+    include/velk-render/frame/draw_call_emit.h
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})
