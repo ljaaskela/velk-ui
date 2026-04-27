@@ -73,6 +73,9 @@ namespace PluginId {
 
 inline constexpr Uid RenderPlugin{"4dc6ab8e-3887-4def-a08e-59259ca39567"};
 
+/** @brief Compute-shader path tracer (RtPath) sub-plugin. Loaded after velk_render. */
+inline constexpr Uid RtPlugin{"b7c7c6a9-43a6-435c-b193-be467b1c9e85"};
+
 } // namespace PluginId
 
 } // namespace velk

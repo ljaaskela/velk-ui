@@ -100,8 +100,6 @@ add_library(velk_render SHARED
     src/forward_path.cpp
     src/deferred_path.h
     src/deferred_path.cpp
-    src/rt_path.h
-    src/rt_path.cpp
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

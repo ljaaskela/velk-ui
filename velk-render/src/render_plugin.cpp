@@ -9,7 +9,6 @@
 #include "program_data_buffer.h"
 #include "render_context.h"
 #include "render_texture.h"
-#include "rt_path.h"
 #include "rt_shadow.h"
 #include "shader.h"
 #include "shader_material.h"
@@ -46,10 +45,11 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<impl::MeshBuilder>(velk);
     rv &= register_type<::velk::ext::AnyValue<UpdateRate>>(velk);
 
-    // Render paths (hive-allocated; cheap to instantiate per camera).
+    // Built-in render paths (hive-allocated). RtPath ships in the
+    // velk_rt sub-plugin so trivial UI apps don't pay for the RT
+    // shader sources just by linking velk_render.
     rv &= register_type<ForwardPath>(velk);
     rv &= register_type<DeferredPath>(velk);
-    rv &= register_type<RtPath>(velk);
     return rv;
 }
 
