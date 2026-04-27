@@ -73,7 +73,7 @@ private:
         vector<RenderPass> passes;
         bool ready = false;
         uint64_t presented_at = 0;
-        FrameDataManager::Slot buffer;
+        IFrameDataManager::Slot buffer;
     };
 
     FrameSlot* claim_frame_slot();
@@ -87,10 +87,10 @@ private:
     IRenderBackend::Ptr backend_;
     IRenderContext* render_ctx_ = nullptr;
 
-    // resources_ must outlive any member that holds IProgram::Ptr refs
-    // (views_, batch_builder_): material dtors invoke on_gpu_resource_destroyed
-    // which calls into resources_.
-    GpuResourceManager resources_;
+    // resources_ must outlive any member that holds IProgram::Ptr
+    // refs (views_, batch_builder_): material dtors invoke
+    // on_gpu_resource_destroyed which calls into resources_.
+    IGpuResourceManager::Ptr resources_;
 
     vector<ViewEntry> views_;
     const std::unordered_map<uint64_t, PipelineId>* pipeline_map_ = nullptr;
@@ -112,7 +112,10 @@ private:
     // upload in consume_scenes and the raster paths read from it, so it
     // lives here rather than inside a single sub-renderer.
     BatchBuilder batch_builder_;
-    FrameDataManager frame_buffer_;
+
+    // Frame data buffer (per-slot GPU staging). Slot lifecycle is on the
+    // interface, so a single Ptr is sufficient.
+    IFrameDataManager::Ptr frame_buffer_;
 
     FrameSlot* active_slot_ = nullptr;
 
@@ -120,7 +123,7 @@ private:
     // techniques). Owned here so both the scene-wide BVH build and
     // the sub-renderers (RayTracer composer, DeferredLighter light
     // resolution) read from the same stable ids.
-    FrameSnippetRegistry snippets_;
+    IFrameSnippetRegistry::Ptr snippets_;
 
     // Per-scene concrete SceneBvh pointer cache. The attachment on the
     // scene root owns the lifetime; we just cache the typed pointer so

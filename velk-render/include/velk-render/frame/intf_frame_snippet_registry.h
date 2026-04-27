@@ -1,0 +1,123 @@
+#ifndef VELK_RENDER_INTF_FRAME_SNIPPET_REGISTRY_H
+#define VELK_RENDER_INTF_FRAME_SNIPPET_REGISTRY_H
+
+#include <velk/interface/intf_interface.h>
+#include <velk/string.h>
+#include <velk/string_view.h>
+#include <velk/uid.h>
+#include <velk/vector.h>
+
+#include <velk-render/interface/intf_buffer.h>
+
+namespace velk {
+
+class IProgram;
+class IShadowTechnique;
+class IAnalyticShape;
+class IRenderContext;
+class IDrawData;
+class IFrameDataManager;
+class IGpuResourceManager;
+
+/**
+ * @brief Bundle of velk-render-side per-frame deps a snippet registry
+ *        needs to register snippets, upload material data buffers, and
+ *        defer-destroy stale GPU handles.
+ *
+ * @c safe_after_frame is the present counter past which deferred-destroy
+ * handles can be released (typically `present_counter + latency_frames`).
+ */
+struct FrameResolveContext
+{
+    IRenderContext*       render_ctx       = nullptr;
+    IGpuResourceManager*  resources        = nullptr;
+    IFrameDataManager*    frame_buffer     = nullptr;
+    uint64_t              safe_after_frame = 0;
+};
+
+/**
+ * @brief Scene-wide registry of composed shader snippets.
+ *
+ * Tracks stable small-integer ids for each material (IProgram +
+ * IShaderSnippet) and shadow technique the renderer has seen, plus
+ * which of those ids are "active" in the current frame. Composer-based
+ * pipelines (RT compute, deferred lighting) hash the active sets to
+ * pick a pipeline variant and splice the corresponding snippets into
+ * the generated shader.
+ *
+ * The registry also caches per-frame material GPU-data blocks so a
+ * material shared by N shapes only pays one upload.
+ */
+class IFrameSnippetRegistry
+    : public Interface<IFrameSnippetRegistry, IInterface,
+                       VELK_UID("6a013996-cdfa-4abf-a738-52eaf18d068f")>
+{
+public:
+    struct MaterialInfo
+    {
+        string_view fn_name;      ///< `velk_eval_<X>` function name returning MaterialEval.
+        string      include_name; ///< Owned include filename registered with IRenderContext.
+    };
+
+    struct ShadowTechInfo
+    {
+        string_view fn_name;
+        string      include_name;
+    };
+
+    struct IntersectInfo
+    {
+        string_view fn_name;
+        string      include_name;
+    };
+
+    struct MaterialRef
+    {
+        uint32_t mat_id = 0;
+        uint64_t mat_addr = 0;
+    };
+
+    /// @brief Clears per-frame state; persistent maps stay.
+    virtual void begin_frame() = 0;
+
+    /// @brief Registers a material's snippet on first sight; returns
+    ///        its stable id. Non-IShaderSnippet programs return 0.
+    virtual uint32_t register_material(IProgram* prog, IRenderContext& ctx) = 0;
+
+    /// @brief Registers a shadow technique's snippet on first sight.
+    virtual uint32_t register_shadow_tech(IShadowTechnique* tech, IRenderContext& ctx) = 0;
+
+    /// @brief Registers a visual's custom intersect snippet and returns
+    ///        its dispatch id. Shapes emitted by the visual stamp this
+    ///        id into `shape_kind`. Returns 0 for visuals without a snippet.
+    virtual uint32_t register_intersect(IAnalyticShape* shape, IRenderContext& ctx) = 0;
+
+    /// @brief Returns a material's `(mat_id, mat_addr)` for this frame.
+    ///        Writes draw-data to the frame buffer once per unique
+    ///        program; subsequent lookups reuse the cached address.
+    virtual MaterialRef resolve_material(IProgram* prog,
+                                         const FrameResolveContext& ctx) = 0;
+
+    /// @brief Resolves the GPU address of any IDrawData's persistent
+    ///        data buffer. Returns 0 if the object has no persistent
+    ///        buffer (e.g. zero draw-data size).
+    virtual uint64_t resolve_data_buffer(IDrawData* dd,
+                                         const FrameResolveContext& ctx) = 0;
+
+    virtual const vector<MaterialInfo>&   material_info_by_id() const = 0;
+    virtual const vector<ShadowTechInfo>& shadow_tech_info_by_id() const = 0;
+    virtual const vector<IntersectInfo>&  intersect_info_by_id() const = 0;
+    virtual const vector<uint32_t>&       frame_materials() const = 0;
+    virtual const vector<uint32_t>&       frame_shadow_techs() const = 0;
+    virtual const vector<uint32_t>&       frame_intersects() const = 0;
+
+    /// Program data buffers touched during the current frame's
+    /// resolve_material / resolve_data_buffer calls. The renderer's
+    /// per-frame resource-upload pass iterates this list so each
+    /// shape's `material_data_addr` points at fresh GPU bytes.
+    virtual const vector<IBuffer::Ptr>& frame_data_buffers() const = 0;
+};
+
+} // namespace velk
+
+#endif // VELK_RENDER_INTF_FRAME_SNIPPET_REGISTRY_H

@@ -205,9 +205,10 @@ void RayTracer::build_passes(ViewEntry& entry,
         +[](void* u, ShapeSite& site) {
             auto& s = *static_cast<ShapeCollect*>(u);
             auto& ctx = s.ctx;
+            auto resolve_ctx = ctx.make_resolve_context();
             auto mat = site.paint
-                ? ctx.snippets->resolve_material(site.paint, ctx)
-                : FrameSnippetRegistry::MaterialRef{};
+                ? ctx.snippets->resolve_material(site.paint, resolve_ctx)
+                : IFrameSnippetRegistry::MaterialRef{};
             if (site.paint && mat.mat_id == 0) {
                 return;
             }
@@ -231,7 +232,7 @@ void RayTracer::build_passes(ViewEntry& entry,
             if (site.has_mesh_data && ctx.frame_buffer) {
                 if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
                     site.mesh_instance.mesh_static_addr =
-                        ctx.snippets->resolve_data_buffer(dd, ctx);
+                        ctx.snippets->resolve_data_buffer(dd, resolve_ctx);
                 }
                 site.geometry.mesh_data_addr = ctx.frame_buffer->write(
                     &site.mesh_instance, sizeof(site.mesh_instance));
@@ -273,7 +274,7 @@ void RayTracer::build_passes(ViewEntry& entry,
             auto env_mat = resolved.env->get_material();
             if (env_mat) {
                 auto env_prog = interface_pointer_cast<IProgram>(env_mat);
-                auto env_ref = ctx.snippets->resolve_material(env_prog.get(), ctx);
+                auto env_ref = ctx.snippets->resolve_material(env_prog.get(), ctx.make_resolve_context());
                 env_mat_id = env_ref.mat_id;
                 env_data_addr = env_ref.mat_addr;
             }

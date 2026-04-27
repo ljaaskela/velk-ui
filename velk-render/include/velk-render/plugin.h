@@ -45,6 +45,15 @@ inline constexpr Uid MeshBuffer{"99f3245e-0115-4284-85ca-1c4a5ee93c97"};
 /** @brief Factory for IMesh and IMeshPrimitive; hides the concrete impl classes. */
 inline constexpr Uid MeshBuilder{"00332b65-d0f7-4b5f-bbed-764d8732be3e"};
 
+/** @brief Per-frame GPU resource manager (texture / buffer / pipeline tracking + deferred destroy). */
+inline constexpr Uid GpuResourceManager{"04f21ebb-d725-457b-97de-3a8d81262b9f"};
+
+/** @brief Per-frame staging buffer (write/reserve interface for path-side data uploads). */
+inline constexpr Uid FrameDataManager{"e957caf0-d5d3-4abb-925b-0d12f63dcb30"};
+
+/** @brief Scene-wide registry of composed shader snippets (materials / shadow techs / intersects). */
+inline constexpr Uid FrameSnippetRegistry{"6a013996-cdfa-4abf-a738-52eaf18d068f"};
+
 } // namespace ClassId
 
 namespace PluginId {

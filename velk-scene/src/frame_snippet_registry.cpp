@@ -1,11 +1,9 @@
 #include "frame_snippet_registry.h"
 
-#include "frame_data_manager.h"
-#include "gpu_resource_manager.h"
-#include "view_renderer.h"
-
 #include <velk/api/object.h>
 #include <velk/api/velk.h>
+#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/frame/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_analytic_shape.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/material/intf_material.h>
@@ -135,20 +133,19 @@ namespace {
 
 // Synchronously makes the persistent program-data buffer backend-ready:
 // allocates (or reallocates on size change) the GPU buffer, sets the
-// IBuffer's GPU address, and uploads the bytes if they are dirty. The
-// address is valid immediately on return so the caller can stamp it
-// into shape records this frame.
-void ensure_data_buffer_uploaded(IBuffer* buf, FrameContext& ctx)
+// IBuffer's GPU address, and uploads the bytes if they are dirty.
+void ensure_data_buffer_uploaded(IBuffer* buf, const FrameResolveContext& ctx)
 {
-    if (!buf || !ctx.backend || !ctx.resources) return;
+    if (!buf || !ctx.render_ctx || !ctx.resources) return;
+    auto* backend = ctx.render_ctx->backend().get();
+    if (!backend) return;
     size_t bsize = buf->get_data_size();
     if (bsize == 0) return;
 
     auto* be = ctx.resources->find_buffer(buf);
     bool need_alloc = (be == nullptr);
     if (!need_alloc && be->size != bsize) {
-        ctx.resources->defer_buffer_destroy(
-            be->handle, ctx.present_counter + ctx.latency_frames);
+        ctx.resources->defer_buffer_destroy(be->handle, ctx.safe_after_frame);
         ctx.resources->unregister_buffer(buf);
         be = nullptr;
         need_alloc = true;
@@ -157,17 +154,17 @@ void ensure_data_buffer_uploaded(IBuffer* buf, FrameContext& ctx)
         GpuBufferDesc bdesc{};
         bdesc.size = bsize;
         bdesc.cpu_writable = true;
-        GpuResourceManager::BufferEntry bentry{};
-        bentry.handle = ctx.backend->create_buffer(bdesc);
+        IGpuResourceManager::BufferEntry bentry{};
+        bentry.handle = backend->create_buffer(bdesc);
         bentry.size = bsize;
         ctx.resources->register_buffer(buf, bentry);
         be = ctx.resources->find_buffer(buf);
-        buf->set_gpu_address(ctx.backend->gpu_address(bentry.handle));
+        buf->set_gpu_address(backend->gpu_address(bentry.handle));
     }
     if (buf->is_dirty()) {
         const uint8_t* bytes = buf->get_data();
         if (bytes && be) {
-            if (auto* dst = ctx.backend->map(be->handle)) {
+            if (auto* dst = backend->map(be->handle)) {
                 std::memcpy(dst, bytes, bsize);
             }
             buf->clear_dirty();
@@ -177,8 +174,8 @@ void ensure_data_buffer_uploaded(IBuffer* buf, FrameContext& ctx)
 
 } // namespace
 
-FrameSnippetRegistry::MaterialRef
-FrameSnippetRegistry::resolve_material(IProgram* prog, FrameContext& ctx)
+IFrameSnippetRegistry::MaterialRef
+FrameSnippetRegistry::resolve_material(IProgram* prog, const FrameResolveContext& ctx)
 {
     if (!prog) return {};
     for (auto& entry : frame_material_instances_) {
@@ -196,12 +193,7 @@ FrameSnippetRegistry::resolve_material(IProgram* prog, FrameContext& ctx)
     uint64_t addr = 0;
 
     // Preferred path: the material owns a persistent data buffer whose
-    // GPU address is stable across frames. We make sure it's backend-
-    // allocated and uploaded (if dirty) before reading the address so
-    // the shape record we stamp below always points at fresh bytes.
-    // The buffer outlives the material if needed: we hold a strong ref
-    // for the frame, and the IGpuResource observer defers GPU-handle
-    // destruction to a safe window (see GpuResourceManager).
+    // GPU address is stable across frames.
     IBuffer::Ptr data_buf;
     if (auto* dd = interface_cast<IDrawData>(prog)) {
         data_buf = dd->get_data_buffer(ctx.resources);
@@ -212,8 +204,8 @@ FrameSnippetRegistry::resolve_material(IProgram* prog, FrameContext& ctx)
         frame_data_buffers_.push_back(data_buf);
     } else if (auto* dd = interface_cast<IDrawData>(prog)) {
         // Fallback: no persistent buffer → serialise into the frame
-        // scratch arena as before. Address is per-frame; shape caches
-        // across frames will produce stale addresses with this path.
+        // scratch arena. Per-frame address; shape caches across frames
+        // would produce stale addresses with this path.
         size_t sz = dd->get_draw_data_size();
         if (sz > 0 && ctx.frame_buffer) {
             void* scratch = std::malloc(sz);
@@ -236,7 +228,7 @@ FrameSnippetRegistry::resolve_material(IProgram* prog, FrameContext& ctx)
     return {id, addr};
 }
 
-uint64_t FrameSnippetRegistry::resolve_data_buffer(IDrawData* dd, FrameContext& ctx)
+uint64_t FrameSnippetRegistry::resolve_data_buffer(IDrawData* dd, const FrameResolveContext& ctx)
 {
     if (!dd) return 0;
     auto data_buf = dd->get_data_buffer(ctx.resources);

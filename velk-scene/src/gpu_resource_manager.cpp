@@ -15,7 +15,7 @@ void GpuResourceManager::register_texture(ISurface* surf, TextureId tid)
     texture_map_[surf] = tid;
 }
 
-GpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
+IGpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
 {
     auto it = buffer_map_.find(buf);
     return it != buffer_map_.end() ? &it->second : nullptr;

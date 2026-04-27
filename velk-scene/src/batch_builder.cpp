@@ -452,7 +452,7 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
 }
 
 void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                                    FrameDataManager& frame_data, GpuResourceManager& resources,
+                                    IFrameDataManager& frame_data, IGpuResourceManager& resources,
                                     uint64_t globals_gpu_addr,
                                     const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
                                     IRenderContext* render_ctx,
@@ -523,7 +523,7 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
             continue;
         }
 
-        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
+        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, static_cast<ITextureResolver*>(&resources));
 
         constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
         size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
@@ -578,8 +578,8 @@ void BatchBuilder::build_draw_calls(const vector<Batch>& batches, vector<DrawCal
 
 void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
                                             vector<DrawCall>& out_calls,
-                                            FrameDataManager& frame_data,
-                                            GpuResourceManager& resources,
+                                            IFrameDataManager& frame_data,
+                                            IGpuResourceManager& resources,
                                             uint64_t globals_gpu_addr,
                                             IRenderContext* render_ctx,
                                             RenderTargetGroup target_group,
@@ -652,7 +652,7 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
             continue;
         }
 
-        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, &resources);
+        uint64_t material_addr = write_material_once(batch.material.get(), frame_data, static_cast<ITextureResolver*>(&resources));
 
         constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
         size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
@@ -770,7 +770,7 @@ void BatchBuilder::build_gbuffer_draw_calls(const vector<Batch>& batches,
     }
 }
 
-uint64_t BatchBuilder::write_material_once(IProgram* prog, FrameDataManager& frame_data,
+uint64_t BatchBuilder::write_material_once(IProgram* prog, IFrameDataManager& frame_data,
                                            ::velk::ITextureResolver* resolver)
 {
     if (!prog) return 0;

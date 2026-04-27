@@ -79,6 +79,12 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_shadow_technique.h
     include/velk-render/api/render_technique.h
     include/velk-render/api/shadow_technique.h
+
+    # Frame plumbing (per-frame runtime interfaces + shared types)
+    include/velk-render/frame/intf_gpu_resource_manager.h
+    include/velk-render/frame/intf_frame_data_manager.h
+    include/velk-render/frame/intf_frame_snippet_registry.h
+    include/velk-render/frame/render_pass.h
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

@@ -4,6 +4,8 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/frame/intf_gpu_resource_manager.h>
 #include <velk-render/frustum.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_mesh.h>
@@ -17,9 +19,6 @@
 #include <velk-render/render_types.h>
 #include <velk-scene/interface/intf_element.h>
 #include <velk-scene/interface/intf_scene.h>
-
-#include "frame_data_manager.h"
-#include "gpu_resource_manager.h"
 
 namespace velk {
 
@@ -108,7 +107,7 @@ public:
      *                skipped. Pass nullptr to disable culling.
      */
     void build_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                          FrameDataManager& frame_data, GpuResourceManager& resources,
+                          IFrameDataManager& frame_data, IGpuResourceManager& resources,
                           uint64_t globals_gpu_addr,
                           const std::unordered_map<uint64_t, PipelineId>* pipeline_map,
                           IRenderContext* render_ctx,
@@ -126,7 +125,7 @@ public:
      * and reused across views (group render passes are format-compatible).
      */
     void build_gbuffer_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                                  FrameDataManager& frame_data, GpuResourceManager& resources,
+                                  IFrameDataManager& frame_data, IGpuResourceManager& resources,
                                   uint64_t globals_gpu_addr,
                                   IRenderContext* render_ctx,
                                   RenderTargetGroup target_group,
@@ -168,7 +167,7 @@ private:
     // sight this frame and returns its GPU address. Subsequent calls
     // for the same IProgram return the cached address, so a material
     // shared by N batches only pays one upload.
-    uint64_t write_material_once(IProgram* prog, FrameDataManager& frame_data,
+    uint64_t write_material_once(IProgram* prog, IFrameDataManager& frame_data,
                                  ::velk::ITextureResolver* resolver);
 
     std::unordered_map<IElement*, ElementCache> element_cache_;

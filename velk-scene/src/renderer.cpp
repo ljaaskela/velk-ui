@@ -125,6 +125,15 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
 
     pipeline_map_ = &ctx->pipeline_map();
 
+    // Instantiate the per-renderer plumbing through the type registry so
+    // allocation participates in the hive. Held via interface Ptr; raw
+    // typed pointers cache the concrete cast for slot/management methods
+    // not on the interface (FrameDataManager) and for stable raw access.
+    resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
+    snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
+
+    frame_buffer_ = instance().create<IFrameDataManager>(ClassId::FrameDataManager);
+
     // Register velk-ui shader include for UI instance types
 
     ctx->register_shader_include("velk-ui.glsl", velk_ui_glsl);
@@ -145,9 +154,9 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     ctx->set_default_gbuffer_vertex_shader(
         ctx->compile_shader(default_gbuffer_vertex_src, ShaderStage::Vertex));
 
-    frame_buffer_.init();
+    frame_buffer_->init();
     for (auto& slot : frame_slots_) {
-        frame_buffer_.init_slot(slot.buffer, *backend_);
+        frame_buffer_->init_slot(slot.buffer, *backend_);
     }
 
     // One-shot upload of every context-owned default buffer. Draws
@@ -159,15 +168,15 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
         if (!buf) return;
         size_t bsize = buf->get_data_size();
         const uint8_t* bytes = buf->get_data();
-        if (!bytes || bsize == 0 || resources_.find_buffer(buf)) return;
+        if (!bytes || bsize == 0 || resources_->find_buffer(buf)) return;
         GpuBufferDesc bdesc{};
         bdesc.size = bsize;
         bdesc.cpu_writable = true;
-        GpuResourceManager::BufferEntry bentry{};
+        IGpuResourceManager::BufferEntry bentry{};
         bentry.handle = backend_->create_buffer(bdesc);
         bentry.size = bsize;
         if (!bentry.handle) return;
-        resources_.register_buffer(buf, bentry);
+        resources_->register_buffer(buf, bentry);
         buf->set_gpu_address(backend_->gpu_address(bentry.handle));
         if (auto* dst = backend_->map(bentry.handle)) {
             std::memcpy(dst, bytes, bsize);
@@ -245,10 +254,10 @@ FrameContext Renderer::make_frame_context()
     FrameContext ctx{};
     ctx.backend = backend_.get();
     ctx.render_ctx = render_ctx_;
-    ctx.frame_buffer = &frame_buffer_;
-    ctx.resources = &resources_;
+    ctx.frame_buffer = frame_buffer_.get();
+    ctx.resources = resources_.get();
     ctx.batch_builder = &batch_builder_;
-    ctx.snippets = &snippets_;
+    ctx.snippets = snippets_.get();
     ctx.render_target_cache = &render_target_cache_;
     ctx.pipeline_map = pipeline_map_;
     ctx.observer = this;
@@ -387,7 +396,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         int th = static_cast<int>(sz.y);
                         const uint8_t* pixels = buf->get_data();
                         if (pixels && tw > 0 && th > 0) {
-                            TextureId tid = resources_.find_texture(surf);
+                            TextureId tid = resources_->find_texture(surf);
                             if (tid == 0) {
                                 TextureDesc tdesc{};
                                 tdesc.width = tw;
@@ -395,7 +404,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                                 tdesc.format = surf->format();
                                 tdesc.sampler = surf->get_sampler_desc();
                                 tid = backend_->create_texture(tdesc);
-                                resources_.register_texture(surf, tid);
+                                resources_->register_texture(surf, tid);
                             }
                             backend_->upload_texture(tid, pixels, tw, th);
                             buf->clear_dirty();
@@ -407,11 +416,11 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         if (!bytes || bsize == 0) {
                             continue;
                         }
-                        auto* be = resources_.find_buffer(buf);
+                        auto* be = resources_->find_buffer(buf);
                         bool need_alloc = (be == nullptr);
                         if (!need_alloc && be->size != bsize) {
-                            resources_.defer_buffer_destroy(be->handle, present_counter_ + kGpuLatencyFrames);
-                            resources_.unregister_buffer(buf);
+                            resources_->defer_buffer_destroy(be->handle, present_counter_ + kGpuLatencyFrames);
+                            resources_->unregister_buffer(buf);
                             be = nullptr;
                             need_alloc = true;
                         }
@@ -425,11 +434,11 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                             if (auto* mb = interface_cast<IMeshBuffer>(buf)) {
                                 bdesc.index_buffer = mb->get_ibo_size() > 0;
                             }
-                            GpuResourceManager::BufferEntry bentry{};
+                            IGpuResourceManager::BufferEntry bentry{};
                             bentry.handle = backend_->create_buffer(bdesc);
                             bentry.size = bsize;
-                            resources_.register_buffer(buf, bentry);
-                            be = resources_.find_buffer(buf);
+                            resources_->register_buffer(buf, bentry);
+                            be = resources_->find_buffer(buf);
                             buf->set_gpu_address(backend_->gpu_address(bentry.handle));
                         }
                         if (auto* dst = backend_->map(be->handle)) {
@@ -461,7 +470,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
 {
     static constexpr int kMaxRecordRetries = 3;
     for (int attempt = 0;; ++attempt) {
-        frame_buffer_.begin_frame(slot.buffer);
+        frame_buffer_->begin_frame(slot.buffer);
         slot.passes.clear();
 
         FrameContext ctx = make_frame_context();
@@ -533,19 +542,20 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 bool                    log;
             };
             BvhBuildState bvh_state{this, ctx, log_bvh_next_};
-            bvh->rebuild(scene, render_ctx_, frame_buffer_, dirty,
+            bvh->rebuild(scene, render_ctx_, *frame_buffer_, dirty,
                 +[](void* u, ShapeSite& site) {
                     auto& s = *static_cast<BvhBuildState*>(u);
                     auto& ctx = s.ctx;
                     auto& self = *s.self;
+                    auto resolve_ctx = ctx.make_resolve_context();
                     auto mat = site.paint
-                        ? self.snippets_.resolve_material(site.paint, ctx)
-                        : FrameSnippetRegistry::MaterialRef{};
+                        ? self.snippets_->resolve_material(site.paint, resolve_ctx)
+                        : IFrameSnippetRegistry::MaterialRef{};
                     uint32_t tex_id = 0;
                     if (site.draw_entry && site.draw_entry->texture_key != 0) {
                         auto* surf = reinterpret_cast<ISurface*>(
                             static_cast<uintptr_t>(site.draw_entry->texture_key));
-                        tex_id = self.resources_.find_texture(surf);
+                        tex_id = self.resources_->find_texture(surf);
                         if (tex_id == 0) {
                             uint64_t rt_id = get_render_target_id(surf);
                             if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
@@ -556,7 +566,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     site.geometry.texture_id = tex_id;
 
                     if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
-                        uint32_t kind = self.snippets_.register_intersect(analytic, *self.render_ctx_);
+                        uint32_t kind = self.snippets_->register_intersect(analytic, *self.render_ctx_);
                         if (kind != 0) site.geometry.shape_kind = kind;
                     }
 
@@ -570,9 +580,9 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     if (site.has_mesh_data) {
                         if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
                             site.mesh_instance.mesh_static_addr =
-                                self.snippets_.resolve_data_buffer(dd, ctx);
+                                self.snippets_->resolve_data_buffer(dd, resolve_ctx);
                         }
-                        site.geometry.mesh_data_addr = self.frame_buffer_.write(
+                        site.geometry.mesh_data_addr = self.frame_buffer_->write(
                             &site.mesh_instance, sizeof(site.mesh_instance));
 
                         if (s.log && site.mesh_primitive) {
@@ -669,7 +679,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             slot.passes.push_back(std::move(op));
         }
 
-        if (!frame_buffer_.overflowed()) {
+        if (!frame_buffer_->overflowed()) {
             break;
         }
         if (attempt >= kMaxRecordRetries) {
@@ -677,7 +687,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 E, "Renderer: frame buffer overflow after %d retries, dropping frame", kMaxRecordRetries);
             break;
         }
-        frame_buffer_.grow(*backend_);
+        frame_buffer_->grow(*backend_);
     } // retry loop
 }
 
@@ -690,30 +700,30 @@ Frame Renderer::prepare(const FrameDesc& desc)
     VELK_PERF_SCOPE("renderer.prepare");
 
     // Drain any GPU resources whose safe window has elapsed.
-    resources_.drain_deferred(*backend_, present_counter_);
+    resources_->drain_deferred(*backend_, present_counter_);
 
     auto* slot = claim_frame_slot();
     active_slot_ = slot;
 
     // If this slot's buffer is undersized (it was in-flight during a
     // previous regrow and was skipped), grow it now that it's safe.
-    frame_buffer_.ensure_slot(slot->buffer, *backend_);
+    frame_buffer_->ensure_slot(slot->buffer, *backend_);
 
     // Prepare the staging buffer once for all views
-    frame_buffer_.ensure_capacity(*backend_);
+    frame_buffer_->ensure_capacity(*backend_);
 
     if ((slot->id % 10000) == 0) {
         VELK_LOG(I,
                  "Renderer: frame %llu, frame buffer %zu KB, peak usage %zu KB",
                  static_cast<unsigned long long>(slot->id),
-                 frame_buffer_.get_buffer_size() / 1024,
-                 frame_buffer_.get_peak_usage() / 1024);
+                 frame_buffer_->get_buffer_size() / 1024,
+                 frame_buffer_->get_peak_usage() / 1024);
     }
 
     auto consumed_scenes = consume_scenes(desc);
 
     batch_builder_.reset_frame_state();
-    snippets_.begin_frame();
+    snippets_->begin_frame();
     build_frame_passes(desc, consumed_scenes, *slot);
 
     active_slot_ = nullptr;
@@ -898,7 +908,7 @@ void Renderer::set_max_frames_in_flight(uint32_t count)
     auto old_size = frame_slots_.size();
     frame_slots_.resize(count);
     for (auto i = old_size; i < count; ++i) {
-        frame_buffer_.init_slot(frame_slots_[i].buffer, *backend_);
+        frame_buffer_->init_slot(frame_slots_[i].buffer, *backend_);
     }
     slot_cv_.notify_all();
 }
@@ -942,7 +952,7 @@ TextureId Renderer::get_shadow_debug_texture(const IElement::Ptr& camera_element
 
 void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)
 {
-    resources_.on_resource_destroyed(resource, present_counter_, kGpuLatencyFrames);
+    resources_->on_resource_destroyed(resource, present_counter_, kGpuLatencyFrames);
 }
 
 void Renderer::shutdown()
@@ -959,9 +969,9 @@ void Renderer::shutdown()
             }
         }
         // Unregister from environment textures (not tracked via element cache).
-        resources_.unregister_env_observers(this);
+        resources_->unregister_env_observers(this);
 
-        resources_.shutdown(*backend_);
+        resources_->shutdown(*backend_);
 
         // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
         {

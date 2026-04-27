@@ -1,42 +1,32 @@
 #ifndef VELK_UI_GPU_RESOURCE_MANAGER_H
 #define VELK_UI_GPU_RESOURCE_MANAGER_H
 
+#include <velk/ext/core_object.h>
 #include <velk/vector.h>
 
 #include <unordered_map>
 #include <mutex>
-#include <velk-render/interface/intf_buffer.h>
-#include <velk-render/interface/intf_gpu_resource.h>
-#include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_render_backend.h>
+
+#include <velk-render/frame/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
-#include <velk-render/interface/intf_texture_resolver.h>
+#include <velk-render/plugin.h>
 
 namespace velk {
 
 /**
- * @brief Manages GPU resource upload tracking and deferred destruction.
+ * @brief Concrete IGpuResourceManager backed by std::unordered_map plus
+ *        per-resource deferred-destroy queues protected by a mutex.
  *
- * Tracks texture (ISurface) and buffer (IBuffer) mappings from CPU objects
- * to backend handles. Handles deferred destruction to ensure GPU-safe lifetimes.
- *
- * Also implements ITextureResolver so materials can embed bindless TextureIds
- * into their UBOs via IDrawData::write_draw_data.
+ * Owned by Renderer as `IGpuResourceManager::Ptr`; instantiated through
+ * the velk type registry so the allocation participates in the hive.
  */
-class GpuResourceManager : public ITextureResolver
+class GpuResourceManager : public ext::ObjectCore<GpuResourceManager, IGpuResourceManager>
 {
 public:
-    struct BufferEntry
-    {
-        GpuBuffer handle{};
-        size_t size = 0;
-    };
+    VELK_CLASS_UID(ClassId::GpuResourceManager, "GpuResourceManager");
 
-    /** @brief Returns the TextureId for a surface, or 0 if not tracked. */
-    TextureId find_texture(ISurface* surf) const;
-
-    /// ITextureResolver: find_texture with RenderTexture fallback.
+    // ITextureResolver
     TextureId resolve(ISurface* surf) const override
     {
         if (!surf) return 0;
@@ -48,50 +38,30 @@ public:
         return tid;
     }
 
-    /** @brief Registers a surface -> TextureId mapping. */
-    void register_texture(ISurface* surf, TextureId tid);
+    // IGpuResourceManager
+    TextureId find_texture(ISurface* surf) const override;
+    void register_texture(ISurface* surf, TextureId tid) override;
 
-    /** @brief Returns the buffer entry, or nullptr if not tracked. */
-    BufferEntry* find_buffer(IBuffer* buf);
+    BufferEntry* find_buffer(IBuffer* buf) override;
+    void register_buffer(IBuffer* buf, const BufferEntry& entry) override;
+    void unregister_buffer(IBuffer* buf) override;
 
-    /** @brief Registers a buffer entry. */
-    void register_buffer(IBuffer* buf, const BufferEntry& entry);
+    bool register_pipeline(IProgram* prog, PipelineId pid) override;
 
-    /** @brief Unregisters a buffer. */
-    void unregister_buffer(IBuffer* buf);
+    void add_env_observer(const IBuffer::WeakPtr& res) override;
+    void unregister_env_observers(IGpuResourceObserver* observer) override;
 
-    /**
-     * @brief Registers a program -> PipelineId mapping if not already tracked.
-     *
-     * Idempotent. Returns true if the program was newly registered (the
-     * caller should subscribe as observer in that case), false if it was
-     * already tracked.
-     */
-    bool register_pipeline(IProgram* prog, PipelineId pid);
+    void defer_texture_destroy(TextureId tid, uint64_t safe_after) override;
+    void defer_buffer_destroy(GpuBuffer handle, uint64_t safe_after) override;
+    void defer_pipeline_destroy(PipelineId pid, uint64_t safe_after) override;
 
-    /** @brief Adds a weak reference to an environment resource for shutdown cleanup. */
-    void add_env_observer(const IBuffer::WeakPtr& res);
+    void drain_deferred(IRenderBackend& backend, uint64_t present_counter) override;
 
-    /** @brief Removes gpu resource observer from all tracked environment resources. */
-    void unregister_env_observers(IGpuResourceObserver* observer);
+    void on_resource_destroyed(IGpuResource* resource,
+                               uint64_t present_counter,
+                               uint64_t latency_frames) override;
 
-    /** @brief Defers a texture for destruction after the safe window. */
-    void defer_texture_destroy(TextureId tid, uint64_t safe_after);
-
-    /** @brief Defers a buffer for destruction after the safe window. */
-    void defer_buffer_destroy(GpuBuffer handle, uint64_t safe_after);
-
-    /** @brief Defers a pipeline for destruction after the safe window. */
-    void defer_pipeline_destroy(PipelineId pid, uint64_t safe_after);
-
-    /** @brief Drains deferred destruction queues for handles past the safe window. */
-    void drain_deferred(IRenderBackend& backend, uint64_t present_counter);
-
-    /** @brief Called when a GPU resource is destroyed. Enqueues handles for deferred destruction. */
-    void on_resource_destroyed(IGpuResource* resource, uint64_t present_counter, uint64_t latency_frames);
-
-    /** @brief Destroys all tracked resources during shutdown. */
-    void shutdown(IRenderBackend& backend);
+    void shutdown(IRenderBackend& backend) override;
 
 private:
     struct DeferredTextureDestroy

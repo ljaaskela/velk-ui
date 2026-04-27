@@ -68,7 +68,7 @@ uint64_t SceneBvh::hash_visual_aabbs(IScene* scene)
     return h;
 }
 
-void SceneBvh::rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& frame_buffer,
+void SceneBvh::rebuild(IScene* scene, IRenderContext* ctx, IFrameDataManager& frame_buffer,
                         bool dirty, ShapeCb shape_cb, void* shape_user)
 {
     // Second-stage dirty check: the caller's heuristic (visuals in

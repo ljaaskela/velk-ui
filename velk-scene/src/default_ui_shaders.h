@@ -7,7 +7,7 @@
 #include <velk-render/ext/element_vertex.h>
 #include <velk-scene/ext/material_shaders.h>
 
-#include "frame_snippet_registry.h"
+#include <velk-render/frame/intf_frame_snippet_registry.h>
 
 #include <cstdio>
 #include <cstring>
@@ -1713,7 +1713,7 @@ void main()
  *   8. intersect_shape switch                (built-in kinds + registered snippets)
  *   9. rt_compute_main_src                   (primary loop + bounce logic)
  */
-inline string compose_rt_compute(const FrameSnippetRegistry& snippets)
+inline string compose_rt_compute(const IFrameSnippetRegistry& snippets)
 {
     const auto& material_ids        = snippets.frame_materials();
     const auto& shadow_tech_ids     = snippets.frame_shadow_techs();
