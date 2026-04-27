@@ -1,6 +1,7 @@
 #include "deferred_lighter.h"
 
 #include "default_ui_shaders.h"
+#include "deferred_gbuffer_path.h"
 #include "env_helper.h"
 #include "frame_snippet_registry.h"
 #include "scene_collector.h"
@@ -100,67 +101,61 @@ void DeferredLighter::build_passes(ViewEntry& entry,
                                    vector<RenderPass>& out_passes)
 {
     if (!ctx.backend || !ctx.render_ctx || !ctx.pipeline_map) return;
-    if (entry.gbuffer_group == 0) return; // rasterizer hasn't allocated the G-buffer yet
+    if (!gbuffer_source_) return;
 
-    // Only run for Deferred views. Forward views skip the deferred
-    // pipeline entirely; RT views produce their final image through
-    // the ray-tracer's compute+blit pipeline.
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
-    bool is_deferred = false;
-    if (camera) {
-        if (auto cs = read_state<ICamera>(camera)) {
-            is_deferred = (cs->render_path == RenderPath::Deferred);
-        }
-    }
-    if (!is_deferred) return;
+    RenderTargetGroup gbuffer_group = gbuffer_source_->find_gbuffer_group(&entry);
+    if (gbuffer_group == 0) return; // gbuffer path hasn't allocated yet
 
-    int w = entry.gbuffer_width;
-    int h = entry.gbuffer_height;
+    int w = gbuffer_source_->find_gbuffer_width(&entry);
+    int h = gbuffer_source_->find_gbuffer_height(&entry);
     if (w <= 0 || h <= 0) return;
 
+    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
+    auto& vs = view_states_[&entry];
+
     // Allocate / resize the output storage image.
-    if (entry.deferred_output_tex != 0 &&
-        (entry.deferred_width != w || entry.deferred_height != h)) {
+    if (vs.deferred_output_tex != 0 &&
+        (vs.deferred_width != w || vs.deferred_height != h)) {
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
-                entry.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
+                vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
         }
-        entry.deferred_output_tex = 0;
+        vs.deferred_output_tex = 0;
     }
-    if (entry.deferred_output_tex == 0) {
+    if (vs.deferred_output_tex == 0) {
         TextureDesc td{};
         td.width = w;
         td.height = h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        entry.deferred_output_tex = ctx.backend->create_texture(td);
-        entry.deferred_width = w;
-        entry.deferred_height = h;
+        vs.deferred_output_tex = ctx.backend->create_texture(td);
+        vs.deferred_width = w;
+        vs.deferred_height = h;
     }
-    if (entry.deferred_output_tex == 0) return;
+    if (vs.deferred_output_tex == 0) return;
 
     // Per-view diagnostic image for RT-shadow debugging. Allocated once
     // and resized with the view; carries (buffer_addr_lo, buffer_addr_hi,
     // ibo_offset, triangle_count) per pixel as RGBA32F bits. Always
     // allocated for now (the GLSL write site is gated by the push
     // constant), so the F12 dump path always has something to read.
-    if (entry.shadow_debug_tex != 0 &&
-        (entry.shadow_debug_width != w || entry.shadow_debug_height != h)) {
+    if (vs.shadow_debug_tex != 0 &&
+        (vs.shadow_debug_width != w || vs.shadow_debug_height != h)) {
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
-                entry.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
+                vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
         }
-        entry.shadow_debug_tex = 0;
+        vs.shadow_debug_tex = 0;
     }
-    if (entry.shadow_debug_tex == 0) {
+    if (vs.shadow_debug_tex == 0) {
         TextureDesc td{};
         td.width = w;
         td.height = h;
         td.format = PixelFormat::RGBA32F;
         td.usage = TextureUsage::Storage;
-        entry.shadow_debug_tex = ctx.backend->create_texture(td);
-        entry.shadow_debug_width = w;
-        entry.shadow_debug_height = h;
+        vs.shadow_debug_tex = ctx.backend->create_texture(td);
+        vs.shadow_debug_width = w;
+        vs.shadow_debug_height = h;
     }
 
     // Compose the compute pipeline for the current frame's visual
@@ -173,13 +168,13 @@ void DeferredLighter::build_passes(ViewEntry& entry,
 
     // Look up G-buffer attachment texture ids for sampling.
     auto albedo_id   = ctx.backend->get_render_target_group_attachment(
-        entry.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Albedo));
+        gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Albedo));
     auto normal_id   = ctx.backend->get_render_target_group_attachment(
-        entry.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Normal));
+        gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Normal));
     auto worldpos_id = ctx.backend->get_render_target_group_attachment(
-        entry.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::WorldPos));
+        gbuffer_group, static_cast<uint32_t>(GBufferAttachment::WorldPos));
     auto material_id = ctx.backend->get_render_target_group_attachment(
-        entry.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::MaterialParams));
+        gbuffer_group, static_cast<uint32_t>(GBufferAttachment::MaterialParams));
 
     // Shadow-caster geometry lives in the scene-wide BVH now, reached
     // through globals_addr -> GlobalData.bvh_{nodes,shapes}. See the
@@ -235,7 +230,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
 
     // Camera world position for view direction V in PBR shading.
     // Inverse view-projection comes from the view's FrameGlobals
-    // (stashed on entry by the Rasterizer), so no separate upload here.
+    // (stashed on entry by DeferredGBufferPath), so no separate upload here.
     float cam_px = 0.f, cam_py = 0.f, cam_pz = 0.f;
     if (auto es = read_state<IElement>(entry.camera_element)) {
         cam_px = es->world_matrix(0, 3);
@@ -268,7 +263,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     pc.cam_pos[1] = cam_py;
     pc.cam_pos[2] = cam_pz;
     pc.cam_pos[3] = 0.f;
-    pc.output_image_id = entry.deferred_output_tex;
+    pc.output_image_id = vs.deferred_output_tex;
     pc.albedo_tex_id   = albedo_id;
     pc.normal_tex_id   = normal_id;
     pc.worldpos_tex_id = worldpos_id;
@@ -277,7 +272,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     pc.height = static_cast<uint32_t>(h);
     pc.light_count = static_cast<uint32_t>(lights.size());
     pc.env_texture_id = env_texture_id;
-    pc.shadow_debug_image_id = entry.shadow_debug_tex;
+    pc.shadow_debug_image_id = vs.shadow_debug_tex;
     pc.lights_addr = lights_addr;
     pc.env_data_addr = env_data_addr;
     pc.globals_addr = entry.frame_globals_addr;
@@ -306,7 +301,7 @@ void DeferredLighter::build_passes(ViewEntry& entry,
     pass.compute.groups_z = 1;
     pass.compute.root_constants_size = sizeof(PushC);
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
-    pass.blit_source = entry.deferred_output_tex;
+    pass.blit_source = vs.deferred_output_tex;
     pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
     pass.blit_dst_rect = {vp_x, vp_y, vp_w, vp_h};
     // NB: forward-on-top-of-deferred depth composition is deferred — if
@@ -318,28 +313,44 @@ void DeferredLighter::build_passes(ViewEntry& entry,
 
 void DeferredLighter::on_view_removed(ViewEntry& entry, FrameContext& ctx)
 {
-    if (entry.deferred_output_tex != 0 && ctx.resources) {
+    auto it = view_states_.find(&entry);
+    if (it == view_states_.end()) return;
+    auto& vs = it->second;
+    if (vs.deferred_output_tex != 0 && ctx.resources) {
         ctx.resources->defer_texture_destroy(
-            entry.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
-        entry.deferred_output_tex = 0;
-        entry.deferred_width = 0;
-        entry.deferred_height = 0;
+            vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
     }
-    if (entry.shadow_debug_tex != 0 && ctx.resources) {
+    if (vs.shadow_debug_tex != 0 && ctx.resources) {
         ctx.resources->defer_texture_destroy(
-            entry.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
-        entry.shadow_debug_tex = 0;
-        entry.shadow_debug_width = 0;
-        entry.shadow_debug_height = 0;
+            vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
     }
+    view_states_.erase(it);
 }
 
-void DeferredLighter::shutdown(FrameContext& /*ctx*/)
+void DeferredLighter::shutdown(FrameContext& ctx)
 {
-    // Per-view output textures are released via on_view_removed; compiled
-    // compute pipelines live in the render context's pipeline map and
-    // are destroyed with it.
+    if (ctx.resources) {
+        for (auto& [v, vs] : view_states_) {
+            if (vs.deferred_output_tex != 0) {
+                ctx.resources->defer_texture_destroy(
+                    vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
+            }
+            if (vs.shadow_debug_tex != 0) {
+                ctx.resources->defer_texture_destroy(
+                    vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
+            }
+        }
+    }
+    view_states_.clear();
+    // Compiled compute pipelines live in the render context's pipeline
+    // map and are destroyed with it.
     compiled_pipelines_.clear();
+}
+
+TextureId DeferredLighter::find_shadow_debug_tex(ViewEntry* view) const
+{
+    auto it = view_states_.find(view);
+    return (it == view_states_.end()) ? 0 : it->second.shadow_debug_tex;
 }
 
 } // namespace velk

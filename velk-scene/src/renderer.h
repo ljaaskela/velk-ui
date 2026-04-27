@@ -9,9 +9,11 @@
 #include "frame_data_manager.h"
 #include "frame_snippet_registry.h"
 #include "gpu_resource_manager.h"
+#include "deferred_gbuffer_path.h"
 #include "deferred_lighter.h"
+#include "forward_path.h"
 #include "ray_tracer.h"
-#include "rasterizer.h"
+#include "render_target_cache.h"
 #include "view_renderer.h"
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
@@ -107,7 +109,7 @@ private:
     bool log_bvh_next_ = false;
 
     // Shared visual-command / gpu-resource cache. Both the dirty-resource
-    // upload in consume_scenes and the Rasterizer path read from it, so it
+    // upload in consume_scenes and the raster paths read from it, so it
     // lives here rather than inside a single sub-renderer.
     BatchBuilder batch_builder_;
     FrameDataManager frame_buffer_;
@@ -127,10 +129,24 @@ private:
     // whose scene is currently in `consumed_scenes`.
     std::unordered_map<IScene*, impl::SceneBvh*> scene_bvh_cache_;
 
-    // Sub-renderers; one per render path.
-    Rasterizer rasterizer_;
-    RayTracer ray_tracer_;
+    // Per-path sub-renderers. The Forward and Deferred raster paths share
+    // the RenderTargetCache (RTT subtrees can serve any view); each path
+    // owns its own per-view state via a ViewEntry* -> state map.
+    RenderTargetCache render_target_cache_;
+    ForwardPath forward_path_;
+    DeferredGBufferPath deferred_gbuffer_path_;
     DeferredLighter deferred_lighter_;
+    RayTracer ray_tracer_;
+
+    // Path dispatch: a view's render_path enum picks one entry; each
+    // entry is a (small) ordered list of sub-renderers run in sequence.
+    // Replaces the previous if/else inside build_frame_passes.
+    vector<IViewRenderer*> path_dispatch_[3];
+
+    // Every path object is also enumerated for lifecycle calls
+    // (on_view_removed / on_element_removed / shutdown / build_shared_passes)
+    // so we don't have to spell out every member by name.
+    vector<IViewRenderer*> all_paths_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

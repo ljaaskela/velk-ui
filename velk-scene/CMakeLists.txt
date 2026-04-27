@@ -24,12 +24,16 @@ add_library(velk_scene SHARED
     src/renderer.h
     src/renderer.cpp
     src/view_renderer.h
-    src/rasterizer.h
-    src/rasterizer.cpp
+    src/forward_path.h
+    src/forward_path.cpp
+    src/deferred_gbuffer_path.h
+    src/deferred_gbuffer_path.cpp
     src/deferred_lighter.h
     src/deferred_lighter.cpp
     src/ray_tracer.h
     src/ray_tracer.cpp
+    src/render_target_cache.h
+    src/render_target_cache.cpp
 
     # Scene-side rendering plumbing
     src/scene_bvh.h

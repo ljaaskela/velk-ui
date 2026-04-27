@@ -53,9 +53,6 @@ uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
     const auto& material_ids = ctx.snippets->frame_materials();
     const auto& shadow_tech_ids = ctx.snippets->frame_shadow_techs();
     const auto& intersect_ids = ctx.snippets->frame_intersects();
-    const auto& material_info_by_id = ctx.snippets->material_info_by_id();
-    const auto& shadow_tech_info_by_id = ctx.snippets->shadow_tech_info_by_id();
-    const auto& intersect_info_by_id = ctx.snippets->intersect_info_by_id();
 
     // Pipeline cache key: FNV-1a across the sorted material / shadow /
     // intersect id lists. Different snippet combos compose to
@@ -82,112 +79,7 @@ uint64_t RayTracer::ensure_pipeline(FrameContext& ctx)
         return key;
     }
 
-    string src;
-    src += rt_compute_prelude_src;
-    for (auto id : material_ids) {
-        if (id == 0 || id > material_info_by_id.size()) continue;
-        const auto& mi = material_info_by_id[id - 1];
-        src += string_view("#include \"", 10);
-        src += mi.include_name;
-        src += string_view("\"\n", 2);
-    }
-    for (auto id : shadow_tech_ids) {
-        if (id == 0 || id > shadow_tech_info_by_id.size()) continue;
-        const auto& ti = shadow_tech_info_by_id[id - 1];
-        src += string_view("#include \"", 10);
-        src += ti.include_name;
-        src += string_view("\"\n", 2);
-    }
-    for (auto id : intersect_ids) {
-        // Visual-contributed ids start at 3 and index intersect_info_by_id[id - 3].
-        if (id < 3 || id - 3 >= intersect_info_by_id.size()) continue;
-        const auto& ii = intersect_info_by_id[id - 3];
-        src += string_view("#include \"", 10);
-        src += ii.include_name;
-        src += string_view("\"\n", 2);
-    }
-
-    auto append_literal = [&src](const char* s) {
-        src += string_view(s, std::strlen(s));
-    };
-
-    // Order matters:
-    //   1) velk_eval_shadow dispatch (called from velk_pbr_shade).
-    //   2) velk_pbr_shade helper (calls velk_eval_shadow; called from
-    //      velk_resolve_fill for Lit materials).
-    //   3) velk_resolve_fill dispatch (calls velk_pbr_shade).
-
-    char buf[128];
-
-    append_literal("float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal) {\n");
-    append_literal("    switch (tech_id) {\n");
-    for (auto id : shadow_tech_ids) {
-        if (id == 0 || id > shadow_tech_info_by_id.size()) continue;
-        const auto& ti = shadow_tech_info_by_id[id - 1];
-        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
-        if (n > 0) {
-            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
-        }
-        src += ti.fn_name;
-        append_literal("(light_idx, world_pos, world_normal);\n");
-    }
-    append_literal("        default: return 1.0;\n");
-    append_literal("    }\n");
-    append_literal("}\n");
-
-    // Shared PBR shading helper — defined after velk_eval_shadow (which
-    // it calls) and before velk_resolve_fill (which calls it for Lit
-    // materials).
-    src += rt_pbr_shade_src;
-
-    append_literal("BrdfSample velk_resolve_fill(uint mid, EvalContext ctx) {\n");
-    append_literal("    switch (mid) {\n");
-    for (auto id : material_ids) {
-        if (id == 0 || id > material_info_by_id.size()) continue;
-        const auto& mi = material_info_by_id[id - 1];
-        int n = std::snprintf(buf, sizeof(buf), "        case %uu: { MaterialEval e = ", id);
-        if (n > 0) {
-            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
-        }
-        src += mi.fn_name;
-        append_literal("(ctx);"
-                       " if (e.lighting_mode == VELK_LIGHTING_STANDARD)"
-                       " return velk_pbr_shade(e, ctx);"
-                       " BrdfSample bs;"
-                       " bs.emission = e.color;"
-                       " bs.throughput = vec3(0.0);"
-                       " bs.next_dir = vec3(0.0);"
-                       " bs.terminate = true;"
-                       " bs.sample_count_hint = 1u;"
-                       " return bs; }\n");
-    }
-    append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; bs.sample_count_hint = 1u; return bs; }\n");
-    append_literal("    }\n");
-    append_literal("}\n");
-
-    // Shape-intersect dispatch. Built-in kinds 0/1/2 forward to the
-    // prelude's rect/cube/sphere intersect functions; visual-
-    // contributed kinds (3+) call their registered snippets.
-    append_literal("bool intersect_shape(Ray ray, RtShape shape, out RayHit hit) {\n");
-    append_literal("    switch (shape.shape_kind) {\n");
-    append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
-    append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
-    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
-    for (auto id : intersect_ids) {
-        if (id < 3 || id - 3 >= intersect_info_by_id.size()) continue;
-        const auto& ii = intersect_info_by_id[id - 3];
-        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
-        if (n > 0) {
-            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
-        }
-        src += ii.fn_name;
-        append_literal("(ray, shape, hit);\n");
-    }
-    append_literal("        default: return intersect_rect(ray, shape, hit);\n");
-    append_literal("    }\n");
-    append_literal("}\n");
-
-    src += rt_compute_main_src;
+    string src = compose_rt_compute(*ctx.snippets);
 
     uint64_t compiled = ctx.render_ctx->compile_compute_pipeline(string_view(src), key);
     if (compiled == 0) {
@@ -221,24 +113,26 @@ void RayTracer::build_passes(ViewEntry& entry,
         return;
     }
 
+    auto& vs = view_states_[&entry];
+
     // (Re)create storage output texture sized to the viewport.
-    if (entry.rt_output_tex != 0 &&
-        (entry.rt_width != vp_w || entry.rt_height != vp_h)) {
+    if (vs.rt_output_tex != 0 &&
+        (vs.width != vp_w || vs.height != vp_h)) {
         ctx.resources->defer_texture_destroy(
-            entry.rt_output_tex, ctx.present_counter + ctx.latency_frames);
-        entry.rt_output_tex = 0;
+            vs.rt_output_tex, ctx.present_counter + ctx.latency_frames);
+        vs.rt_output_tex = 0;
     }
-    if (entry.rt_output_tex == 0) {
+    if (vs.rt_output_tex == 0) {
         TextureDesc td{};
         td.width = vp_w;
         td.height = vp_h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        entry.rt_output_tex = ctx.backend->create_texture(td);
-        entry.rt_width = vp_w;
-        entry.rt_height = vp_h;
+        vs.rt_output_tex = ctx.backend->create_texture(td);
+        vs.width = vp_w;
+        vs.height = vp_h;
     }
-    if (entry.rt_output_tex == 0) {
+    if (vs.rt_output_tex == 0) {
         return;
     }
 
@@ -488,7 +382,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     pc.cam_pos[1] = cam_py;
     pc.cam_pos[2] = cam_pz;
     pc.cam_pos[3] = 0.f;
-    pc.image_index = entry.rt_output_tex;
+    pc.image_index = vs.rt_output_tex;
     pc.width = static_cast<uint32_t>(vp_w);
     pc.height = static_cast<uint32_t>(vp_h);
     pc.shape_count = static_cast<uint32_t>(shapes.size());
@@ -513,7 +407,7 @@ void RayTracer::build_passes(ViewEntry& entry,
     pass.compute.groups_z = 1;
     pass.compute.root_constants_size = sizeof(PushC);
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
-    pass.blit_source = entry.rt_output_tex;
+    pass.blit_source = vs.rt_output_tex;
     pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
     pass.blit_dst_rect = {vp_x_f, vp_y_f, vp_w_f, vp_h_f};
     out_passes.push_back(std::move(pass));
@@ -521,19 +415,26 @@ void RayTracer::build_passes(ViewEntry& entry,
 
 void RayTracer::on_view_removed(ViewEntry& entry, FrameContext& ctx)
 {
-    if (entry.rt_output_tex != 0 && ctx.resources) {
+    auto it = view_states_.find(&entry);
+    if (it == view_states_.end()) return;
+    if (it->second.rt_output_tex != 0 && ctx.resources) {
         ctx.resources->defer_texture_destroy(
-            entry.rt_output_tex, ctx.present_counter + ctx.latency_frames);
-        entry.rt_output_tex = 0;
+            it->second.rt_output_tex, ctx.present_counter + ctx.latency_frames);
     }
+    view_states_.erase(it);
 }
 
 void RayTracer::shutdown(FrameContext& ctx)
 {
-    // Storage textures are released on view removal; nothing per-RT-class
-    // to release beyond that (material maps hold string_views owned by
-    // their respective materials).
-    (void)ctx;
+    if (ctx.resources) {
+        for (auto& [v, vs] : view_states_) {
+            if (vs.rt_output_tex != 0) {
+                ctx.resources->defer_texture_destroy(
+                    vs.rt_output_tex, ctx.present_counter + ctx.latency_frames);
+            }
+        }
+    }
+    view_states_.clear();
 }
 
 } // namespace velk

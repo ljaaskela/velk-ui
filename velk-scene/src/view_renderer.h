@@ -20,6 +20,7 @@
 namespace velk {
 
 class FrameSnippetRegistry;
+class RenderTargetCache;
 
 /** @brief Shared non-owning context passed to per-view sub-renderers. */
 struct FrameContext
@@ -30,6 +31,7 @@ struct FrameContext
     GpuResourceManager* resources = nullptr;
     BatchBuilder* batch_builder = nullptr; ///< Shared visual-command cache.
     FrameSnippetRegistry* snippets = nullptr; ///< Shared material / shadow-tech / intersect snippet registry.
+    RenderTargetCache* render_target_cache = nullptr; ///< Shared RTT (render-to-texture) subtree cache.
     const std::unordered_map<uint64_t, PipelineId>* pipeline_map = nullptr;
     IGpuResourceObserver* observer = nullptr; ///< Renderer as observer of GPU resources.
     uint64_t present_counter = 0;
@@ -73,36 +75,30 @@ struct RenderPass
 {
     PassKind kind = PassKind::Raster;
 
-    // Raster fields
     ViewRenderTarget target;
     rect viewport;
     vector<DrawCall> draw_calls;
 
-    // GBufferFill fields (PassKind::GBufferFill). When kind ==
-    // GBufferFill, `gbuffer_group` is the target instead of `target`,
-    // and `draw_calls` + `viewport` above apply as usual.
     RenderTargetGroup gbuffer_group = 0;
 
-    // ComputeBlit fields
     DispatchCall compute{};
     uint64_t blit_surface_id = 0;
     TextureId blit_source = 0;
     rect blit_dst_rect{};
 
-    // Optional: after the color blit, copy this group's depth attachment
-    // into blit_surface_id's depth buffer. Zero = no depth blit. Used by
-    // the deferred compositor so forward draws on the surface can
-    // depth-test against the deferred scene.
     RenderTargetGroup blit_depth_source_group = 0;
 };
 
 /**
- * @brief Renderer-owned per-view state.
+ * @brief Renderer-owned per-view state shared across all paths.
  *
- * Visible to all sub-renderers. Each sub-renderer reads/writes only the
- * fields relevant to its path (raster fields for the rasterizer, rt_* for
- * the ray tracer); they do not conflict in practice. On view removal, each
- * sub-renderer releases its own per-view allocations via on_view_removed.
+ * Carries identity (camera_element, surface, viewport), the raster batch
+ * cache (consumed by both Forward and Deferred G-buffer paths), and the
+ * one transient that has to flow between paths in a single frame
+ * (frame_globals_addr, written by the raster path that runs first and
+ * read by DeferredLighter). Path-specific resources (RT output texture,
+ * G-buffer group, deferred / shadow-debug storage textures) live in
+ * per-path ViewEntry* -> state maps owned by each IViewRenderer.
  */
 struct ViewEntry
 {
@@ -110,43 +106,15 @@ struct ViewEntry
     IWindowSurface::Ptr surface;
     rect viewport;
 
-    // Raster-scoped
+    // Raster batch cache (Forward + Deferred G-buffer paths).
     bool batches_dirty = true;
     int cached_width = 0;
     int cached_height = 0;
     vector<BatchBuilder::Batch> batches;
 
-    // Ray-traced output texture (RT-scoped; lives in the bindless storage
-    // image array). Reallocated on viewport size change.
-    TextureId rt_output_tex = 0;
-    int rt_width = 0;
-    int rt_height = 0;
-
-    // Deferred G-buffer (raster-scoped). Allocated once per view at the
-    // current viewport size, reallocated on resize. Attachments follow
-    // the canonical layout in velk-render/gbuffer.h. 0 = not yet created.
-    RenderTargetGroup gbuffer_group = 0;
-    int gbuffer_width = 0;
-    int gbuffer_height = 0;
-
-    // Deferred lighting output (DeferredLighter-scoped). Storage image
-    // the compute lighting pass writes shaded color into; subsequently
-    // blitted to the surface. Reallocated on viewport resize. 0 = unset.
-    TextureId deferred_output_tex = 0;
-    int deferred_width = 0;
-    int deferred_height = 0;
-
-    // Optional per-view diagnostic image written by the deferred shadow
-    // compute (shape buffer_addr, ibo_offset, triangle_count packed into
-    // RGBA32F via uintBitsToFloat). Allocated lazily when shadow debug
-    // is enabled; left at 0 otherwise. Same lifetime story as
-    // deferred_output_tex (resize-aware, deferred destroy).
-    TextureId shadow_debug_tex = 0;
-    int shadow_debug_width = 0;
-    int shadow_debug_height = 0;
-
     // Transient: GPU address of this view's FrameGlobals block for the
-    // current frame. Written by the Rasterizer's raster-pass build and
+    // current frame. Written by the raster path that runs first (Forward
+    // for Forward views; DeferredGBufferPath for Deferred views) and
     // read by DeferredLighter so its compute shader can reach scene-wide
     // state (inv_vp, BVH) via the canonical GlobalData layout.
     uint64_t frame_globals_addr = 0;
@@ -157,25 +125,15 @@ struct ViewEntry
  *
  * An IViewRenderer knows how to turn a single view (camera + surface +
  * viewport + scene state) into zero or more RenderPasses. The outer Renderer
- * instantiates one concrete implementation per supported path (rasterizer,
- * ray tracer) and dispatches each view to the right one based on the
- * camera's `render_path` property.
+ * dispatches each view to one or more sub-renderers based on the camera's
+ * `render_path` property.
  *
- * TODO(plugin-view-renderers): today this is an in-DLL-only split. For a
- * plugin to provide its own render path, the following would have to move:
- *   - Promote this interface to a public `IViewRenderer` under
- *     velk-scene/include with VELK_CLASS_UID + `Interface<>` CRTP.
- *   - Move `GpuResourceManager` and `FrameDataManager` to velk-render as
- *     stable public interfaces (they are generic GPU plumbing that also
- *     doesn't really belong in velk-ui), and replace the concrete pointers
- *     in FrameContext with those interfaces.
- *   - Decide whether `BatchBuilder` stays private (rasterizer-specific) or
- *     gets a narrow public slice (the gpu_resources tracking used by
- *     consume_scenes).
- *   - Replace the hard-wired rasterizer_/ray_tracer_ members on Renderer
- *     with a registry keyed by the camera's render_path value.
- * Deferred until a plugin actually wants a custom path; the shape of that
- * request will dictate the right public types.
+ * TODO(plugin-view-renderers): Phase 2 promotes this to a public
+ * `IRenderPath` (Interface<IRenderPath, IShaderSnippet>) attached to the
+ * camera element, with ViewEntry / FrameContext / RenderPass moved to
+ * public velk-scene headers and the GPU plumbing managers
+ * (GpuResourceManager, FrameDataManager, FrameSnippetRegistry) promoted
+ * to interfaces in velk-render. See project_render_path_seam memory.
  */
 class IViewRenderer
 {
@@ -184,9 +142,6 @@ public:
 
     /**
      * @brief Appends zero or more passes for @p view to @p out_passes.
-     *
-     * Called once per frame per view. The implementation may maintain
-     * per-view state (caches, storage textures) keyed off the ViewEntry.
      */
     virtual void build_passes(ViewEntry& view,
                               const SceneState& scene_state,
@@ -196,10 +151,6 @@ public:
     /**
      * @brief Emits any extra passes that are not per-view (e.g. raster
      *        render-to-texture passes that serve multiple views).
-     *
-     * Called once per frame after all build_passes calls have completed, so
-     * implementations can observe the full per-frame shape/batch state before
-     * emitting. Default no-op.
      */
     virtual void build_shared_passes(FrameContext& /*ctx*/,
                                      vector<RenderPass>& /*out_passes*/) {}
@@ -209,11 +160,6 @@ public:
 
     /**
      * @brief Hook called when an element is detached from a scene.
-     *
-     * Fires once per detached element during the per-frame consume pass,
-     * before any build_passes call. Implementations release any per-element
-     * state they cache (e.g. the rasterizer's render-target texture for
-     * elements with a RenderCache trait). Default no-op.
      */
     virtual void on_element_removed(IElement* /*elem*/, FrameContext& /*ctx*/) {}
 

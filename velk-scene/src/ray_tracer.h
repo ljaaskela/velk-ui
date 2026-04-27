@@ -19,8 +19,8 @@ namespace velk {
  *
  * Owns the RT material registry (stable material ids + fill-snippet
  * metadata), the compiled compute pipeline cache (keyed by active material
- * set), and any per-view RT allocations (storage output textures live on
- * ViewEntry and are released in on_view_removed).
+ * set), and any per-view RT allocations (storage output textures live in
+ * the per-view state map and are released in on_view_removed).
  *
  * Activated when a view's camera has render_path == RenderPath::RayTrace.
  * Skipped otherwise; no state is touched.
@@ -36,6 +36,15 @@ public:
     void shutdown(FrameContext& ctx) override;
 
 private:
+    struct ViewState
+    {
+        TextureId rt_output_tex = 0;
+        int width = 0;
+        int height = 0;
+    };
+
+    std::unordered_map<ViewEntry*, ViewState> view_states_;
+
     // Set of pipeline keys (hashes of material-id + shadow-tech-id sets)
     // we have compiled. Composition itself runs through the shared
     // FrameSnippetRegistry on ctx.

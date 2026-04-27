@@ -175,6 +175,23 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
         buf->clear_dirty();
     };
     upload_default(render_ctx_->get_default_buffer(DefaultBufferType::Uv1));
+
+    // Wire deferred_lighter to its g-buffer source.
+    deferred_lighter_.set_gbuffer_source(&deferred_gbuffer_path_);
+
+    // Path dispatch table. Indexed by RenderPath enum value:
+    //   Forward  -> [forward_path]
+    //   Deferred -> [deferred_gbuffer_path, deferred_lighter]
+    //   RayTrace -> [ray_tracer]
+    // Deferred runs the lighter immediately after the G-buffer fill so
+    // attachments are written + transitioned before the compute samples.
+    path_dispatch_[static_cast<size_t>(RenderPath::Forward)]  = { &forward_path_ };
+    path_dispatch_[static_cast<size_t>(RenderPath::Deferred)] = { &deferred_gbuffer_path_, &deferred_lighter_ };
+    path_dispatch_[static_cast<size_t>(RenderPath::RayTrace)] = { &ray_tracer_ };
+
+    // Every path object enumerated for lifecycle calls
+    // (on_view_removed / on_element_removed / shutdown / build_shared_passes).
+    all_paths_ = { &forward_path_, &deferred_gbuffer_path_, &deferred_lighter_, &ray_tracer_ };
 }
 
 void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface,
@@ -212,9 +229,9 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
         if (it->camera_element == camera_element && it->surface == surface) {
             if (backend_) {
                 FrameContext ctx = make_frame_context();
-                rasterizer_.on_view_removed(*it, ctx);
-                ray_tracer_.on_view_removed(*it, ctx);
-                deferred_lighter_.on_view_removed(*it, ctx);
+                for (auto* path : all_paths_) {
+                    path->on_view_removed(*it, ctx);
+                }
                 backend_->destroy_surface(get_render_target_id(it->surface));
             }
             views_.erase(it);
@@ -232,6 +249,7 @@ FrameContext Renderer::make_frame_context()
     ctx.resources = &resources_;
     ctx.batch_builder = &batch_builder_;
     ctx.snippets = &snippets_;
+    ctx.render_target_cache = &render_target_cache_;
     ctx.pipeline_map = pipeline_map_;
     ctx.observer = this;
     ctx.present_counter = present_counter_;
@@ -340,8 +358,10 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
             FrameContext ctx = make_frame_context();
             for (auto& removed : state.removed_list) {
                 batch_builder_.evict(removed.get());
-                rasterizer_.on_element_removed(removed.get(), ctx);
-                ray_tracer_.on_element_removed(removed.get(), ctx);
+                render_target_cache_.on_element_removed(removed.get(), ctx);
+                for (auto* path : all_paths_) {
+                    path->on_element_removed(removed.get(), ctx);
+                }
             }
         }
 
@@ -615,7 +635,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 ctx.bvh_shape_count = 0;
             }
 
-            // Pick the sub-renderer based on the camera's render_path.
+            // Pick the sub-renderer chain via path_dispatch_.
             auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
             RenderPath render_path = RenderPath::Forward;
             if (camera) {
@@ -625,20 +645,14 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 }
             }
 
-            if (render_path == RenderPath::RayTrace) {
-                ray_tracer_.build_passes(entry, sit->second, ctx, view_passes);
-            } else {
-                rasterizer_.build_passes(entry, sit->second, ctx, view_passes);
-                // Deferred lighting consumes the G-buffer filled by the
-                // rasterizer. Must appear after in the pass list so the
-                // G-buffer attachments have been written + transitioned
-                // to SHADER_READ_ONLY_OPTIMAL before the compute samples.
-                deferred_lighter_.build_passes(entry, sit->second, ctx, view_passes);
+            for (auto* path : path_dispatch_[static_cast<size_t>(render_path)]) {
+                path->build_passes(entry, sit->second, ctx, view_passes);
             }
         }
 
-        rasterizer_.build_shared_passes(ctx, slot.passes);
-        ray_tracer_.build_shared_passes(ctx, slot.passes);
+        for (auto* path : all_paths_) {
+            path->build_shared_passes(ctx, slot.passes);
+        }
         for (auto& p : view_passes) {
             slot.passes.push_back(std::move(p));
         }
@@ -908,8 +922,9 @@ TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
     for (auto& v : views_) {
         if (v.camera_element.get() != camera_element.get()) continue;
         if (v.surface.get() != surface.get()) continue;
-        if (v.gbuffer_group == 0 || !backend_) return 0;
-        return backend_->get_render_target_group_attachment(v.gbuffer_group, attachment_index);
+        auto group = deferred_gbuffer_path_.find_gbuffer_group(const_cast<ViewEntry*>(&v));
+        if (group == 0 || !backend_) return 0;
+        return backend_->get_render_target_group_attachment(group, attachment_index);
     }
     return 0;
 }
@@ -920,7 +935,7 @@ TextureId Renderer::get_shadow_debug_texture(const IElement::Ptr& camera_element
     for (auto& v : views_) {
         if (v.camera_element.get() != camera_element.get()) continue;
         if (v.surface.get() != surface.get()) continue;
-        return v.shadow_debug_tex;
+        return deferred_lighter_.find_shadow_debug_tex(const_cast<ViewEntry*>(&v));
     }
     return 0;
 }
@@ -952,13 +967,14 @@ void Renderer::shutdown()
         {
             FrameContext ctx = make_frame_context();
             for (auto& entry : views_) {
-                rasterizer_.on_view_removed(entry, ctx);
-                ray_tracer_.on_view_removed(entry, ctx);
-                deferred_lighter_.on_view_removed(entry, ctx);
+                for (auto* path : all_paths_) {
+                    path->on_view_removed(entry, ctx);
+                }
             }
-            rasterizer_.shutdown(ctx);
-            ray_tracer_.shutdown(ctx);
-            deferred_lighter_.shutdown(ctx);
+            for (auto* path : all_paths_) {
+                path->shutdown(ctx);
+            }
+            render_target_cache_.shutdown(ctx);
         }
 
         for (auto& entry : views_) {

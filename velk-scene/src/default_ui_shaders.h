@@ -7,6 +7,8 @@
 #include <velk-render/ext/element_vertex.h>
 #include <velk-scene/ext/material_shaders.h>
 
+#include "frame_snippet_registry.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -1690,6 +1692,139 @@ void main()
                vec4(final * (1.0 / float(kPrimarySamples)), 1.0));
 }
 )";
+
+/**
+ * @brief Composes the full RT compute pipeline source from registered
+ *        material / shadow / intersect snippets.
+ *
+ * RT-side equivalent of compose_eval_fragment. Unlike the raster driver
+ * templates (which substitute a single material's eval function name
+ * via `<%EVAL_FN%>`), the RT pipeline dispatches to every active
+ * material in a switch — so the composer is a procedural builder rather
+ * than a placeholder template. Sections, in order:
+ *
+ *   1. rt_compute_prelude_src                (shared prelude)
+ *   2. material #include lines               (one per active material)
+ *   3. shadow tech #include lines
+ *   4. intersect #include lines
+ *   5. velk_eval_shadow switch               (calls registered shadow snippets)
+ *   6. rt_pbr_shade_src                      (uses velk_eval_shadow)
+ *   7. velk_resolve_fill switch              (calls eval_fn, may call velk_pbr_shade)
+ *   8. intersect_shape switch                (built-in kinds + registered snippets)
+ *   9. rt_compute_main_src                   (primary loop + bounce logic)
+ */
+inline string compose_rt_compute(const FrameSnippetRegistry& snippets)
+{
+    const auto& material_ids        = snippets.frame_materials();
+    const auto& shadow_tech_ids     = snippets.frame_shadow_techs();
+    const auto& intersect_ids       = snippets.frame_intersects();
+    const auto& material_info       = snippets.material_info_by_id();
+    const auto& shadow_tech_info    = snippets.shadow_tech_info_by_id();
+    const auto& intersect_info      = snippets.intersect_info_by_id();
+
+    string src;
+    src += rt_compute_prelude_src;
+    for (auto id : material_ids) {
+        if (id == 0 || id > material_info.size()) continue;
+        const auto& mi = material_info[id - 1];
+        src += string_view("#include \"", 10);
+        src += mi.include_name;
+        src += string_view("\"\n", 2);
+    }
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        src += string_view("#include \"", 10);
+        src += ti.include_name;
+        src += string_view("\"\n", 2);
+    }
+    for (auto id : intersect_ids) {
+        if (id < 3 || id - 3 >= intersect_info.size()) continue;
+        const auto& ii = intersect_info[id - 3];
+        src += string_view("#include \"", 10);
+        src += ii.include_name;
+        src += string_view("\"\n", 2);
+    }
+
+    auto append_literal = [&src](const char* s) {
+        src += string_view(s, std::strlen(s));
+    };
+
+    char buf[128];
+
+    // velk_eval_shadow: dispatch by shadow_tech id.
+    append_literal("float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal) {\n");
+    append_literal("    switch (tech_id) {\n");
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ti.fn_name;
+        append_literal("(light_idx, world_pos, world_normal);\n");
+    }
+    append_literal("        default: return 1.0;\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    // Shared PBR shading helper — defined after velk_eval_shadow (which
+    // it calls) and before velk_resolve_fill (which calls it for Lit
+    // materials).
+    src += rt_pbr_shade_src;
+
+    // velk_resolve_fill: dispatch by material id; route Lit through
+    // velk_pbr_shade and Unlit straight to emission.
+    append_literal("BrdfSample velk_resolve_fill(uint mid, EvalContext ctx) {\n");
+    append_literal("    switch (mid) {\n");
+    for (auto id : material_ids) {
+        if (id == 0 || id > material_info.size()) continue;
+        const auto& mi = material_info[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: { MaterialEval e = ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += mi.fn_name;
+        append_literal("(ctx);"
+                       " if (e.lighting_mode == VELK_LIGHTING_STANDARD)"
+                       " return velk_pbr_shade(e, ctx);"
+                       " BrdfSample bs;"
+                       " bs.emission = e.color;"
+                       " bs.throughput = vec3(0.0);"
+                       " bs.next_dir = vec3(0.0);"
+                       " bs.terminate = true;"
+                       " bs.sample_count_hint = 1u;"
+                       " return bs; }\n");
+    }
+    append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; bs.sample_count_hint = 1u; return bs; }\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    // intersect_shape: built-in rect/cube/sphere/mesh kinds + registered
+    // visual-contributed kinds (3+).
+    append_literal("bool intersect_shape(Ray ray, RtShape shape, out RayHit hit) {\n");
+    append_literal("    switch (shape.shape_kind) {\n");
+    append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
+    append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
+    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
+    for (auto id : intersect_ids) {
+        if (id < 3 || id - 3 >= intersect_info.size()) continue;
+        const auto& ii = intersect_info[id - 3];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ii.fn_name;
+        append_literal("(ray, shape, hit);\n");
+    }
+    append_literal("        default: return intersect_rect(ray, shape, hit);\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    src += rt_compute_main_src;
+    return src;
+}
 
 } // namespace velk
 
