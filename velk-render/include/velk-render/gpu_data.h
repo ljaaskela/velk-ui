@@ -64,6 +64,80 @@ VELK_GPU_STRUCT DrawDataHeader
 
 static_assert(sizeof(DrawDataHeader) == 48, "DrawDataHeader must be 48 bytes for std430 alignment");
 
+// ===== Scene-data GPU structs =====
+// Mirrors of GLSL types consumed by RT and deferred compute shaders.
+// Plain POD, no scene deps — packed for std430 / buffer_reference reads.
+
+/// GPU-side shape record. Mirrors the RtShape struct in the RT compute
+/// prelude and the deferred lighting compute. Geometry + material +
+/// texture + shape discriminator in 128 bytes.
+///
+/// shape_kind:
+///   0 = rect, 1 = cube, 2 = sphere — analytic primitives.
+///   255 = mesh — triangle soup; `origin/u_axis` carry the world-space
+///   AABB and `mesh_data_addr` is a GPU pointer at a MeshData record.
+///   3..254 reserved for future analytic kinds.
+VELK_GPU_STRUCT RtShape
+{
+    float    origin[4];       ///< xyz = world origin (corner for rect/cube, AABB corner for sphere, AABB min for mesh)
+    float    u_axis[4];       ///< xyz = local x axis scaled by width (AABB max for mesh)
+    float    v_axis[4];       ///< xyz = local y axis scaled by height
+    float    w_axis[4];       ///< xyz = local z axis scaled by depth (cube only; zero otherwise)
+    float    color[4];        ///< rgba base color (used when material_id == 0)
+    float    params[4];       ///< x = corner radius (rect) or sphere radius; yzw reserved
+    uint32_t material_id;     ///< 0 = no material (use color); otherwise dispatched via switch
+    uint32_t texture_id;      ///< bindless index, 0 when unused
+    uint32_t shape_param;     ///< per-shape material data (e.g. glyph index for text)
+    uint32_t shape_kind;      ///< 0 = rect, 1 = cube, 2 = sphere, 255 = mesh
+    uint64_t material_data_addr;
+    uint64_t mesh_data_addr;  ///< for shape_kind == 255: MeshData*; otherwise 0
+};
+static_assert(sizeof(RtShape) == 128, "RtShape layout mismatch");
+
+/// Sentinel value of RtShape::shape_kind for triangle-mesh shapes.
+inline constexpr uint32_t kRtShapeKindMesh = 255;
+
+/// Mesh-static metadata: same for every element instance referencing a
+/// given IMeshPrimitive. Owned by the primitive (returned via
+/// IDrawData::get_data_buffer), so the GPU address is stable across
+/// frames and shapes can cache it. Mirrors GLSL `MeshStaticData`.
+VELK_GPU_STRUCT MeshStaticData
+{
+    uint64_t buffer_addr;     ///< IMeshBuffer GPU address; same buffer holds VBO + IBO.
+    uint32_t vbo_offset;      ///< bytes from buffer_addr to first vertex this primitive uses.
+    uint32_t ibo_offset;      ///< bytes from buffer_addr to first index this primitive uses.
+    uint32_t triangle_count;
+    uint32_t vertex_stride;   ///< bytes per vertex (32 for VelkVertex3D).
+    uint32_t blas_root;       ///< root index in the trailing BLAS node array.
+    uint32_t blas_node_count; ///< length of the trailing BLAS node array.
+};
+static_assert(sizeof(MeshStaticData) == 32, "MeshStaticData layout mismatch");
+
+/// Per-shape, per-frame mesh instance data. Holds the element's world
+/// matrices plus a pointer to the mesh-static buffer. Mirrors GLSL
+/// `MeshInstanceData`.
+VELK_GPU_STRUCT MeshInstanceData
+{
+    float    world[16];       ///< column-major mesh-local -> world.
+    float    inv_world[16];   ///< column-major world -> mesh-local.
+    uint64_t mesh_static_addr;///< MeshStaticData* (persistent; stable across frames).
+    uint64_t _pad;
+};
+static_assert(sizeof(MeshInstanceData) == 144, "MeshInstanceData layout mismatch");
+
+/// GPU-side scene light. Mirrors the `Light` struct in the compute
+/// shaders (80 bytes). `flags.y` is shadow_tech_id; callers populate
+/// it after resolving their shadow technique registry.
+VELK_GPU_STRUCT GpuLight
+{
+    uint32_t flags[4];            ///< x = LightType, y = shadow_tech_id, zw = _
+    float    position[4];         ///< xyz = world position (point / spot)
+    float    direction[4];        ///< xyz = world forward (dir / spot)
+    float    color_intensity[4];  ///< rgb = colour, a = intensity multiplier
+    float    params[4];           ///< x = range, y = cos(inner), z = cos(outer)
+};
+static_assert(sizeof(GpuLight) == 80, "GpuLight layout mismatch");
+
 } // namespace velk
 
 #endif // VELK_RENDER_GPU_DATA_H

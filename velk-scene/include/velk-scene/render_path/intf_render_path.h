@@ -6,6 +6,7 @@
 #include <velk/vector.h>
 
 #include <velk-render/frame/render_pass.h>
+#include <velk-render/frame/render_view.h>
 #include <velk-scene/interface/intf_scene_observer.h>
 #include <velk-scene/render_path/frame_context.h>
 #include <velk-scene/render_path/view_entry.h>
@@ -41,10 +42,18 @@ public:
      * @brief Appends zero or more passes for @p view to @p out_passes.
      *
      * Called once per frame per view by the renderer. The implementation
-     * may maintain per-view state keyed off `&view`.
+     * may maintain per-view state keyed off `&view`. @p render_view is
+     * a flat snapshot of resolved scene data for this view (camera
+     * matrices, lights, env, raster batches, BVH addresses) that paths
+     * should prefer over reaching into the scene graph directly.
+     *
+     * @p scene_state stays available for transitional cases not yet
+     * covered by `RenderView` (Phase 3.3 will eliminate scene-direct
+     * access entirely).
      */
     virtual void build_passes(ViewEntry& view,
                               const SceneState& scene_state,
+                              const RenderView& render_view,
                               FrameContext& ctx,
                               vector<RenderPass>& out_passes) = 0;
 

@@ -91,6 +91,7 @@ uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 
 void RtPath::build_passes(ViewEntry& entry,
                              const SceneState& scene_state,
+                             const RenderView& /*render_view*/,
                              FrameContext& ctx,
                              vector<RenderPass>& out_passes)
 {

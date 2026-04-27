@@ -1,27 +1,25 @@
 #include "batch_builder.h"
 
-#include "default_ui_shaders.h"
-
 #include <velk/api/perf.h>
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
-#include <velk-render/gpu_data.h>
-#include <velk-render/interface/intf_draw_data.h>
-#include <velk-render/interface/intf_mesh.h>
-#include <velk-render/interface/intf_render_target.h>
-#include <velk-render/interface/intf_surface.h>
-#include <velk-render/interface/material/intf_material.h>
-#include <velk-render/interface/material/intf_material_options.h>
-#include <velk-render/interface/intf_raster_shader.h>
-#include "gpu_resource_manager.h"
-#include <velk-scene/interface/intf_visual.h>
+#include <velk/string.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <unordered_set>
-#include <velk/string.h>
+#include <velk-render/frame/raster_shaders.h>
+#include <velk-render/gpu_data.h>
+#include <velk-render/interface/intf_draw_data.h>
+#include <velk-render/interface/intf_mesh.h>
+#include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_surface.h>
+#include <velk-render/interface/material/intf_material.h>
+#include <velk-render/interface/material/intf_material_options.h>
+#include <velk-scene/interface/intf_visual.h>
 
 namespace {
 

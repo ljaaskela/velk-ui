@@ -11,6 +11,7 @@
 #include "frame_snippet_registry.h"
 #include "gpu_resource_manager.h"
 #include "render_target_cache.h"
+#include "view_preparer.h"
 #include <velk-scene/render_path/frame_context.h>
 #include <velk-scene/render_path/intf_render_path.h>
 #include <velk-scene/render_path/view_entry.h>
@@ -134,6 +135,11 @@ private:
     // Shared RTT (render-to-texture) subtree cache. Used by Forward +
     // Deferred raster paths via FrameContext.
     RenderTargetCache render_target_cache_;
+
+    // Per-view scene-data preparer. Walks scene state once per view
+    // per frame and produces a flat `RenderView` that paths consume.
+    // Owns the per-view raster batch cache.
+    ViewPreparer view_preparer_;
 
     // Built-in fallback. Used when a camera has no IRenderPath attached
     // so trivial UI samples don't have to opt in. Created via the type

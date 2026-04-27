@@ -230,6 +230,7 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
                 for (auto* path : seen_paths_) {
                     path->on_view_removed(*it, ctx);
                 }
+                view_preparer_.on_view_removed(*it);
                 backend_->destroy_surface(get_render_target_id(it->surface));
             }
             views_.erase(it);
@@ -646,7 +647,8 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             IRenderPath* path = path_ptr ? path_ptr.get() : default_forward_path_.get();
             if (path) {
                 seen_paths_.insert(path);
-                path->build_passes(entry, sit->second, ctx, view_passes);
+                auto render_view = view_preparer_.prepare(entry, sit->second, ctx);
+                path->build_passes(entry, sit->second, render_view, ctx, view_passes);
             }
         }
 
@@ -993,6 +995,7 @@ void Renderer::shutdown()
             seen_paths_.clear();
             default_forward_path_.reset();
             render_target_cache_.shutdown(ctx);
+            view_preparer_.clear();
         }
 
         for (auto& entry : views_) {

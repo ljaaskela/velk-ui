@@ -33,6 +33,7 @@ public:
 
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
+                      const RenderView& render_view,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
     void on_view_removed(ViewEntry& view, FrameContext& ctx) override;

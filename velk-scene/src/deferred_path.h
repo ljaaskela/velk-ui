@@ -45,6 +45,7 @@ public:
 
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
+                      const RenderView& render_view,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
 
@@ -61,8 +62,6 @@ public:
 private:
     struct ViewState
     {
-        vector<Batch> batches;
-
         RenderTargetGroup gbuffer_group = 0;
         int gbuffer_width = 0;
         int gbuffer_height = 0;
@@ -74,10 +73,6 @@ private:
         TextureId shadow_debug_tex = 0;
         int shadow_debug_width = 0;
         int shadow_debug_height = 0;
-
-        // Cross-stage: written by gbuffer-fill phase, read by lighter phase
-        // within the same build_passes call.
-        uint64_t frame_globals_addr = 0;
     };
 
     std::unordered_map<ViewEntry*, ViewState> view_states_;
@@ -91,13 +86,12 @@ private:
     RenderTargetGroup ensure_gbuffer(ViewState& vs, int width, int height,
                                      FrameContext& ctx);
 
-    void emit_gbuffer_pass(ViewEntry& view, ViewState& vs, FrameContext& ctx,
-                           uint64_t globals_gpu_addr,
-                           const ::velk::render::Frustum* frustum,
+    void emit_gbuffer_pass(ViewEntry& view, ViewState& vs,
+                           const RenderView& render_view, FrameContext& ctx,
                            vector<RenderPass>& out_passes);
 
     void emit_lighting_pass(ViewEntry& view, ViewState& vs,
-                            const SceneState& scene_state, FrameContext& ctx,
+                            const RenderView& render_view, FrameContext& ctx,
                             int w, int h,
                             vector<RenderPass>& out_passes);
 };

@@ -31,6 +31,8 @@ add_library(velk_scene SHARED
     src/rt_path.cpp
     src/render_target_cache.h
     src/render_target_cache.cpp
+    src/view_preparer.h
+    src/view_preparer.cpp
 
     # Public render-path interface + types
     include/velk-scene/render_path/intf_render_path.h

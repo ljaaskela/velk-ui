@@ -33,29 +33,12 @@ public:
 
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
+                      const RenderView& render_view,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
 
     void build_shared_passes(FrameContext& ctx,
                              vector<RenderPass>& out_passes) override;
-
-    void on_view_removed(ViewEntry& view, FrameContext& ctx) override;
-    void shutdown(FrameContext& ctx) override;
-
-private:
-    struct ViewState
-    {
-        vector<Batch> batches;
-    };
-
-    std::unordered_map<ViewEntry*, ViewState> view_states_;
-
-    void prepend_environment_batch(ICamera& camera, ViewState& vs, FrameContext& ctx);
-    void emit_pass(ViewEntry& view, ViewState& vs, FrameContext& ctx,
-                   uint64_t globals_gpu_addr,
-                   const rect& viewport,
-                   const ::velk::render::Frustum* frustum,
-                   vector<RenderPass>& out_passes);
 };
 
 } // namespace velk

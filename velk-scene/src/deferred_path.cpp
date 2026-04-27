@@ -123,103 +123,47 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
 }
 
 void DeferredPath::build_passes(ViewEntry& entry,
-                                const SceneState& scene_state,
+                                const SceneState& /*scene_state*/,
+                                const RenderView& render_view,
                                 FrameContext& ctx,
                                 vector<RenderPass>& out_passes)
 {
     if (!ctx.backend || !ctx.frame_buffer || !ctx.batch_builder || !ctx.pipeline_map) {
         return;
     }
+    if (render_view.width <= 0 || render_view.height <= 0) return;
 
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
     auto& vs = view_states_[&entry];
-
-    if (entry.batches_dirty) {
-        ctx.batch_builder->rebuild_batches(scene_state, vs.batches);
-        entry.batches_dirty = false;
-    }
 
     if (ctx.render_target_cache) {
         ctx.render_target_cache->ensure(ctx);
     }
 
-    auto sstate = read_state<IWindowSurface>(entry.surface);
-    float sw = static_cast<float>(sstate ? sstate->size.x : 0);
-    float sh = static_cast<float>(sstate ? sstate->size.y : 0);
-    bool has_viewport = entry.viewport.width > 0 && entry.viewport.height > 0;
-    float vp_w = has_viewport ? entry.viewport.width * sw : sw;
-    float vp_h = has_viewport ? entry.viewport.height * sh : sh;
-
-    uint64_t globals_gpu_addr = 0;
-    mat4 vp_mat = mat4::identity();
-    if (vp_w > 0 && vp_h > 0) {
-        FrameGlobals globals{};
-        if (camera) {
-            auto cam_es = read_state<IElement>(entry.camera_element);
-            mat4 cam_world = cam_es ? cam_es->world_matrix : mat4::identity();
-            vp_mat = camera->get_view_projection(cam_world, vp_w, vp_h);
-        } else {
-            build_ortho_projection(globals.view_projection, vp_w, vp_h);
-            std::memcpy(vp_mat.m, globals.view_projection, sizeof(vp_mat.m));
-        }
-        std::memcpy(globals.view_projection, vp_mat.m, sizeof(vp_mat.m));
-        auto inv_vp = mat4::inverse(vp_mat);
-        std::memcpy(globals.inverse_view_projection, inv_vp.m, sizeof(inv_vp.m));
-        globals.viewport[0] = vp_w;
-        globals.viewport[1] = vp_h;
-        globals.viewport[2] = 1.0f / vp_w;
-        globals.viewport[3] = 1.0f / vp_h;
-        if (camera) {
-            auto cam_es = read_state<IElement>(entry.camera_element);
-            if (cam_es) {
-                globals.cam_pos[0] = cam_es->world_matrix(0, 3);
-                globals.cam_pos[1] = cam_es->world_matrix(1, 3);
-                globals.cam_pos[2] = cam_es->world_matrix(2, 3);
-            }
-        }
-        globals.bvh_root = ctx.bvh_root;
-        globals.bvh_node_count = ctx.bvh_node_count;
-        globals.bvh_shape_count = ctx.bvh_shape_count;
-        globals.bvh_nodes_addr = ctx.bvh_nodes_addr;
-        globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
-        globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
-    }
-    vs.frame_globals_addr = globals_gpu_addr;
-
-    ::velk::render::Frustum frustum;
-    const ::velk::render::Frustum* frustum_ptr = nullptr;
-    if (camera && vp_w > 0 && vp_h > 0) {
-        frustum = ::velk::render::extract_frustum(vp_mat);
-        frustum_ptr = &frustum;
-    }
-
-    int w = static_cast<int>(vp_w);
-    int h = static_cast<int>(vp_h);
-    auto gbuffer_group = ensure_gbuffer(vs, w, h, ctx);
+    auto gbuffer_group = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
     if (gbuffer_group == 0) return;
 
-    emit_gbuffer_pass(entry, vs, ctx, globals_gpu_addr, frustum_ptr, out_passes);
+    emit_gbuffer_pass(entry, vs, render_view, ctx, out_passes);
 
     if (vs.gbuffer_width <= 0 || vs.gbuffer_height <= 0) return;
-    emit_lighting_pass(entry, vs, scene_state, ctx,
+    emit_lighting_pass(entry, vs, render_view, ctx,
                        vs.gbuffer_width, vs.gbuffer_height, out_passes);
 }
 
 void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
-                                     FrameContext& ctx,
-                                     uint64_t globals_gpu_addr,
-                                     const ::velk::render::Frustum* frustum,
+                                     const RenderView& render_view, FrameContext& ctx,
                                      vector<RenderPass>& out_passes)
 {
+    if (!render_view.batches) return;
+
     auto gbuffer_draw_calls = ctx.render_ctx->build_gbuffer_draw_calls(
-        vs.batches,
+        *render_view.batches,
         *ctx.frame_buffer,
         *ctx.resources,
-        globals_gpu_addr,
+        render_view.frame_globals_addr,
         vs.gbuffer_group,
         ctx.observer,
         ctx.batch_builder->material_addr_cache(),
-        frustum);
+        render_view.has_frustum ? &render_view.frustum : nullptr);
 
     RenderPass g_pass;
     g_pass.kind = PassKind::GBufferFill;
@@ -231,7 +175,7 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
 }
 
 void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
-                                      const SceneState& scene_state, FrameContext& ctx,
+                                      const RenderView& render_view, FrameContext& ctx,
                                       int w, int h,
                                       vector<RenderPass>& out_passes)
 {
@@ -289,56 +233,16 @@ void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
     auto material_id = ctx.backend->get_render_target_group_attachment(
         vs.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::MaterialParams));
 
-    // Scene lights. Deferred only routes through `velk_shadow_rt` for now;
-    // any other technique resolves to no-shadow.
-    vector<GpuLight> lights;
-    enumerate_scene_lights(scene_state,
-        +[](void* u, LightSite& site) {
-            auto& out = *static_cast<vector<GpuLight>*>(u);
-            if (auto tech = find_shadow_technique(site.light)) {
-                if (tech->get_snippet_fn_name() == string_view("velk_shadow_rt")) {
-                    site.base.flags[1] = 1;
-                }
-            }
-            out.push_back(site.base);
-        }, &lights);
+    // Lights and env come pre-resolved from RenderView. ViewPreparer
+    // registered shadow techniques against the snippet registry and
+    // stamped flags[1] with the registered id. The deferred compute
+    // shader currently hardcodes id=1=rt_shadow; this matches as long
+    // as RtShadow is the first registered tech (which it is in samples).
     uint64_t lights_addr = 0;
-    if (!lights.empty() && ctx.frame_buffer) {
-        lights_addr = ctx.frame_buffer->write(lights.data(), lights.size() * sizeof(GpuLight));
-    }
-
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
-
-    uint32_t env_texture_id = 0;
-    uint64_t env_data_addr  = 0;
-    if (camera) {
-        auto resolved = ensure_env_ready(*camera, ctx);
-        if (resolved.env) {
-            env_texture_id = resolved.texture_id;
-            if (auto env_mat = resolved.env->get_material()) {
-                auto env_prog = interface_pointer_cast<IProgram>(env_mat);
-                if (auto* dd = interface_cast<IDrawData>(env_prog.get())) {
-                    size_t sz = dd->get_draw_data_size();
-                    if (sz > 0 && ctx.frame_buffer) {
-                        void* scratch = std::malloc(sz);
-                        if (scratch) {
-                            std::memset(scratch, 0, sz);
-                            if (dd->write_draw_data(scratch, sz) == ReturnValue::Success) {
-                                env_data_addr = ctx.frame_buffer->write(scratch, sz);
-                            }
-                            std::free(scratch);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    float cam_px = 0.f, cam_py = 0.f, cam_pz = 0.f;
-    if (auto es = read_state<IElement>(entry.camera_element)) {
-        cam_px = es->world_matrix(0, 3);
-        cam_py = es->world_matrix(1, 3);
-        cam_pz = es->world_matrix(2, 3);
+    if (!render_view.lights.empty() && ctx.frame_buffer) {
+        lights_addr = ctx.frame_buffer->write(
+            render_view.lights.data(),
+            render_view.lights.size() * sizeof(GpuLight));
     }
 
     VELK_GPU_STRUCT PushC {
@@ -360,9 +264,9 @@ void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
     static_assert(sizeof(PushC) == 80, "Deferred PushC layout mismatch");
 
     PushC pc{};
-    pc.cam_pos[0] = cam_px;
-    pc.cam_pos[1] = cam_py;
-    pc.cam_pos[2] = cam_pz;
+    pc.cam_pos[0] = render_view.cam_pos.x;
+    pc.cam_pos[1] = render_view.cam_pos.y;
+    pc.cam_pos[2] = render_view.cam_pos.z;
     pc.cam_pos[3] = 0.f;
     pc.output_image_id = vs.deferred_output_tex;
     pc.albedo_tex_id   = albedo_id;
@@ -371,21 +275,12 @@ void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
     pc.material_tex_id = material_id;
     pc.width  = static_cast<uint32_t>(w);
     pc.height = static_cast<uint32_t>(h);
-    pc.light_count = static_cast<uint32_t>(lights.size());
-    pc.env_texture_id = env_texture_id;
+    pc.light_count = static_cast<uint32_t>(render_view.lights.size());
+    pc.env_texture_id = render_view.env.texture_id;
     pc.shadow_debug_image_id = vs.shadow_debug_tex;
     pc.lights_addr = lights_addr;
-    pc.env_data_addr = env_data_addr;
-    pc.globals_addr = vs.frame_globals_addr;
-
-    auto sstate = read_state<IWindowSurface>(entry.surface);
-    float sw = static_cast<float>(sstate ? sstate->size.x : 0);
-    float sh = static_cast<float>(sstate ? sstate->size.y : 0);
-    bool has_vp = entry.viewport.width > 0 && entry.viewport.height > 0;
-    float vp_x = has_vp ? entry.viewport.x * sw : 0.f;
-    float vp_y = has_vp ? entry.viewport.y * sh : 0.f;
-    float vp_w = has_vp ? entry.viewport.width * sw : sw;
-    float vp_h = has_vp ? entry.viewport.height * sh : sh;
+    pc.env_data_addr = render_view.env.data_addr;
+    pc.globals_addr = render_view.frame_globals_addr;
 
     RenderPass pass;
     pass.kind = PassKind::ComputeBlit;
@@ -397,7 +292,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
     pass.blit_source = vs.deferred_output_tex;
     pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
-    pass.blit_dst_rect = {vp_x, vp_y, vp_w, vp_h};
+    pass.blit_dst_rect = render_view.viewport;
     out_passes.push_back(std::move(pass));
 }
 
