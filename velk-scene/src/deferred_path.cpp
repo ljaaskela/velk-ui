@@ -1,9 +1,7 @@
 #include "deferred_path.h"
 
 #include "default_ui_shaders.h"
-#include "env_helper.h"
 #include "render_target_cache.h"
-#include "scene_collector.h"
 
 #include <velk/api/perf.h>
 #include <velk/api/state.h>
@@ -24,21 +22,6 @@
 #include <cstring>
 
 namespace velk {
-
-namespace {
-
-void build_ortho_projection(float* out, float width, float height)
-{
-    std::memset(out, 0, 16 * sizeof(float));
-    out[0] = 2.0f / width;
-    out[5] = 2.0f / height;
-    out[10] = -1.0f;
-    out[12] = -1.0f;
-    out[13] = -1.0f;
-    out[15] = 1.0f;
-}
-
-} // namespace
 
 uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
 {

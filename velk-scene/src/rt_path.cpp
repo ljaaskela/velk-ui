@@ -90,8 +90,8 @@ uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 }
 
 void RtPath::build_passes(ViewEntry& entry,
-                             const SceneState& scene_state,
-                             const RenderView& /*render_view*/,
+                             const SceneState& /*scene_state*/,
+                             const RenderView& render_view,
                              FrameContext& ctx,
                              vector<RenderPass>& out_passes)
 {
@@ -99,20 +99,11 @@ void RtPath::build_passes(ViewEntry& entry,
         !ctx.pipeline_map) {
         return;
     }
-
-    auto sstate_rt = read_state<IWindowSurface>(entry.surface);
-    float sw_full = static_cast<float>(sstate_rt ? sstate_rt->size.x : 0);
-    float sh_full = static_cast<float>(sstate_rt ? sstate_rt->size.y : 0);
-    bool has_vp = entry.viewport.width > 0 && entry.viewport.height > 0;
-    float vp_x_f = has_vp ? entry.viewport.x * sw_full : 0.f;
-    float vp_y_f = has_vp ? entry.viewport.y * sh_full : 0.f;
-    float vp_w_f = has_vp ? entry.viewport.width * sw_full : sw_full;
-    float vp_h_f = has_vp ? entry.viewport.height * sh_full : sh_full;
-    int vp_w = static_cast<int>(vp_w_f);
-    int vp_h = static_cast<int>(vp_h_f);
-    if (vp_w <= 0 || vp_h <= 0) {
+    if (render_view.width <= 0 || render_view.height <= 0) {
         return;
     }
+    int vp_w = render_view.width;
+    int vp_h = render_view.height;
 
     auto& vs = view_states_[&entry];
 
@@ -137,148 +128,17 @@ void RtPath::build_passes(ViewEntry& entry,
         return;
     }
 
-    // Resolve the camera (if any) so we can read its render_path and env.
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
-
-    // Camera view-projection + world position for ray generation.
-    mat4 vp_mat;
-    if (camera) {
-        auto cam_es = read_state<IElement>(entry.camera_element);
-        mat4 cam_world = cam_es ? cam_es->world_matrix : mat4::identity();
-        vp_mat = camera->get_view_projection(cam_world,
-                                             static_cast<float>(vp_w),
-                                             static_cast<float>(vp_h));
-    } else {
-        float tmp[16];
-        build_ortho_projection(tmp, static_cast<float>(vp_w),
-                               static_cast<float>(vp_h));
-        std::memcpy(vp_mat.m, tmp, sizeof(vp_mat.m));
-    }
-    auto inv_vp = mat4::inverse(vp_mat);
-    float cam_px = 0.f, cam_py = 0.f, cam_pz = 0.f;
-    if (auto es = read_state<IElement>(entry.camera_element)) {
-        cam_px = es->world_matrix(0, 3);
-        cam_py = es->world_matrix(1, 3);
-        cam_pz = es->world_matrix(2, 3);
-    }
-
-    // Write this view's FrameGlobals so the RT compute can route the
-    // shared EvalContext::globals pointer to material eval bodies —
-    // same shape every driver uses. The flat inv_view_projection /
-    // cam_pos / bvh_* fields also present in the RT push constant are
-    // kept because existing bounce / primary code still references
-    // them directly; evals should reach globals through ctx.globals.
-    uint64_t globals_gpu_addr = 0;
-    {
-        FrameGlobals globals{};
-        std::memcpy(globals.view_projection, vp_mat.m, sizeof(vp_mat.m));
-        std::memcpy(globals.inverse_view_projection, inv_vp.m, sizeof(inv_vp.m));
-        globals.viewport[0] = static_cast<float>(vp_w);
-        globals.viewport[1] = static_cast<float>(vp_h);
-        globals.viewport[2] = 1.0f / static_cast<float>(vp_w);
-        globals.viewport[3] = 1.0f / static_cast<float>(vp_h);
-        globals.cam_pos[0] = cam_px;
-        globals.cam_pos[1] = cam_py;
-        globals.cam_pos[2] = cam_pz;
-        globals.bvh_root = ctx.bvh_root;
-        globals.bvh_node_count = ctx.bvh_node_count;
-        globals.bvh_shape_count = ctx.bvh_shape_count;
-        globals.bvh_nodes_addr = ctx.bvh_nodes_addr;
-        globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
-        globals_gpu_addr = ctx.frame_buffer->write(&globals, sizeof(globals));
-    }
-    // Primary rays composite in painter order, which requires a
-    // separate flat shape buffer. The scene-wide BVH (in ctx) has
-    // element-grouped order; it's the right structure for closest-hit
-    // bounces + shadows but wrong for co-planar UI compositing where
-    // every overlapping shape on a plane must still contribute.
-    // Materials resolve through the shared snippet registry so the
-    // primary buffer and BVH use the same material ids.
-    vector<RtShape> shapes;
-    struct ShapeCollect {
-        FrameContext& ctx;
-        vector<RtShape>& shapes;
-    };
-    ShapeCollect shape_state{ctx, shapes};
-    enumerate_scene_shapes(scene_state, ctx.render_ctx,
-        +[](void* u, ShapeSite& site) {
-            auto& s = *static_cast<ShapeCollect*>(u);
-            auto& ctx = s.ctx;
-            auto resolve_ctx = ctx.make_resolve_context();
-            auto mat = site.paint
-                ? ctx.snippets->resolve_material(site.paint, resolve_ctx)
-                : IFrameSnippetRegistry::MaterialRef{};
-            if (site.paint && mat.mat_id == 0) {
-                return;
-            }
-            uint32_t tex_id = 0;
-            if (site.draw_entry && site.draw_entry->texture_key != 0) {
-                auto* surf = reinterpret_cast<ISurface*>(
-                    static_cast<uintptr_t>(site.draw_entry->texture_key));
-                tex_id = ctx.resources->find_texture(surf);
-                if (tex_id == 0) {
-                    uint64_t rt_id = get_render_target_id(surf);
-                    if (rt_id != 0) tex_id = static_cast<uint32_t>(rt_id);
-                }
-            }
-            site.geometry.material_id = mat.mat_id;
-            site.geometry.material_data_addr = mat.mat_addr;
-            site.geometry.texture_id = tex_id;
-            if (auto* analytic = interface_cast<IAnalyticShape>(site.visual)) {
-                uint32_t kind = ctx.snippets->register_intersect(analytic, *ctx.render_ctx);
-                if (kind != 0) site.geometry.shape_kind = kind;
-            }
-            if (site.has_mesh_data && ctx.frame_buffer) {
-                if (auto* dd = interface_cast<IDrawData>(site.mesh_primitive)) {
-                    site.mesh_instance.mesh_static_addr =
-                        ctx.snippets->resolve_data_buffer(dd, resolve_ctx);
-                }
-                site.geometry.mesh_data_addr = ctx.frame_buffer->write(
-                    &site.mesh_instance, sizeof(site.mesh_instance));
-            }
-            s.shapes.push_back(site.geometry);
-        }, &shape_state);
-
-    vector<GpuLight> lights;
-    struct LightCollect {
-        FrameContext& ctx;
-        vector<GpuLight>& lights;
-    };
-    LightCollect light_state{ctx, lights};
-    enumerate_scene_lights(scene_state,
-        +[](void* u, LightSite& site) {
-            auto& s = *static_cast<LightCollect*>(u);
-            if (auto tech = find_shadow_technique(site.light)) {
-                site.base.flags[1] =
-                    s.ctx.snippets->register_shadow_tech(tech.get(), *s.ctx.render_ctx);
-            }
-            s.lights.push_back(site.base);
-        }, &light_state);
-
     uint64_t lights_addr = 0;
-    if (!lights.empty()) {
+    if (!render_view.lights.empty()) {
         lights_addr = ctx.frame_buffer->write(
-            lights.data(), lights.size() * sizeof(GpuLight));
+            render_view.lights.data(),
+            render_view.lights.size() * sizeof(GpuLight));
     }
 
-    // Environment: must register its material BEFORE compiling the pipeline
-    // so its fill snippet is composed in.
-    uint32_t env_mat_id = 0;
-    uint32_t env_tex_id = 0;
-    uint64_t env_data_addr = 0;
-    if (camera) {
-        auto resolved = ensure_env_ready(*camera, ctx);
-        if (resolved.env) {
-            env_tex_id = resolved.texture_id;
-            auto env_mat = resolved.env->get_material();
-            if (env_mat) {
-                auto env_prog = interface_pointer_cast<IProgram>(env_mat);
-                auto env_ref = ctx.snippets->resolve_material(env_prog.get(), ctx.make_resolve_context());
-                env_mat_id = env_ref.mat_id;
-                env_data_addr = env_ref.mat_addr;
-            }
-        }
-    }
+    // Make a working copy of the shapes so we can plane-sort without
+    // affecting other consumers of render_view.shapes (today nobody
+    // else uses it, but RenderView is immutable from a path's POV).
+    vector<RtShape> shapes(render_view.shapes);
 
     uint64_t rt_pipeline_key = ensure_pipeline(ctx);
     if (rt_pipeline_key == 0) {
@@ -294,6 +154,7 @@ void RtPath::build_passes(ViewEntry& entry,
     // stable_sort, preserving authored layering on a flat UI panel.
     // Shapes on different planes sort by NDC depth of a representative
     // origin so stacked 3D panels composite back-to-front.
+    const mat4& vp_mat = render_view.view_projection;
     if (shapes.size() > 1) {
         auto plane_key = [](const RtShape& s) -> uint64_t {
             float ux = s.u_axis[0], uy = s.u_axis[1], uz = s.u_axis[2];
@@ -377,27 +238,27 @@ void RtPath::build_passes(ViewEntry& entry,
     };
 
     PushC pc{};
-    std::memcpy(pc.inv_vp, inv_vp.m, sizeof(pc.inv_vp));
-    pc.cam_pos[0] = cam_px;
-    pc.cam_pos[1] = cam_py;
-    pc.cam_pos[2] = cam_pz;
+    std::memcpy(pc.inv_vp, render_view.inverse_view_projection.m, sizeof(pc.inv_vp));
+    pc.cam_pos[0] = render_view.cam_pos.x;
+    pc.cam_pos[1] = render_view.cam_pos.y;
+    pc.cam_pos[2] = render_view.cam_pos.z;
     pc.cam_pos[3] = 0.f;
     pc.image_index = vs.rt_output_tex;
     pc.width = static_cast<uint32_t>(vp_w);
     pc.height = static_cast<uint32_t>(vp_h);
     pc.shape_count = static_cast<uint32_t>(shapes.size());
-    pc.env_material_id = env_mat_id;
-    pc.env_texture_id = env_tex_id;
+    pc.env_material_id = render_view.env.material_id;
+    pc.env_texture_id = render_view.env.texture_id;
     pc.frame_counter = static_cast<uint32_t>(ctx.present_counter);
     pc.shapes_addr = shapes_addr;
-    pc.bvh_shapes_addr = ctx.bvh_shapes_addr;
-    pc.bvh_nodes_addr = ctx.bvh_nodes_addr;
-    pc.bvh_root = ctx.bvh_root;
-    pc.bvh_node_count = ctx.bvh_node_count;
-    pc.env_data_addr = env_data_addr;
+    pc.bvh_shapes_addr = render_view.bvh_shapes_addr;
+    pc.bvh_nodes_addr = render_view.bvh_nodes_addr;
+    pc.bvh_root = render_view.bvh_root;
+    pc.bvh_node_count = render_view.bvh_node_count;
+    pc.env_data_addr = render_view.env.data_addr;
     pc.lights_addr = lights_addr;
-    pc.light_count = static_cast<uint32_t>(lights.size());
-    pc.globals_addr = globals_gpu_addr;
+    pc.light_count = static_cast<uint32_t>(render_view.lights.size());
+    pc.globals_addr = render_view.frame_globals_addr;
 
     RenderPass pass;
     pass.kind = PassKind::ComputeBlit;
@@ -409,7 +270,7 @@ void RtPath::build_passes(ViewEntry& entry,
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
     pass.blit_source = vs.rt_output_tex;
     pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
-    pass.blit_dst_rect = {vp_x_f, vp_y_f, vp_w_f, vp_h_f};
+    pass.blit_dst_rect = render_view.viewport;
     out_passes.push_back(std::move(pass));
 }
 

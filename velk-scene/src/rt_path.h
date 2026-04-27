@@ -31,6 +31,14 @@ class RtPath : public ext::ObjectCore<RtPath, IRenderPath>
 public:
     VELK_CLASS_UID(ClassId::Path::Rt, "RtPath");
 
+    Needs needs() const override
+    {
+        Needs n;
+        n.shapes = true;
+        n.lights = true;
+        return n;
+    }
+
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
                       const RenderView& render_view,

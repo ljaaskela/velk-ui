@@ -43,6 +43,14 @@ class DeferredPath : public ext::ObjectCore<DeferredPath, IRenderPath>
 public:
     VELK_CLASS_UID(ClassId::Path::Deferred, "DeferredPath");
 
+    Needs needs() const override
+    {
+        Needs n;
+        n.batches = true;
+        n.lights = true;
+        return n;
+    }
+
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
                       const RenderView& render_view,

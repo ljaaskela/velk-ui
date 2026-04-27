@@ -39,6 +39,26 @@ class IRenderPath
 {
 public:
     /**
+     * @brief Per-path declaration of which scene-side data the
+     *        preparer should collect into the path's `RenderView`.
+     *
+     * Static: returned by `needs()` and queried once per dispatch.
+     * Defaults to "nothing" — concrete paths opt into the collections
+     * they actually consume so trivial UI scenes don't pay for RT
+     * shape walks they'll never use.
+     */
+    struct Needs
+    {
+        bool batches = false; ///< Raster batch list (Forward + Deferred).
+        bool shapes  = false; ///< RT primary-buffer shapes (RT).
+        bool lights  = false; ///< Scene lights + shadow-tech registration (Deferred + RT).
+    };
+
+    /// What this path consumes from `RenderView`. ViewPreparer reads this
+    /// once per dispatch and skips collections the path doesn't want.
+    virtual Needs needs() const { return {}; }
+
+    /**
      * @brief Appends zero or more passes for @p view to @p out_passes.
      *
      * Called once per frame per view by the renderer. The implementation

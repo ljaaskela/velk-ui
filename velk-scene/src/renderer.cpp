@@ -647,7 +647,8 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             IRenderPath* path = path_ptr ? path_ptr.get() : default_forward_path_.get();
             if (path) {
                 seen_paths_.insert(path);
-                auto render_view = view_preparer_.prepare(entry, sit->second, ctx);
+                auto render_view = view_preparer_.prepare(entry, sit->second, ctx,
+                                                          path->needs());
                 path->build_passes(entry, sit->second, render_view, ctx, view_passes);
             }
         }

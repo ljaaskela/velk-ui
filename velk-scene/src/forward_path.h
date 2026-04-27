@@ -31,6 +31,13 @@ class ForwardPath : public ext::ObjectCore<ForwardPath, IRenderPath>
 public:
     VELK_CLASS_UID(ClassId::Path::Forward, "ForwardPath");
 
+    Needs needs() const override
+    {
+        Needs n;
+        n.batches = true;
+        return n;
+    }
+
     void build_passes(ViewEntry& view,
                       const SceneState& scene_state,
                       const RenderView& render_view,

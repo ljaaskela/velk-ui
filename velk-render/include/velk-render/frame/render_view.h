@@ -83,6 +83,14 @@ struct RenderView
     /// `build_passes` call and invalidated by the next view's prepare.
     /// Forward and Deferred paths consume; RT does not.
     const vector<Batch>* batches = nullptr;
+
+    /// RT primary-buffer shapes for this view. Each entry has its
+    /// `material_id` / `material_data_addr` / `texture_id` / shape_kind
+    /// fields pre-resolved through the frame snippet registry.
+    /// Mesh-kind shapes have `mesh_data_addr` set to the per-frame
+    /// MeshInstanceData record. Order is enumeration-order (no plane
+    /// sort); RT path back-to-front-sorts a local copy.
+    vector<RtShape> shapes;
 };
 
 } // namespace velk
