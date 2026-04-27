@@ -61,7 +61,7 @@ public:
 private:
     struct ViewState
     {
-        vector<BatchBuilder::Batch> batches;
+        vector<Batch> batches;
 
         RenderTargetGroup gbuffer_group = 0;
         int gbuffer_width = 0;

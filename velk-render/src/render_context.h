@@ -73,6 +73,16 @@ public:
         MaterialAddrCache& material_cache,
         const ::velk::render::Frustum* frustum = nullptr) override;
 
+    vector<DrawCall> build_gbuffer_draw_calls(
+        const vector<Batch>& batches,
+        IFrameDataManager& frame_data,
+        IGpuResourceManager& resources,
+        uint64_t globals_gpu_addr,
+        RenderTargetGroup target_group,
+        IGpuResourceObserver* observer,
+        MaterialAddrCache& material_cache,
+        const ::velk::render::Frustum* frustum = nullptr) override;
+
 private:
     IRenderBackend::Ptr backend_;
     IMeshBuilder::Ptr mesh_builder_;

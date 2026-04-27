@@ -45,7 +45,7 @@ public:
 private:
     struct ViewState
     {
-        vector<BatchBuilder::Batch> batches;
+        vector<Batch> batches;
     };
 
     std::unordered_map<ViewEntry*, ViewState> view_states_;

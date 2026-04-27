@@ -44,7 +44,7 @@ void ForwardPath::prepend_environment_batch(ICamera& camera, ViewState& vs, Fram
         return;
     }
 
-    BatchBuilder::Batch env_batch;
+    Batch env_batch;
     env_batch.pipeline_key = 0;
     env_batch.texture_key = reinterpret_cast<uint64_t>(resolved.surface);
     env_batch.instance_stride = 4;

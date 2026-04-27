@@ -208,6 +208,27 @@ public:
         IGpuResourceObserver* observer,
         MaterialAddrCache& material_cache,
         const ::velk::render::Frustum* frustum = nullptr) = 0;
+
+    /**
+     * @brief Same as build_draw_calls, but emits deferred-pipeline draw
+     *        calls targeting a G-buffer render target group.
+     *
+     * Compiles G-buffer pipeline variants on demand (one per forward
+     * pipeline_key + visual-discard perturbation) using the material's
+     * `get_eval_src` / `get_vertex_src` when present, otherwise the
+     * registered default G-buffer shaders. Variants are cached in
+     * `gbuffer_pipeline_map()` and reused across views (group render
+     * passes are format-compatible).
+     */
+    virtual vector<DrawCall> build_gbuffer_draw_calls(
+        const vector<Batch>& batches,
+        IFrameDataManager& frame_data,
+        IGpuResourceManager& resources,
+        uint64_t globals_gpu_addr,
+        RenderTargetGroup target_group,
+        IGpuResourceObserver* observer,
+        MaterialAddrCache& material_cache,
+        const ::velk::render::Frustum* frustum = nullptr) = 0;
 };
 
 } // namespace velk

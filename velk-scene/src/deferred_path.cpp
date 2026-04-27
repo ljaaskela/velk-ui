@@ -211,16 +211,15 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
                                      const ::velk::render::Frustum* frustum,
                                      vector<RenderPass>& out_passes)
 {
-    vector<DrawCall> gbuffer_draw_calls;
-    ctx.batch_builder->build_gbuffer_draw_calls(vs.batches,
-                                                gbuffer_draw_calls,
-                                                *ctx.frame_buffer,
-                                                *ctx.resources,
-                                                globals_gpu_addr,
-                                                ctx.render_ctx,
-                                                vs.gbuffer_group,
-                                                ctx.observer,
-                                                frustum);
+    auto gbuffer_draw_calls = ctx.render_ctx->build_gbuffer_draw_calls(
+        vs.batches,
+        *ctx.frame_buffer,
+        *ctx.resources,
+        globals_gpu_addr,
+        vs.gbuffer_group,
+        ctx.observer,
+        ctx.batch_builder->material_addr_cache(),
+        frustum);
 
     RenderPass g_pass;
     g_pass.kind = PassKind::GBufferFill;

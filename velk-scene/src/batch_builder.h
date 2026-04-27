@@ -62,10 +62,6 @@ public:
         vector<IBuffer::WeakPtr> gpu_resources;
     };
 
-    /// `Batch` is now the velk-render-public `velk::Batch`. Aliased here
-    /// for source compatibility while the rest of velk-scene's batching
-    /// logic still references it as `BatchBuilder::Batch`.
-    using Batch = ::velk::Batch;
 
     struct RenderTargetPassData
     {
@@ -80,25 +76,6 @@ public:
 
     /** @brief Rebuilds batches from the visual list, pre-filtering render target subtrees. */
     void rebuild_batches(const SceneState& state, vector<Batch>& out_batches);
-
-    /**
-     * @brief Same as `velk::build_draw_calls` (in velk-render), but
-     *        emits deferred-pipeline draw calls targeting a G-buffer
-     *        render target group.
-     *
-     * Compiles G-buffer pipeline variants on demand (one per forward
-     * pipeline_key) using the material's `get_gbuffer_*_src()` when a
-     * material is present, otherwise the registered default G-buffer
-     * shaders. Variants are cached in `render_ctx->gbuffer_pipeline_map()`
-     * and reused across views (group render passes are format-compatible).
-     */
-    void build_gbuffer_draw_calls(const vector<Batch>& batches, vector<DrawCall>& out_calls,
-                                  IFrameDataManager& frame_data, IGpuResourceManager& resources,
-                                  uint64_t globals_gpu_addr,
-                                  IRenderContext* render_ctx,
-                                  RenderTargetGroup target_group,
-                                  IGpuResourceObserver* observer,
-                                  const ::velk::render::Frustum* frustum = nullptr);
 
     /** @brief Removes an element from the cache. */
     void evict(IElement* element) { element_cache_.erase(element); }
