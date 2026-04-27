@@ -8,9 +8,12 @@
 #include <velk-render/frame/batch.h>
 #include <velk-render/frame/render_view.h>
 #include <velk-scene/interface/intf_scene_observer.h>
-#include <velk-scene/render_path/frame_context.h>
-#include <velk-scene/render_path/intf_render_path.h>
-#include <velk-scene/render_path/view_entry.h>
+#include <velk-render/render_path/frame_context.h>
+#include <velk-render/render_path/intf_render_path.h>
+#include <velk-scene/interface/intf_element.h>
+#include <velk-render/render_path/view_entry.h>
+
+namespace velk { class BatchBuilder; }
 
 namespace velk {
 
@@ -37,19 +40,16 @@ namespace velk {
 class ViewPreparer
 {
 public:
-    /// Builds a `RenderView` for @p entry. @p needs declares which
-    /// optional collections (batches, shapes, lights) the active path
-    /// will consume; collections the path doesn't want are skipped to
-    /// avoid wasted scene walks. Camera matrices, viewport, env, BVH
-    /// addrs, and frame-globals upload happen unconditionally — they're
-    /// cheap and used by every path.
-    ///
-    /// The returned RenderView's `batches` pointer aliases the
-    /// preparer-owned cache for this view; valid until the next
-    /// `prepare` for the same view or until `on_view_removed` / `clear`.
+    /// Builds a `RenderView` for @p entry. @p camera_element is the
+    /// scene-side camera the entry was registered against (needed for
+    /// camera + env resolution but not exposed to paths). @p needs
+    /// declares which optional collections (batches, shapes, lights)
+    /// the active path will consume.
     RenderView prepare(ViewEntry& entry,
+                       const IElement::Ptr& camera_element,
                        const SceneState& scene_state,
                        FrameContext& ctx,
+                       BatchBuilder& batch_builder,
                        const IRenderPath::Needs& needs);
 
     /// Releases the per-view batch cache for @p entry.
@@ -68,12 +68,13 @@ private:
     /// Rebuilds the per-view raster batch cache when @p entry.batches_dirty
     /// is set, then points @p rv at it.
     void prepare_batches(ViewEntry& entry, const SceneState& scene_state,
-                         FrameContext& ctx, RenderView& rv);
+                         BatchBuilder& batch_builder, RenderView& rv);
 
     /// Resolves the camera (or ortho fallback) into view-projection /
     /// inverse-VP / cam_pos / frustum on @p rv, using @p entry's
     /// surface size and viewport rect.
-    void prepare_camera(ViewEntry& entry, FrameContext& ctx, RenderView& rv);
+    void prepare_camera(ViewEntry& entry, const IElement::Ptr& camera_element,
+                        FrameContext& ctx, RenderView& rv);
 
     /// Writes the per-view FrameGlobals block to @p ctx.frame_buffer
     /// and stores its GPU address on @p rv.
@@ -90,7 +91,8 @@ private:
                         RenderView& rv);
 
     /// Resolves the camera's environment (texture + material) into @p rv.env.
-    void prepare_env(ViewEntry& entry, FrameContext& ctx, RenderView& rv);
+    void prepare_env(const IElement::Ptr& camera_element, FrameContext& ctx,
+                     RenderView& rv);
 };
 
 } // namespace velk

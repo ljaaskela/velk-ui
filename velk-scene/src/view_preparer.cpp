@@ -41,17 +41,18 @@ void build_ortho_projection(float* out, float width, float height)
 } // namespace
 
 void ViewPreparer::prepare_batches(ViewEntry& entry, const SceneState& scene_state,
-                                   FrameContext& ctx, RenderView& rv)
+                                   BatchBuilder& batch_builder, RenderView& rv)
 {
     auto& cache = view_caches_[&entry];
-    if (entry.batches_dirty && ctx.batch_builder) {
-        ctx.batch_builder->rebuild_batches(scene_state, cache.batches);
+    if (entry.batches_dirty) {
+        batch_builder.rebuild_batches(scene_state, cache.batches);
         entry.batches_dirty = false;
     }
     rv.batches = &cache.batches;
 }
 
-void ViewPreparer::prepare_camera(ViewEntry& entry, FrameContext& /*ctx*/, RenderView& rv)
+void ViewPreparer::prepare_camera(ViewEntry& entry, const IElement::Ptr& camera_element,
+                                  FrameContext& /*ctx*/, RenderView& rv)
 {
     auto sstate = read_state<IWindowSurface>(entry.surface);
     float sw = static_cast<float>(sstate ? sstate->size.x : 0);
@@ -66,9 +67,9 @@ void ViewPreparer::prepare_camera(ViewEntry& entry, FrameContext& /*ctx*/, Rende
     rv.height = static_cast<int>(vp_h);
     if (vp_w <= 0 || vp_h <= 0) return;
 
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
+    auto camera = ::velk::find_attachment<ICamera>(camera_element);
     if (camera) {
-        auto cam_es = read_state<IElement>(entry.camera_element);
+        auto cam_es = read_state<IElement>(camera_element);
         mat4 cam_world = cam_es ? cam_es->world_matrix : mat4::identity();
         rv.view_projection = camera->get_view_projection(cam_world, vp_w, vp_h);
         if (cam_es) {
@@ -178,9 +179,10 @@ void ViewPreparer::prepare_shapes(const SceneState& scene_state, FrameContext& c
         }, &sc);
 }
 
-void ViewPreparer::prepare_env(ViewEntry& entry, FrameContext& ctx, RenderView& rv)
+void ViewPreparer::prepare_env(const IElement::Ptr& camera_element, FrameContext& ctx,
+                               RenderView& rv)
 {
-    auto camera = ::velk::find_attachment<ICamera>(entry.camera_element);
+    auto camera = ::velk::find_attachment<ICamera>(camera_element);
     if (!camera) return;
 
     auto resolved = ensure_env_ready(*camera, ctx);
@@ -214,11 +216,29 @@ void ViewPreparer::prepare_env(ViewEntry& entry, FrameContext& ctx, RenderView& 
             }
         }
     }
+
+    // Forward-only env Batch (fullscreen quad with env material).
+    // Built here so the forward path doesn't need to reach back into
+    // ICamera / IEnvironment. Deferred and RT ignore this batch.
+    if (resolved.surface && env_mat && ctx.render_ctx) {
+        rv.env_batch.pipeline_key = 0;
+        rv.env_batch.texture_key = reinterpret_cast<uint64_t>(resolved.surface);
+        rv.env_batch.instance_stride = 4;
+        rv.env_batch.instance_count = 1;
+        rv.env_batch.instance_data.resize(4, 0);
+        rv.env_batch.material = env_mat;
+        if (auto quad = ctx.render_ctx->get_mesh_builder().get_unit_quad()) {
+            auto prims = quad->get_primitives();
+            if (prims.size() > 0) rv.env_batch.primitive = prims[0];
+        }
+    }
 }
 
 RenderView ViewPreparer::prepare(ViewEntry& entry,
+                                 const IElement::Ptr& camera_element,
                                  const SceneState& scene_state,
                                  FrameContext& ctx,
+                                 BatchBuilder& batch_builder,
                                  const IRenderPath::Needs& needs)
 {
     VELK_PERF_SCOPE("renderer.view_prepare");
@@ -226,18 +246,18 @@ RenderView ViewPreparer::prepare(ViewEntry& entry,
 
     // Always-on: viewport / camera / BVH addrs / frame globals upload /
     // env. Cheap and used by every path.
-    prepare_camera(entry, ctx, rv);
+    prepare_camera(entry, camera_element, ctx, rv);
     rv.bvh_nodes_addr = ctx.bvh_nodes_addr;
     rv.bvh_shapes_addr = ctx.bvh_shapes_addr;
     rv.bvh_root = ctx.bvh_root;
     rv.bvh_node_count = ctx.bvh_node_count;
     rv.bvh_shape_count = ctx.bvh_shape_count;
     prepare_frame_globals(ctx, rv);
-    prepare_env(entry, ctx, rv);
+    prepare_env(camera_element, ctx, rv);
 
     // Path-gated: skip the heavy scene walks when the path doesn't
     // declare a need for them.
-    if (needs.batches) prepare_batches(entry, scene_state, ctx, rv);
+    if (needs.batches) prepare_batches(entry, scene_state, batch_builder, rv);
     if (needs.lights)  prepare_lights(scene_state, ctx, rv);
     if (needs.shapes)  prepare_shapes(scene_state, ctx, rv);
 

@@ -1,48 +1,17 @@
 #include "rt_path.h"
 
-#include "default_ui_shaders.h"
-#include "env_helper.h"
-#include "frame_snippet_registry.h"
-#include "scene_collector.h"
-
 #include <velk/api/perf.h>
-#include <velk/api/state.h>
-#include <velk/interface/intf_object_storage.h>
 #include <velk/string.h>
 
-#include <velk-render/interface/intf_draw_data.h>
-#include <velk-render/interface/material/intf_material.h>
-#include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_render_technique.h>
-#include <velk-render/interface/intf_shadow_technique.h>
-#include <velk-render/interface/intf_surface.h>
-#include <velk-render/interface/intf_camera.h>
-#include <velk-scene/interface/intf_environment.h>
+#include <velk-render/frame/compute_shaders.h>
+#include <velk-render/gpu_data.h>
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 
 namespace velk {
-
-namespace {
-
-// Same ortho builder the raster path uses as a fallback when no camera
-// is attached. Duplicated here to keep the RT unit self-contained.
-void build_ortho_projection(float* out, float width, float height)
-{
-    std::memset(out, 0, 16 * sizeof(float));
-    out[0] = 2.0f / width;
-    out[5] = 2.0f / height;
-    out[10] = -1.0f;
-    out[12] = -1.0f;
-    out[13] = -1.0f;
-    out[15] = 1.0f;
-}
-
-} // namespace
 
 uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 {
@@ -90,7 +59,6 @@ uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 }
 
 void RtPath::build_passes(ViewEntry& entry,
-                             const SceneState& /*scene_state*/,
                              const RenderView& render_view,
                              FrameContext& ctx,
                              vector<RenderPass>& out_passes)

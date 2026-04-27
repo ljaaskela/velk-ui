@@ -6,14 +6,12 @@
 
 #include <unordered_map>
 
+#include <velk-render/frame/batch.h>
 #include <velk-render/frustum.h>
-#include <velk-render/interface/intf_camera.h>
-#include <velk-scene/plugin.h>
-#include <velk-scene/render_path/frame_context.h>
-#include <velk-scene/render_path/intf_render_path.h>
-#include <velk-scene/render_path/view_entry.h>
-
-#include "batch_builder.h"
+#include <velk-render/plugin.h>
+#include <velk-render/render_path/frame_context.h>
+#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/render_path/view_entry.h>
 
 namespace velk {
 
@@ -39,13 +37,9 @@ public:
     }
 
     void build_passes(ViewEntry& view,
-                      const SceneState& scene_state,
                       const RenderView& render_view,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
-
-    void build_shared_passes(FrameContext& ctx,
-                             vector<RenderPass>& out_passes) override;
 };
 
 } // namespace velk

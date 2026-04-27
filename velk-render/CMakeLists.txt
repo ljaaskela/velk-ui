@@ -88,7 +88,20 @@ add_library(velk_render SHARED
     include/velk-render/frame/batch.h
     include/velk-render/frame/draw_call_emit.h
     include/velk-render/frame/raster_shaders.h
+    include/velk-render/frame/compute_shaders.h
     include/velk-render/frame/render_view.h
+
+    # Render paths (public interface + types live in render_path/;
+    # concrete impls in src/)
+    include/velk-render/render_path/intf_render_path.h
+    include/velk-render/render_path/view_entry.h
+    include/velk-render/render_path/frame_context.h
+    src/forward_path.h
+    src/forward_path.cpp
+    src/deferred_path.h
+    src/deferred_path.cpp
+    src/rt_path.h
+    src/rt_path.cpp
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

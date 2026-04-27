@@ -20,24 +20,13 @@ add_library(velk_scene SHARED
     src/scene.h
     src/scene.cpp
 
-    # Renderer + render paths
+    # Renderer + scene-side rendering plumbing
     src/renderer.h
     src/renderer.cpp
-    src/forward_path.h
-    src/forward_path.cpp
-    src/deferred_path.h
-    src/deferred_path.cpp
-    src/rt_path.h
-    src/rt_path.cpp
     src/render_target_cache.h
     src/render_target_cache.cpp
     src/view_preparer.h
     src/view_preparer.cpp
-
-    # Public render-path interface + types
-    include/velk-scene/render_path/intf_render_path.h
-    include/velk-scene/render_path/view_entry.h
-    include/velk-scene/render_path/frame_context.h
 
     # Scene-side rendering plumbing
     src/scene_bvh.h
@@ -54,7 +43,6 @@ add_library(velk_scene SHARED
     src/gpu_resource_manager.cpp
     src/env_helper.h
     src/env_helper.cpp
-    src/default_ui_shaders.h
 
     # 3D visuals
     src/visual/cube_visual.h

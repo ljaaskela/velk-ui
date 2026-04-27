@@ -4,7 +4,7 @@
 #include <velk/api/object.h>
 
 #include <velk-scene/plugin.h>
-#include <velk-scene/render_path/intf_render_path.h>
+#include <velk-render/render_path/intf_render_path.h>
 
 namespace velk {
 

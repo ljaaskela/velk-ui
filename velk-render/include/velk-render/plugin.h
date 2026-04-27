@@ -54,6 +54,19 @@ inline constexpr Uid FrameDataManager{"e957caf0-d5d3-4abb-925b-0d12f63dcb30"};
 /** @brief Scene-wide registry of composed shader snippets (materials / shadow techs / intersects). */
 inline constexpr Uid FrameSnippetRegistry{"6a013996-cdfa-4abf-a738-52eaf18d068f"};
 
+namespace Path {
+
+/** @brief Forward shading: classic raster pass over scene batches. Default fallback. */
+inline constexpr Uid Forward{"3740b799-5c09-4bd2-9330-95ce71a24e33"};
+
+/** @brief Deferred shading: G-buffer fill + compute lighting + composite blit. */
+inline constexpr Uid Deferred{"2c7dfc96-724a-4eea-b10c-b9b99a131041"};
+
+/** @brief Compute-shader path tracer. */
+inline constexpr Uid Rt{"c5a2f31b-ca23-43c0-a19a-471c3c962942"};
+
+} // namespace Path
+
 } // namespace ClassId
 
 namespace PluginId {

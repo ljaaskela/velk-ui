@@ -7,9 +7,8 @@
 
 #include <velk-render/frame/render_pass.h>
 #include <velk-render/frame/render_view.h>
-#include <velk-scene/interface/intf_scene_observer.h>
-#include <velk-scene/render_path/frame_context.h>
-#include <velk-scene/render_path/view_entry.h>
+#include <velk-render/render_path/frame_context.h>
+#include <velk-render/render_path/view_entry.h>
 
 namespace velk {
 
@@ -64,45 +63,29 @@ public:
      * Called once per frame per view by the renderer. The implementation
      * may maintain per-view state keyed off `&view`. @p render_view is
      * a flat snapshot of resolved scene data for this view (camera
-     * matrices, lights, env, raster batches, BVH addresses) that paths
-     * should prefer over reaching into the scene graph directly.
-     *
-     * @p scene_state stays available for transitional cases not yet
-     * covered by `RenderView` (Phase 3.3 will eliminate scene-direct
-     * access entirely).
+     * matrices, lights, env, raster batches, BVH addresses) — paths
+     * consume this exclusively; no scene-graph reach-back.
      */
     virtual void build_passes(ViewEntry& view,
-                              const SceneState& scene_state,
                               const RenderView& render_view,
                               FrameContext& ctx,
                               vector<RenderPass>& out_passes) = 0;
 
-    /**
-     * @brief Emits frame-scope passes that are not per-view (e.g.
-     *        raster render-to-texture passes that serve multiple views).
-     *
-     * Called once per frame after every `build_passes` call so the path
-     * can observe the full per-frame batch state before emitting.
-     * Default no-op.
-     */
-    virtual void build_shared_passes(FrameContext& /*ctx*/,
-                                     vector<RenderPass>& /*out_passes*/) {}
-
     /** @brief Hook called when a view is removed. Release per-view state. */
     virtual void on_view_removed(ViewEntry& /*view*/, FrameContext& /*ctx*/) {}
 
-    /**
-     * @brief Hook called when an element is detached from a scene.
-     *
-     * Fires once per detached element during the per-frame consume pass
-     * before any `build_passes` call. Implementations release any
-     * per-element state they cache (e.g. RTT textures keyed by element).
-     * Default no-op.
-     */
-    virtual void on_element_removed(IElement* /*elem*/, FrameContext& /*ctx*/) {}
-
     /** @brief Hook called on Renderer shutdown. Release all remaining state. */
     virtual void shutdown(FrameContext& /*ctx*/) {}
+
+    /// Optional debug accessor: returns the per-view G-buffer render
+    /// target group if this path maintains one. Default 0 (no G-buffer).
+    /// Used by `Renderer::get_gbuffer_attachment` for debug-overlay
+    /// readback; non-deferred paths leave the default.
+    virtual RenderTargetGroup find_gbuffer_group(ViewEntry* /*view*/) const { return 0; }
+
+    /// Optional debug accessor: returns the per-view RT-shadow debug
+    /// storage texture if this path maintains one. Default 0.
+    virtual TextureId find_shadow_debug_tex(ViewEntry* /*view*/) const { return 0; }
 };
 
 } // namespace velk

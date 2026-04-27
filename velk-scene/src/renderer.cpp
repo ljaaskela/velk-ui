@@ -1,9 +1,9 @@
 #include "renderer.h"
 
-#include "default_ui_shaders.h"
-#include "deferred_path.h"
 #include "scene_bvh.h"
 #include "scene_collector.h"
+
+#include <velk-render/frame/raster_shaders.h>
 
 #include <velk/api/any.h>
 #include <velk/api/perf.h>
@@ -218,20 +218,20 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurfac
             }
         }
     }
-    views_.push_back({camera_element, surface, viewport});
+    views_.push_back(ViewSlot{camera_element, ViewEntry{surface, viewport}});
 }
 
 void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface)
 {
     for (auto it = views_.begin(); it != views_.end(); ++it) {
-        if (it->camera_element == camera_element && it->surface == surface) {
+        if (it->camera_element == camera_element && it->entry.surface == surface) {
             if (backend_) {
                 FrameContext ctx = make_frame_context();
                 for (auto* path : seen_paths_) {
-                    path->on_view_removed(*it, ctx);
+                    path->on_view_removed(it->entry, ctx);
                 }
-                view_preparer_.on_view_removed(*it);
-                backend_->destroy_surface(get_render_target_id(it->surface));
+                view_preparer_.on_view_removed(it->entry);
+                backend_->destroy_surface(get_render_target_id(it->entry.surface));
             }
             views_.erase(it);
             return;
@@ -246,9 +246,8 @@ FrameContext Renderer::make_frame_context()
     ctx.render_ctx = render_ctx_;
     ctx.frame_buffer = frame_buffer_.get();
     ctx.resources = resources_.get();
-    ctx.batch_builder = &batch_builder_;
     ctx.snippets = snippets_.get();
-    ctx.render_target_cache = &render_target_cache_;
+    ctx.material_cache = &material_cache_;
     ctx.pipeline_map = pipeline_map_;
     ctx.observer = this;
     ctx.present_counter = present_counter_;
@@ -256,20 +255,20 @@ FrameContext Renderer::make_frame_context()
     return ctx;
 }
 
-bool Renderer::view_matches(const ViewEntry& entry, const FrameDesc& desc) const
+bool Renderer::view_matches(const ViewSlot& slot, const FrameDesc& desc) const
 {
     if (desc.views.empty()) {
         return true;
     }
     for (auto& vd : desc.views) {
-        if (vd.surface != entry.surface) {
+        if (vd.surface != slot.entry.surface) {
             continue;
         }
         if (vd.cameras.empty()) {
             return true;
         }
         for (auto& cam : vd.cameras) {
-            if (cam == entry.camera_element) {
+            if (cam == slot.camera_element) {
                 return true;
             }
         }
@@ -310,12 +309,13 @@ Renderer::FrameSlot* Renderer::claim_frame_slot()
 std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc& desc)
 {
     std::unordered_map<IScene*, SceneState> consumed;
-    for (auto& entry : views_) {
-        if (!view_matches(entry, desc)) {
+    for (auto& slot : views_) {
+        if (!view_matches(slot, desc)) {
             continue;
         }
+        auto& entry = slot.entry;
 
-        auto scene_ptr = entry.camera_element->get_scene();
+        auto scene_ptr = slot.camera_element->get_scene();
         auto* scene = interface_cast<IScene>(scene_ptr);
         if (!scene || consumed.count(scene)) {
             continue;
@@ -358,9 +358,6 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
             for (auto& removed : state.removed_list) {
                 batch_builder_.evict(removed.get());
                 render_target_cache_.on_element_removed(removed.get(), ctx);
-                for (auto* path : seen_paths_) {
-                    path->on_element_removed(removed.get(), ctx);
-                }
             }
         }
 
@@ -442,10 +439,10 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
         }
 
         if (has_visual_changes || resources_uploaded) {
-            for (auto& v : views_) {
-                auto sp = v.camera_element->get_scene();
+            for (auto& s : views_) {
+                auto sp = s.camera_element->get_scene();
                 if (interface_cast<IScene>(sp) == scene) {
-                    v.batches_dirty = true;
+                    s.entry.batches_dirty = true;
                 }
             }
         }
@@ -603,12 +600,13 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         // can be emitted first into slot.passes; shared must render before
         // any view pass that samples their output.
         vector<RenderPass> view_passes;
-        for (auto& entry : views_) {
-            if (!view_matches(entry, desc)) {
+        for (auto& view_slot : views_) {
+            if (!view_matches(view_slot, desc)) {
                 continue;
             }
+            auto& entry = view_slot.entry;
 
-            auto scene_ptr = entry.camera_element->get_scene();
+            auto scene_ptr = view_slot.camera_element->get_scene();
             auto* scene = interface_cast<IScene>(scene_ptr);
             if (!scene) {
                 continue;
@@ -638,24 +636,32 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             // Discover the path attached to the camera trait; fall back
             // to the built-in Forward path so trivial UI samples don't
             // need to opt in. Cache the path in seen_paths_ so lifecycle
-            // hooks (on_view_removed / on_element_removed / shutdown)
-            // iterate every path that has held per-view state.
-            auto camera_trait = ::velk::find_attachment<ICamera>(entry.camera_element);
+            // hooks iterate every path that has held per-view state.
+            auto camera_trait = ::velk::find_attachment<ICamera>(view_slot.camera_element);
             auto path_ptr = camera_trait
                                 ? ::velk::find_attachment<IRenderPath>(camera_trait.get())
                                 : IRenderPath::Ptr{};
             IRenderPath* path = path_ptr ? path_ptr.get() : default_forward_path_.get();
             if (path) {
                 seen_paths_.insert(path);
-                auto render_view = view_preparer_.prepare(entry, sit->second, ctx,
+                auto render_view = view_preparer_.prepare(entry,
+                                                          view_slot.camera_element,
+                                                          sit->second, ctx,
+                                                          batch_builder_,
                                                           path->needs());
-                path->build_passes(entry, sit->second, render_view, ctx, view_passes);
+                // RTT textures must exist + carry the right render_target_id
+                // BEFORE the path's build_draw_calls bakes those ids into
+                // draw data. Idempotent across views in the same frame.
+                render_target_cache_.ensure(ctx, batch_builder_);
+                path->build_passes(entry, render_view, ctx, view_passes);
             }
         }
 
-        for (auto* path : seen_paths_) {
-            path->build_shared_passes(ctx, slot.passes);
-        }
+        // RTT subtree passes (formerly emitted via
+        // ForwardPath::build_shared_passes). Renderer-side now since
+        // RTT is scene-aware (subtrees of IElement) and IRenderPath is
+        // moving to velk-render where IElement is not reachable.
+        render_target_cache_.emit_passes(ctx, batch_builder_, slot.passes);
         for (auto& p : view_passes) {
             slot.passes.push_back(std::move(p));
         }
@@ -716,6 +722,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     auto consumed_scenes = consume_scenes(desc);
 
     batch_builder_.reset_frame_state();
+    material_cache_.clear();
     snippets_->begin_frame();
     build_frame_passes(desc, consumed_scenes, *slot);
 
@@ -922,20 +929,15 @@ TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
                                             const IWindowSurface::Ptr& surface,
                                             uint32_t attachment_index) const
 {
-    for (auto& v : views_) {
-        if (v.camera_element.get() != camera_element.get()) continue;
-        if (v.surface.get() != surface.get()) continue;
-        auto cam_trait = ::velk::find_attachment<ICamera>(v.camera_element);
+    for (auto& s : views_) {
+        if (s.camera_element.get() != camera_element.get()) continue;
+        if (s.entry.surface.get() != surface.get()) continue;
+        auto cam_trait = ::velk::find_attachment<ICamera>(s.camera_element);
         auto path = cam_trait
                         ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
                         : IRenderPath::Ptr{};
-        // The IRenderPath attached here is statically a DeferredPath if
-        // user attached one; static_cast across the unique inheritance
-        // chain. Returns 0 cleanly if the path turns out to be something
-        // else (Forward, RT, plugin path).
-        auto* deferred = path ? dynamic_cast<DeferredPath*>(path.get()) : nullptr;
-        if (!deferred || !backend_) return 0;
-        auto group = deferred->find_gbuffer_group(const_cast<ViewEntry*>(&v));
+        if (!path || !backend_) return 0;
+        auto group = path->find_gbuffer_group(const_cast<ViewEntry*>(&s.entry));
         if (group == 0) return 0;
         return backend_->get_render_target_group_attachment(group, attachment_index);
     }
@@ -945,16 +947,15 @@ TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
 TextureId Renderer::get_shadow_debug_texture(const IElement::Ptr& camera_element,
                                               const IWindowSurface::Ptr& surface) const
 {
-    for (auto& v : views_) {
-        if (v.camera_element.get() != camera_element.get()) continue;
-        if (v.surface.get() != surface.get()) continue;
-        auto cam_trait = ::velk::find_attachment<ICamera>(v.camera_element);
+    for (auto& s : views_) {
+        if (s.camera_element.get() != camera_element.get()) continue;
+        if (s.entry.surface.get() != surface.get()) continue;
+        auto cam_trait = ::velk::find_attachment<ICamera>(s.camera_element);
         auto path = cam_trait
                         ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
                         : IRenderPath::Ptr{};
-        auto* deferred = path ? dynamic_cast<DeferredPath*>(path.get()) : nullptr;
-        if (!deferred) return 0;
-        return deferred->find_shadow_debug_tex(const_cast<ViewEntry*>(&v));
+        if (!path) return 0;
+        return path->find_shadow_debug_tex(const_cast<ViewEntry*>(&s.entry));
     }
     return 0;
 }
@@ -985,9 +986,9 @@ void Renderer::shutdown()
         // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
         {
             FrameContext ctx = make_frame_context();
-            for (auto& entry : views_) {
+            for (auto& s : views_) {
                 for (auto* path : seen_paths_) {
-                    path->on_view_removed(entry, ctx);
+                    path->on_view_removed(s.entry, ctx);
                 }
             }
             for (auto* path : seen_paths_) {
@@ -999,8 +1000,8 @@ void Renderer::shutdown()
             view_preparer_.clear();
         }
 
-        for (auto& entry : views_) {
-            backend_->destroy_surface(get_render_target_id(entry.surface));
+        for (auto& s : views_) {
+            backend_->destroy_surface(get_render_target_id(s.entry.surface));
         }
 
         for (auto& slot : frame_slots_) {

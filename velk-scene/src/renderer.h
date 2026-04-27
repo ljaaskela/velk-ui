@@ -12,9 +12,9 @@
 #include "gpu_resource_manager.h"
 #include "render_target_cache.h"
 #include "view_preparer.h"
-#include <velk-scene/render_path/frame_context.h>
-#include <velk-scene/render_path/intf_render_path.h>
-#include <velk-scene/render_path/view_entry.h>
+#include <velk-render/render_path/frame_context.h>
+#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/render_path/view_entry.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_gpu_resource.h>
@@ -77,11 +77,21 @@ private:
     };
 
     FrameSlot* claim_frame_slot();
+    /// Scene-side per-view bookkeeping. `entry` is the velk-render-pure
+    /// ViewEntry handed to paths; `camera_element` is the IElement
+    /// the entry was registered against (used by Renderer + ViewPreparer
+    /// for camera/env lookups, never by paths).
+    struct ViewSlot
+    {
+        IElement::Ptr camera_element;
+        ViewEntry entry;
+    };
+
     std::unordered_map<IScene*, SceneState> consume_scenes(const FrameDesc& desc);
     void build_frame_passes(const FrameDesc& desc,
                             std::unordered_map<IScene*, SceneState>& consumed_scenes,
                             FrameSlot& slot);
-    bool view_matches(const ViewEntry& entry, const FrameDesc& desc) const;
+    bool view_matches(const ViewSlot& slot, const FrameDesc& desc) const;
     FrameContext make_frame_context();
 
     IRenderBackend::Ptr backend_;
@@ -92,7 +102,7 @@ private:
     // on_gpu_resource_destroyed which calls into resources_.
     IGpuResourceManager::Ptr resources_;
 
-    vector<ViewEntry> views_;
+    vector<ViewSlot> views_;
     const std::unordered_map<uint64_t, PipelineId>* pipeline_map_ = nullptr;
 
     struct DebugOverlay {
@@ -112,6 +122,10 @@ private:
     // upload in consume_scenes and the raster paths read from it, so it
     // lives here rather than inside a single sub-renderer.
     BatchBuilder batch_builder_;
+
+    // Per-frame material upload dedup cache. Cleared once per frame by
+    // Renderer; exposed to paths via FrameContext::material_cache.
+    MaterialAddrCache material_cache_;
 
     // Frame data buffer (per-slot GPU staging). Slot lifecycle is on the
     // interface, so a single Ptr is sufficient.

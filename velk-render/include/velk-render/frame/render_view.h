@@ -73,6 +73,13 @@ struct RenderView
     /// Camera environment, if any.
     ViewEnv env{};
 
+    /// Forward-only env batch (fullscreen quad with env material) when
+    /// the camera has an environment. Forward path prepends one
+    /// DrawCall built from this before its main batches; deferred and
+    /// RT use the env via their compute shaders, not as a draw, and
+    /// ignore this. Default-constructed (empty material) when no env.
+    Batch env_batch;
+
     /// Scene lights for this view. Caller must shadow-tech-resolve
     /// before consumption (RT path composes; deferred path matches
     /// `velk_shadow_rt`). `flags[1]` carries the shadow-tech id.

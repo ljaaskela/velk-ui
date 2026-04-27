@@ -84,24 +84,14 @@ public:
     void clear() { element_cache_.clear(); render_target_passes_.clear(); }
 
     /**
-     * @brief Resets per-frame state. Clears the material address cache
-     *        (used by both `velk::build_draw_calls` and the in-class
-     *        `build_gbuffer_draw_calls`) so each frame uploads material
-     *        params once regardless of how many batches reference the
-     *        same material. Also clears the render-target-pass union
-     *        so each view's `rebuild_batches` this frame accumulates
-     *        into a fresh list.
+     * @brief Clears the render-target-pass union so each view's
+     *        `rebuild_batches` this frame accumulates into a fresh
+     *        list. Material upload dedup cache lives on Renderer now.
      */
     void reset_frame_state()
     {
-        material_addr_cache_.clear();
         render_target_passes_.clear();
     }
-
-    /// Per-frame `IProgram*->mat_addr` cache. Shared with the
-    /// `velk::build_draw_calls` free function via FrameContext so
-    /// forward + deferred paths in one frame don't double-upload.
-    MaterialAddrCache& material_addr_cache() { return material_addr_cache_; }
 
     /** @brief Returns the element cache (for resource upload iteration). */
     const std::unordered_map<IElement*, ElementCache>& element_cache() const { return element_cache_; }
@@ -115,7 +105,6 @@ public:
 private:
     std::unordered_map<IElement*, ElementCache> element_cache_;
     vector<RenderTargetPassData> render_target_passes_;
-    MaterialAddrCache material_addr_cache_;
 };
 
 } // namespace velk

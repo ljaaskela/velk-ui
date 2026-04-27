@@ -2,12 +2,14 @@
 #define VELK_UI_RENDER_TARGET_CACHE_H
 
 #include <velk-render/frame/render_pass.h>
-#include <velk-scene/render_path/frame_context.h>
+#include <velk-render/render_path/frame_context.h>
 
 #include <unordered_map>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/render_types.h>
 #include <velk-scene/interface/intf_element.h>
+
+namespace velk { class BatchBuilder; }
 
 namespace velk {
 
@@ -33,18 +35,19 @@ public:
      * pass's build_draw_calls so the RTT's render_target_id is set on
      * its IRenderTarget object.
      */
-    void ensure(FrameContext& ctx);
+    void ensure(FrameContext& ctx, BatchBuilder& batch_builder);
 
     /**
      * @brief Emits one Raster pass per RTT subtree into @p out_passes.
      *
-     * Called from ForwardPath::build_shared_passes once per frame
-     * after every view has finished its build_passes. The emitted
-     * passes target the RTT textures, so they must run before any
-     * surface pass that samples them — Renderer prepends shared
-     * passes to the per-view passes for that reason.
+     * Called from Renderer once per frame after every view has finished
+     * its build_passes. The emitted passes target the RTT textures, so
+     * they must run before any surface pass that samples them —
+     * Renderer prepends shared passes to the per-view passes for that
+     * reason.
      */
-    void emit_passes(FrameContext& ctx, vector<RenderPass>& out_passes);
+    void emit_passes(FrameContext& ctx, BatchBuilder& batch_builder,
+                     vector<RenderPass>& out_passes);
 
     /** @brief Releases the cached entry for @p elem, if any. */
     void on_element_removed(IElement* elem, FrameContext& ctx);

@@ -29,12 +29,12 @@ void build_ortho_projection(float* out, float width, float height)
 
 } // namespace
 
-void RenderTargetCache::ensure(FrameContext& ctx)
+void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
 {
-    if (!ctx.backend || !ctx.batch_builder || !ctx.resources) {
+    if (!ctx.backend || !ctx.resources) {
         return;
     }
-    for (auto& rtp : ctx.batch_builder->render_target_passes()) {
+    for (auto& rtp : batch_builder.render_target_passes()) {
         auto& rte = entries_[rtp.element];
         if (!rte.target) {
             if (auto rtt = ::velk::find_attachment<IRenderToTexture>(rtp.element)) {
@@ -71,13 +71,14 @@ void RenderTargetCache::ensure(FrameContext& ctx)
     }
 }
 
-void RenderTargetCache::emit_passes(FrameContext& ctx, vector<RenderPass>& out_passes)
+void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_builder,
+                                    vector<RenderPass>& out_passes)
 {
-    if (!ctx.backend || !ctx.frame_buffer || !ctx.batch_builder || !ctx.pipeline_map) {
+    if (!ctx.backend || !ctx.frame_buffer || !ctx.pipeline_map) {
         return;
     }
 
-    for (auto& rtp : ctx.batch_builder->render_target_passes()) {
+    for (auto& rtp : batch_builder.render_target_passes()) {
         auto it = entries_.find(rtp.element);
         if (it == entries_.end()) continue;
         auto& rte = it->second;
@@ -103,7 +104,7 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, vector<RenderPass>& out_p
             *ctx.resources,
             globals_gpu_addr,
             ctx.observer,
-            ctx.batch_builder->material_addr_cache());
+            *ctx.material_cache);
 
         RenderPass rt_pass{};
         rt_pass.target.target = rte.target;

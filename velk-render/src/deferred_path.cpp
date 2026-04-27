@@ -1,21 +1,12 @@
 #include "deferred_path.h"
 
-#include "default_ui_shaders.h"
-#include "render_target_cache.h"
-
 #include <velk/api/perf.h>
-#include <velk/api/state.h>
 #include <velk/string.h>
-#include <velk/interface/intf_object_storage.h>
 
+#include <velk-render/frame/compute_shaders.h>
 #include <velk-render/gbuffer.h>
 #include <velk-render/gpu_data.h>
-#include <velk-render/interface/intf_draw_data.h>
-#include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_surface.h>
-#include <velk-render/interface/intf_window_surface.h>
-#include <velk-render/interface/material/intf_material.h>
-#include <velk-scene/interface/intf_environment.h>
+#include <velk-render/interface/intf_render_target.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -106,21 +97,16 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
 }
 
 void DeferredPath::build_passes(ViewEntry& entry,
-                                const SceneState& /*scene_state*/,
                                 const RenderView& render_view,
                                 FrameContext& ctx,
                                 vector<RenderPass>& out_passes)
 {
-    if (!ctx.backend || !ctx.frame_buffer || !ctx.batch_builder || !ctx.pipeline_map) {
+    if (!ctx.backend || !ctx.frame_buffer || !ctx.material_cache || !ctx.pipeline_map) {
         return;
     }
     if (render_view.width <= 0 || render_view.height <= 0) return;
 
     auto& vs = view_states_[&entry];
-
-    if (ctx.render_target_cache) {
-        ctx.render_target_cache->ensure(ctx);
-    }
 
     auto gbuffer_group = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
     if (gbuffer_group == 0) return;
@@ -145,7 +131,7 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
         render_view.frame_globals_addr,
         vs.gbuffer_group,
         ctx.observer,
-        ctx.batch_builder->material_addr_cache(),
+        *ctx.material_cache,
         render_view.has_frustum ? &render_view.frustum : nullptr);
 
     RenderPass g_pass;

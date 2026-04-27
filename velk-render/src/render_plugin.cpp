@@ -1,16 +1,19 @@
 #include "render_plugin.h"
 
+#include "deferred_path.h"
+#include "forward_path.h"
 #include "material_property.h"
 #include "mesh.h"
 #include "mesh_buffer.h"
 #include "mesh_builder.h"
 #include "program_data_buffer.h"
 #include "render_context.h"
-#include "rt_shadow.h"
-#include "standard_material.h"
 #include "render_texture.h"
+#include "rt_path.h"
+#include "rt_shadow.h"
 #include "shader.h"
 #include "shader_material.h"
+#include "standard_material.h"
 #include "surface.h"
 
 #include <velk/ext/any.h>
@@ -42,6 +45,11 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<impl::MeshBuffer>(velk);
     rv &= register_type<impl::MeshBuilder>(velk);
     rv &= register_type<::velk::ext::AnyValue<UpdateRate>>(velk);
+
+    // Render paths (hive-allocated; cheap to instantiate per camera).
+    rv &= register_type<ForwardPath>(velk);
+    rv &= register_type<DeferredPath>(velk);
+    rv &= register_type<RtPath>(velk);
     return rv;
 }
 
