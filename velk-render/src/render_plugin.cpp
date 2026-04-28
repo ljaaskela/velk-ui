@@ -1,5 +1,6 @@
 #include "render_plugin.h"
 
+#include "camera_pipeline.h"
 #include "deferred_path.h"
 #include "forward_path.h"
 #include "material_property.h"
@@ -50,6 +51,12 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     // shader sources just by linking velk_render.
     rv &= register_type<ForwardPath>(velk);
     rv &= register_type<DeferredPath>(velk);
+
+    // Default per-camera view pipeline. Auto-attached by Camera trait
+    // ctor; must be registered before ScenePlugin's Camera registration
+    // so the auto-attach create<>() succeeds. ScenePlugin lists
+    // RenderPlugin as a dep so this ordering holds.
+    rv &= register_type<impl::CameraPipeline>(velk);
     return rv;
 }
 

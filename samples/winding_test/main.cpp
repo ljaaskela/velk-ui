@@ -106,7 +106,7 @@ int main(int /*argc*/, char* /*argv*/[])
     auto cam_trait = velk::trait::render::create_camera();
     camera.add_trait(cam_trait);
     velk::Camera(cam_trait).set_projection(velk::Projection::Perspective);
-    velk::Camera(cam_trait).set_render_path(velk::RenderPath::Forward);
+    // Forward is the default path (no IRenderPath attachment needed).
 
     auto orbit = velk::trait::transform::create_orbit();
     orbit.set_target(cube);

@@ -8,6 +8,7 @@ namespace velk {
 
 void ForwardPath::build_passes(ViewEntry& entry,
                                const RenderView& render_view,
+                               IRenderTarget::Ptr color_target,
                                FrameContext& ctx,
                                vector<RenderPass>& out_passes)
 {
@@ -47,7 +48,7 @@ void ForwardPath::build_passes(ViewEntry& entry,
     }
 
     RenderPass pass;
-    pass.target.target = interface_pointer_cast<IRenderTarget>(entry.surface);
+    pass.target.target = color_target;
     pass.viewport = render_view.viewport;
     pass.draw_calls = std::move(draw_calls);
     out_passes.push_back(std::move(pass));

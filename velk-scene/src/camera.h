@@ -19,6 +19,11 @@ class Camera : public ::velk::ext::Object<Camera, ::velk::ICamera>
 public:
     VELK_CLASS_UID(ClassId::Render::Camera, "Camera");
 
+    /// Auto-attaches the default `CameraPipeline` so trivial scenes get
+    /// per-view orchestration without explicitly opting in. Users can
+    /// attach additional `IViewPipeline`s for multi-pipeline cameras.
+    Camera();
+
     mat4 get_view_projection(const mat4& world_matrix,
                              float width, float height) const override;
 

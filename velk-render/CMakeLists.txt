@@ -94,12 +94,17 @@ add_library(velk_render SHARED
     # Render paths (public interface + types live in render_path/;
     # concrete impls in src/)
     include/velk-render/render_path/intf_render_path.h
+    include/velk-render/render_path/intf_view_pipeline.h
     include/velk-render/render_path/view_entry.h
     include/velk-render/render_path/frame_context.h
+    include/velk-render/ext/render_path.h
+    include/velk-render/ext/view_pipeline.h
     src/forward_path.h
     src/forward_path.cpp
     src/deferred_path.h
     src/deferred_path.cpp
+    src/camera_pipeline.h
+    src/camera_pipeline.cpp
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})

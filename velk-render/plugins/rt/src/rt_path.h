@@ -1,13 +1,13 @@
 #ifndef VELK_UI_RT_PATH_H
 #define VELK_UI_RT_PATH_H
 
-#include <velk/ext/core_object.h>
 #include <velk/string.h>
 #include <velk/vector.h>
 
 #include <unordered_map>
 
 #include <velk-render/plugin.h>
+#include <velk-render/ext/render_path.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/intf_render_path.h>
 #include <velk-render/render_path/view_entry.h>
@@ -26,7 +26,7 @@ class IShadowTechnique;
  * Owns the compiled compute pipeline cache (keyed by active material
  * + shadow-tech + intersect snippet sets) and per-view RT allocations.
  */
-class RtPath : public ext::ObjectCore<RtPath, IRenderPath>
+class RtPath : public ext::RenderPath<RtPath>
 {
 public:
     VELK_CLASS_UID(ClassId::Path::Rt, "RtPath");
@@ -41,6 +41,7 @@ public:
 
     void build_passes(ViewEntry& view,
                       const RenderView& render_view,
+                      IRenderTarget::Ptr color_target,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
     void on_view_removed(ViewEntry& view, FrameContext& ctx) override;

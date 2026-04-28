@@ -98,6 +98,7 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
 
 void DeferredPath::build_passes(ViewEntry& entry,
                                 const RenderView& render_view,
+                                IRenderTarget::Ptr color_target,
                                 FrameContext& ctx,
                                 vector<RenderPass>& out_passes)
 {
@@ -114,7 +115,7 @@ void DeferredPath::build_passes(ViewEntry& entry,
     emit_gbuffer_pass(entry, vs, render_view, ctx, out_passes);
 
     if (vs.gbuffer_width <= 0 || vs.gbuffer_height <= 0) return;
-    emit_lighting_pass(entry, vs, render_view, ctx,
+    emit_lighting_pass(entry, vs, render_view, color_target, ctx,
                        vs.gbuffer_width, vs.gbuffer_height, out_passes);
 }
 
@@ -143,8 +144,10 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
     out_passes.push_back(std::move(g_pass));
 }
 
-void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
-                                      const RenderView& render_view, FrameContext& ctx,
+void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
+                                      const RenderView& render_view,
+                                      IRenderTarget::Ptr color_target,
+                                      FrameContext& ctx,
                                       int w, int h,
                                       vector<RenderPass>& out_passes)
 {
@@ -260,7 +263,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& entry, ViewState& vs,
     pass.compute.root_constants_size = sizeof(PushC);
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
     pass.blit_source = vs.deferred_output_tex;
-    pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
+    pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
     pass.blit_dst_rect = render_view.viewport;
     out_passes.push_back(std::move(pass));
 }

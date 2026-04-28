@@ -1,10 +1,24 @@
 #include "camera.h"
 
 #include <velk/api/state.h>
+#include <velk/api/velk.h>
+
+#include <velk-render/plugin.h>
+#include <velk-render/render_path/intf_view_pipeline.h>
 
 #include <cmath>
 
 namespace velk::impl {
+
+Camera::Camera()
+{
+    // Auto-attach the default per-camera view pipeline. Registered by
+    // RenderPlugin which loads before ScenePlugin.
+    if (auto pipeline = ::velk::instance().create<::velk::IViewPipeline>(
+            ::velk::ClassId::Pipeline::Camera)) {
+        add_attachment(pipeline);
+    }
+}
 
 mat4 Camera::get_view_projection(const mat4& world_matrix,
                                  float width, float height) const

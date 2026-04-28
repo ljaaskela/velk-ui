@@ -7,6 +7,7 @@
 
 #include <velk-render/frame/render_pass.h>
 #include <velk-render/frame/render_view.h>
+#include <velk-render/interface/intf_render_target.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/view_entry.h>
 
@@ -55,37 +56,44 @@ public:
 
     /// What this path consumes from `RenderView`. ViewPreparer reads this
     /// once per dispatch and skips collections the path doesn't want.
-    virtual Needs needs() const { return {}; }
+    /// Use `velk::ext::RenderPath<FinalClass>` for an empty default.
+    virtual Needs needs() const = 0;
 
     /**
      * @brief Appends zero or more passes for @p view to @p out_passes.
      *
-     * Called once per frame per view by the renderer. The implementation
-     * may maintain per-view state keyed off `&view`. @p render_view is
-     * a flat snapshot of resolved scene data for this view (camera
-     * matrices, lights, env, raster batches, BVH addresses) — paths
-     * consume this exclusively; no scene-graph reach-back.
+     * Called once per frame per view by the owning view pipeline. The
+     * implementation may maintain per-view state keyed off `&view`.
+     * @p render_view is a flat snapshot of resolved scene data for this
+     * view (camera matrices, lights, env, raster batches, BVH addresses)
+     * paths consume this exclusively; no scene-graph reach-back.
+     *
+     * @p color_target is the final color destination chosen by the
+     * pipeline. Paths must render to / blit into this target rather than
+     * assume `view.surface`. Today it equals `view.surface`; with
+     * post-process chains it becomes an intermediate target; with the
+     * future transient pool it becomes a graph-allocated Ptr.
      */
     virtual void build_passes(ViewEntry& view,
                               const RenderView& render_view,
+                              IRenderTarget::Ptr color_target,
                               FrameContext& ctx,
                               vector<RenderPass>& out_passes) = 0;
 
     /** @brief Hook called when a view is removed. Release per-view state. */
-    virtual void on_view_removed(ViewEntry& /*view*/, FrameContext& /*ctx*/) {}
+    virtual void on_view_removed(ViewEntry& view, FrameContext& ctx) = 0;
 
     /** @brief Hook called on Renderer shutdown. Release all remaining state. */
-    virtual void shutdown(FrameContext& /*ctx*/) {}
+    virtual void shutdown(FrameContext& ctx) = 0;
 
-    /// Optional debug accessor: returns the per-view G-buffer render
-    /// target group if this path maintains one. Default 0 (no G-buffer).
-    /// Used by `Renderer::get_gbuffer_attachment` for debug-overlay
-    /// readback; non-deferred paths leave the default.
-    virtual RenderTargetGroup find_gbuffer_group(ViewEntry* /*view*/) const { return 0; }
+    /// Debug accessor: returns the per-view G-buffer render target group
+    /// if this path maintains one. Used by `Renderer::get_gbuffer_attachment`
+    /// for debug-overlay readback; non-deferred paths return 0.
+    virtual RenderTargetGroup find_gbuffer_group(ViewEntry* view) const = 0;
 
-    /// Optional debug accessor: returns the per-view RT-shadow debug
-    /// storage texture if this path maintains one. Default 0.
-    virtual TextureId find_shadow_debug_tex(ViewEntry* /*view*/) const { return 0; }
+    /// Debug accessor: returns the per-view RT-shadow debug storage
+    /// texture if this path maintains one. Returns 0 if absent.
+    virtual TextureId find_shadow_debug_tex(ViewEntry* view) const = 0;
 };
 
 } // namespace velk

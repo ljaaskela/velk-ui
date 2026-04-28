@@ -14,6 +14,7 @@
 #include "view_preparer.h"
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/render_path/intf_view_pipeline.h>
 #include <velk-render/render_path/view_entry.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
@@ -155,16 +156,11 @@ private:
     // Owns the per-view raster batch cache.
     ViewPreparer view_preparer_;
 
-    // Built-in fallback. Used when a camera has no IRenderPath attached
-    // so trivial UI samples don't have to opt in. Created via the type
-    // registry alongside the rest of the per-renderer plumbing.
-    IRenderPath::Ptr default_forward_path_;
-
-    // Set of paths the Renderer has dispatched to during this run.
+    // Set of pipelines the Renderer has dispatched to during this run.
     // Populated by build_frame_passes; iterated for lifecycle hooks
-    // (on_view_removed, on_element_removed, shutdown, build_shared_passes)
-    // so we don't have to track which path was last used by which view.
-    std::unordered_set<IRenderPath*> seen_paths_;
+    // (on_view_removed, shutdown) so we don't have to track which
+    // pipeline was last used by which view.
+    std::unordered_set<IViewPipeline*> seen_pipelines_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

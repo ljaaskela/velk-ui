@@ -1,7 +1,6 @@
 #ifndef VELK_UI_DEFERRED_PATH_H
 #define VELK_UI_DEFERRED_PATH_H
 
-#include <velk/ext/core_object.h>
 #include <velk/vector.h>
 
 #include <unordered_map>
@@ -9,6 +8,7 @@
 #include <velk-render/frame/batch.h>
 #include <velk-render/frustum.h>
 #include <velk-render/plugin.h>
+#include <velk-render/ext/render_path.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/intf_render_path.h>
 #include <velk-render/render_path/view_entry.h>
@@ -36,7 +36,7 @@ namespace velk {
  * deferred_output_tex, shadow_debug_tex, frame_globals_addr) via the
  * `ViewState` struct.
  */
-class DeferredPath : public ext::ObjectCore<DeferredPath, IRenderPath>
+class DeferredPath : public ext::RenderPath<DeferredPath>
 {
 public:
     VELK_CLASS_UID(ClassId::Path::Deferred, "DeferredPath");
@@ -51,6 +51,7 @@ public:
 
     void build_passes(ViewEntry& view,
                       const RenderView& render_view,
+                      IRenderTarget::Ptr color_target,
                       FrameContext& ctx,
                       vector<RenderPass>& out_passes) override;
 
@@ -93,7 +94,9 @@ private:
                            vector<RenderPass>& out_passes);
 
     void emit_lighting_pass(ViewEntry& view, ViewState& vs,
-                            const RenderView& render_view, FrameContext& ctx,
+                            const RenderView& render_view,
+                            IRenderTarget::Ptr color_target,
+                            FrameContext& ctx,
                             int w, int h,
                             vector<RenderPass>& out_passes);
 };

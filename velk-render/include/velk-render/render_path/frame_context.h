@@ -3,6 +3,8 @@
 
 #include <unordered_map>
 
+#include <velk/interface/intf_interface.h>
+
 #include <velk-render/frame/draw_call_emit.h>
 #include <velk-render/frame/intf_frame_data_manager.h>
 #include <velk-render/frame/intf_frame_snippet_registry.h>
@@ -37,6 +39,12 @@ struct FrameContext
     IGpuResourceObserver* observer = nullptr;
     uint64_t present_counter = 0;
     uint64_t latency_frames = 0;
+
+    /// Camera trait of the view currently being dispatched. Set by the
+    /// Renderer before each `IViewPipeline::emit` so pipelines can
+    /// resolve attached stages (e.g. IRenderPath, future IPostProcess)
+    /// without a back-pointer to the trait. Null between dispatches.
+    IInterface* view_camera_trait = nullptr;
 
     // Scene-wide BVH built once per frame in build_frame_passes before
     // any view renders; consumed by paths when they stamp out

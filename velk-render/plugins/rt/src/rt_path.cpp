@@ -60,6 +60,7 @@ uint64_t RtPath::ensure_pipeline(FrameContext& ctx)
 
 void RtPath::build_passes(ViewEntry& entry,
                              const RenderView& render_view,
+                             IRenderTarget::Ptr color_target,
                              FrameContext& ctx,
                              vector<RenderPass>& out_passes)
 {
@@ -237,7 +238,7 @@ void RtPath::build_passes(ViewEntry& entry,
     pass.compute.root_constants_size = sizeof(PushC);
     std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
     pass.blit_source = vs.rt_output_tex;
-    pass.blit_surface_id = entry.surface ? entry.surface->get_render_target_id() : 0;
+    pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
     pass.blit_dst_rect = render_view.viewport;
     out_passes.push_back(std::move(pass));
 }

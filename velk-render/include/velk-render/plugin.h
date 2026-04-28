@@ -67,6 +67,13 @@ inline constexpr Uid Rt{"c5a2f31b-ca23-43c0-a19a-471c3c962942"};
 
 } // namespace Path
 
+namespace Pipeline {
+
+/** @brief Default per-camera view pipeline. Composes the attached IRenderPath. */
+inline constexpr Uid Camera{"2d3ad39e-aea2-4653-bafc-37ad5246a25b"};
+
+} // namespace Pipeline
+
 } // namespace ClassId
 
 namespace PluginId {

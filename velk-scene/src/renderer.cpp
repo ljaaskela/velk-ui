@@ -185,11 +185,6 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
         buf->clear_dirty();
     };
     upload_default(render_ctx_->get_default_buffer(DefaultBufferType::Uv1));
-
-    // Built-in fallback path for cameras with no IRenderPath attached.
-    // Instantiated through the type registry like the rest of the
-    // per-renderer plumbing.
-    default_forward_path_ = instance().create<IRenderPath>(ClassId::Path::Forward);
 }
 
 void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface,
@@ -227,9 +222,12 @@ void Renderer::remove_view(const IElement::Ptr& camera_element, const IWindowSur
         if (it->camera_element == camera_element && it->entry.surface == surface) {
             if (backend_) {
                 FrameContext ctx = make_frame_context();
-                for (auto* path : seen_paths_) {
-                    path->on_view_removed(it->entry, ctx);
+                auto cam_trait = ::velk::find_attachment<ICamera>(it->camera_element);
+                ctx.view_camera_trait = cam_trait.get();
+                for (auto* pipeline : seen_pipelines_) {
+                    pipeline->on_view_removed(it->entry, ctx);
                 }
+                ctx.view_camera_trait = nullptr;
                 view_preparer_.on_view_removed(it->entry);
                 backend_->destroy_surface(get_render_target_id(it->entry.surface));
             }
@@ -633,28 +631,49 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 ctx.bvh_shape_count = 0;
             }
 
-            // Discover the path attached to the camera trait; fall back
-            // to the built-in Forward path so trivial UI samples don't
-            // need to opt in. Cache the path in seen_paths_ so lifecycle
-            // hooks iterate every path that has held per-view state.
+            // Discover view pipelines attached to the camera trait. The
+            // Camera trait auto-attaches a default `CameraPipeline` so
+            // trivial UI samples don't need to opt in. Multiple
+            // pipelines can be attached for half-rate / split-output
+            // configurations; each self-gates inside `emit`. Cache
+            // pipelines in seen_pipelines_ for lifecycle hooks.
             auto camera_trait = ::velk::find_attachment<ICamera>(view_slot.camera_element);
-            auto path_ptr = camera_trait
-                                ? ::velk::find_attachment<IRenderPath>(camera_trait.get())
-                                : IRenderPath::Ptr{};
-            IRenderPath* path = path_ptr ? path_ptr.get() : default_forward_path_.get();
-            if (path) {
-                seen_paths_.insert(path);
+            ctx.view_camera_trait = camera_trait.get();
+            vector<IViewPipeline::Ptr> pipelines;
+            if (auto* storage = interface_cast<IObjectStorage>(camera_trait.get())) {
+                AttachmentQuery q;
+                q.interfaceUid = IViewPipeline::UID;
+                for (auto& a : storage->find_attachments(q)) {
+                    if (auto p = interface_pointer_cast<IViewPipeline>(a)) {
+                        pipelines.emplace_back(std::move(p));
+                    }
+                }
+            }
+            if (!pipelines.empty()) {
+                IRenderPath::Needs needs;
+                for (auto& p : pipelines) {
+                    auto n = p->needs(ctx);
+                    needs.batches |= n.batches;
+                    needs.shapes  |= n.shapes;
+                    needs.lights  |= n.lights;
+                }
                 auto render_view = view_preparer_.prepare(entry,
                                                           view_slot.camera_element,
                                                           sit->second, ctx,
                                                           batch_builder_,
-                                                          path->needs());
+                                                          needs);
                 // RTT textures must exist + carry the right render_target_id
                 // BEFORE the path's build_draw_calls bakes those ids into
                 // draw data. Idempotent across views in the same frame.
                 render_target_cache_.ensure(ctx, batch_builder_);
-                path->build_passes(entry, render_view, ctx, view_passes);
+                IRenderTarget::Ptr color_target =
+                    interface_pointer_cast<IRenderTarget>(entry.surface);
+                for (auto& p : pipelines) {
+                    seen_pipelines_.insert(p.get());
+                    p->emit(entry, render_view, color_target, ctx, view_passes);
+                }
             }
+            ctx.view_camera_trait = nullptr;
         }
 
         // RTT subtree passes (formerly emitted via
@@ -987,15 +1006,17 @@ void Renderer::shutdown()
         {
             FrameContext ctx = make_frame_context();
             for (auto& s : views_) {
-                for (auto* path : seen_paths_) {
-                    path->on_view_removed(s.entry, ctx);
+                auto cam_trait = ::velk::find_attachment<ICamera>(s.camera_element);
+                ctx.view_camera_trait = cam_trait.get();
+                for (auto* pipeline : seen_pipelines_) {
+                    pipeline->on_view_removed(s.entry, ctx);
                 }
+                ctx.view_camera_trait = nullptr;
             }
-            for (auto* path : seen_paths_) {
-                path->shutdown(ctx);
+            for (auto* pipeline : seen_pipelines_) {
+                pipeline->shutdown(ctx);
             }
-            seen_paths_.clear();
-            default_forward_path_.reset();
+            seen_pipelines_.clear();
             render_target_cache_.shutdown(ctx);
             view_preparer_.clear();
         }
