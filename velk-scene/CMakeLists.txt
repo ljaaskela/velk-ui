@@ -100,6 +100,7 @@ add_library(velk_scene SHARED
     # Render-feeding traits public surface
     include/velk-scene/api/render_trait.h
     include/velk-scene/api/render_path.h
+    include/velk-scene/api/post_process.h
     include/velk-scene/api/camera.h
     include/velk-scene/api/trait/light.h
 

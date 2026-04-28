@@ -184,6 +184,8 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
             vs.deferred_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
             if (vs.deferred_output) {
                 vs.deferred_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
+                vs.deferred_output->set_size(static_cast<uint32_t>(w),
+                                             static_cast<uint32_t>(h));
             }
         }
         vs.deferred_width = w;
@@ -211,6 +213,8 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
             vs.shadow_debug = instance().create<IRenderTarget>(ClassId::RenderTexture);
             if (vs.shadow_debug) {
                 vs.shadow_debug->set_gpu_handle(GpuResourceKey::Default, tex_id);
+                vs.shadow_debug->set_size(static_cast<uint32_t>(w),
+                                          static_cast<uint32_t>(h));
             }
         }
         vs.shadow_debug_width = w;

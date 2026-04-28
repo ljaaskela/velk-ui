@@ -140,7 +140,11 @@ int main(int /*argc*/, char* /*argv*/[])
     auto camera_3d = scene.find_first<velk::IOrbit>();
     velk::OrbitTrait orbit;
     if (camera_3d) {
-        velk::Camera(camera_3d.find_trait<velk::ICamera>()).add_render_path(velk::path::create_deferred());
+        velk::Camera cam(camera_3d.find_trait<velk::ICamera>());
+        cam.add_render_path(velk::path::create_deferred());
+        auto post = velk::pp::create_post_process();
+        post.add(velk::pp::create_tonemap());
+        cam.add_post_process(post);
         app.add_view(window, camera_3d, {0, 0, 1.f, 1.f});
         orbit = velk::OrbitTrait(camera_3d.find_trait<velk::IOrbit>());
     } else {

@@ -2068,15 +2068,9 @@ void VkBackend::dispatch(array_view<const DispatchCall> calls)
     barrier(PipelineStage::ComputeShader, PipelineStage::FragmentShader);
 }
 
-void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_rect)
+void VkBackend::blit_to_surface(TextureId source, uint64_t target_id, rect dst_rect)
 {
     auto& sync = frame_sync_[frame_sync_index_];
-
-    auto sit = surfaces_.find(surface_id);
-    if (sit == surfaces_.end()) {
-        return;
-    }
-    auto& sd = sit->second;
 
     auto tit = textures_.find(source);
     if (tit == textures_.end()) {
@@ -2084,35 +2078,80 @@ void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_
     }
     auto& td = tit->second;
 
-    // Acquire swapchain image once per frame per surface (mirrors begin_pass).
-    if (present_surface_id_ != surface_id) {
-        present_surface_id_ = surface_id;
-        present_acquire_sem_idx_ = acquire_semaphore_index_;
-        VkSemaphore acquire_sem = image_available_[acquire_semaphore_index_];
-        acquire_semaphore_index_ = (acquire_semaphore_index_ + 1) % kMaxSwapchainImages;
-
-        VkResult result = vkAcquireNextImageKHR(
-            device_, sd.swapchain, UINT64_MAX, acquire_sem, VK_NULL_HANDLE, &sd.image_index);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            present_surface_id_ = 0;
+    /// `target_id` may refer to a window surface (the original use
+    /// case — blit composited result to swapchain) or a renderable
+    /// texture (post-process pipeline routes deferred / forward path
+    /// output through an intermediate target before tonemap reads it).
+    /// Surface destinations require swapchain acquisition + present-
+    /// layout transition; texture destinations are layout-tracked the
+    /// same way ordinary render passes are.
+    auto sit = surfaces_.find(target_id);
+    auto dst_tit = textures_.end();
+    if (sit == surfaces_.end()) {
+        dst_tit = textures_.find(static_cast<TextureId>(target_id));
+        if (dst_tit == textures_.end()) {
             return;
         }
     }
+    const bool dst_is_surface = (sit != surfaces_.end());
 
-    VkImage swap_image = sd.images[sd.image_index];
+    VkImage dst_image = VK_NULL_HANDLE;
+    int dst_w = 0;
+    int dst_h = 0;
+    VkImageLayout dst_old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageLayout dst_final_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAccessFlags dst_old_access = 0;
 
-    // Swapchain: UNDEFINED -> TRANSFER_DST_OPTIMAL
+    if (dst_is_surface) {
+        auto& sd = sit->second;
+        // Acquire swapchain image once per frame per surface (mirrors begin_pass).
+        if (present_surface_id_ != target_id) {
+            present_surface_id_ = target_id;
+            present_acquire_sem_idx_ = acquire_semaphore_index_;
+            VkSemaphore acquire_sem = image_available_[acquire_semaphore_index_];
+            acquire_semaphore_index_ = (acquire_semaphore_index_ + 1) % kMaxSwapchainImages;
+
+            VkResult result = vkAcquireNextImageKHR(
+                device_, sd.swapchain, UINT64_MAX, acquire_sem, VK_NULL_HANDLE, &sd.image_index);
+            if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+                present_surface_id_ = 0;
+                return;
+            }
+        }
+        dst_image = sd.images[sd.image_index];
+        dst_w = sd.width;
+        dst_h = sd.height;
+        dst_old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        dst_final_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        dst_old_access = 0;
+    } else {
+        auto& dtd = dst_tit->second;
+        dst_image = dtd.image;
+        dst_w = dtd.width;
+        dst_h = dtd.height;
+        dst_old_layout = dtd.current_layout;
+        // After the blit we leave the texture in SHADER_READ_ONLY so
+        // subsequent passes (tonemap sampling, etc.) bind it cleanly
+        // without an extra transition.
+        dst_final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        dst_old_access = (dst_old_layout == VK_IMAGE_LAYOUT_GENERAL)
+                             ? VK_ACCESS_SHADER_WRITE_BIT
+                             : VK_ACCESS_SHADER_READ_BIT;
+        dtd.current_layout = dst_final_layout;
+    }
+
+    // Destination: oldLayout -> TRANSFER_DST_OPTIMAL
     VkImageMemoryBarrier to_dst{};
     to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    to_dst.oldLayout = dst_old_layout;
     to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     to_dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     to_dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_dst.image = swap_image;
+    to_dst.image = dst_image;
     to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     to_dst.subresourceRange.levelCount = 1;
     to_dst.subresourceRange.layerCount = 1;
-    to_dst.srcAccessMask = 0;
+    to_dst.srcAccessMask = dst_old_access;
     to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
     // Source texture: current layout -> TRANSFER_SRC_OPTIMAL. Works for
@@ -2141,7 +2180,7 @@ void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 2, pre);
 
-    // Resolve destination rect; default (zero size) means full surface.
+    // Resolve destination rect; default (zero size) means full target.
     int32_t dx0 = static_cast<int32_t>(dst_rect.x);
     int32_t dy0 = static_cast<int32_t>(dst_rect.y);
     int32_t dx1 = static_cast<int32_t>(dst_rect.x + dst_rect.width);
@@ -2149,8 +2188,8 @@ void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_
     if (dst_rect.width <= 0 || dst_rect.height <= 0) {
         dx0 = 0;
         dy0 = 0;
-        dx1 = sd.width;
-        dy1 = sd.height;
+        dx1 = dst_w;
+        dy1 = dst_h;
     }
 
     VkImageBlit blit{};
@@ -2164,22 +2203,24 @@ void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_
 
     vkCmdBlitImage(sync.command_buffer,
                    td.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   swap_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    1, &blit, VK_FILTER_LINEAR);
 
-    // Swapchain: TRANSFER_DST_OPTIMAL -> PRESENT_SRC_KHR
-    VkImageMemoryBarrier to_present{};
-    to_present.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_present.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    to_present.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    to_present.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_present.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    to_present.image = swap_image;
-    to_present.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    to_present.subresourceRange.levelCount = 1;
-    to_present.subresourceRange.layerCount = 1;
-    to_present.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    to_present.dstAccessMask = 0;
+    // Destination: TRANSFER_DST_OPTIMAL -> final layout (PRESENT_SRC for
+    // swapchains, SHADER_READ_ONLY for textures so following sample
+    // passes don't need an extra transition).
+    VkImageMemoryBarrier to_final{};
+    to_final.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_final.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_final.newLayout = dst_final_layout;
+    to_final.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_final.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_final.image = dst_image;
+    to_final.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    to_final.subresourceRange.levelCount = 1;
+    to_final.subresourceRange.layerCount = 1;
+    to_final.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_final.dstAccessMask = dst_is_surface ? 0 : VK_ACCESS_SHADER_READ_BIT;
 
     // Source texture: TRANSFER_SRC_OPTIMAL -> canonical layout.
     VkImageMemoryBarrier to_general{};
@@ -2195,17 +2236,21 @@ void VkBackend::blit_to_surface(TextureId source, uint64_t surface_id, rect dst_
     to_general.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     to_general.dstAccessMask = 0;
 
-    VkImageMemoryBarrier post[2] = {to_present, to_general};
+    VkImageMemoryBarrier post[2] = {to_final, to_general};
     vkCmdPipelineBarrier(sync.command_buffer,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         dst_is_surface ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+                                        : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                              | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          0, 0, nullptr, 0, nullptr, 2, post);
 
-    // The blit fully populates the swap image. Mark the surface as
-    // "already cleared" so any subsequent begin_pass (e.g. a performance
-    // overlay view rendered on top) uses the load render pass and
-    // preserves our pixels instead of clearing over them.
-    surface_has_clear_ = true;
+    // For surface destinations, mark "already cleared" so any subsequent
+    // begin_pass on the same surface preserves the blit (load instead
+    // of clear). Texture destinations are written in full by the blit
+    // as well, but they don't share the surface_has_clear_ machinery.
+    if (dst_is_surface) {
+        surface_has_clear_ = true;
+    }
 }
 
 void VkBackend::blit_group_depth_to_surface(RenderTargetGroup src_group,

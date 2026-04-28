@@ -78,6 +78,20 @@ inline constexpr Uid Camera{"2d3ad39e-aea2-4653-bafc-37ad5246a25b"};
 
 } // namespace Pipeline
 
+namespace Post {
+
+/** @brief Linear post-process container. Composes attached IEffect children. */
+inline constexpr Uid PostProcess{"63dde3c0-0db8-4671-8c20-e377928cd2a6"};
+
+} // namespace Post
+
+namespace Effect {
+
+/** @brief ACES filmic tonemap effect. */
+inline constexpr Uid Tonemap{"e58c8d7d-8339-4df4-85b9-0274a2256ab8"};
+
+} // namespace Effect
+
 } // namespace ClassId
 
 namespace PluginId {

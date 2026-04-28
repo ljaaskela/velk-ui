@@ -32,6 +32,15 @@ public:
 
     /** @brief Sets the depth attachment format. Called during target creation. */
     virtual void set_depth_format(DepthFormat df) = 0;
+
+    /**
+     * @brief Sets the cached dimensions reported by `get_dimensions`.
+     *
+     * Called during target creation so post-processes / consumers that
+     * sample this target can read its size without a backend round-trip.
+     * Surfaces that get their size from system events typically no-op.
+     */
+    virtual void set_size(uint32_t width, uint32_t height) = 0;
 };
 
 /**

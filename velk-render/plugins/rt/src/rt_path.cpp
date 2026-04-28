@@ -94,6 +94,8 @@ void RtPath::build_passes(ViewEntry& entry,
             vs.rt_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
             if (vs.rt_output) {
                 vs.rt_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
+                vs.rt_output->set_size(static_cast<uint32_t>(vp_w),
+                                       static_cast<uint32_t>(vp_h));
             }
         }
         vs.width = vp_w;

@@ -28,7 +28,7 @@ public:
     uvec2 get_dimensions() const override { return size_; }
     PixelFormat format() const override { return format_; }
 
-    void set_size(uint32_t w, uint32_t h) { size_ = {w, h}; }
+    void set_size(uint32_t w, uint32_t h) override { size_ = {w, h}; }
     void set_format(PixelFormat fmt) { format_ = fmt; }
 
     DepthFormat get_depth_format() const override { return depth_format_; }

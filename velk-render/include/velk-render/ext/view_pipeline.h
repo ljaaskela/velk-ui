@@ -1,7 +1,7 @@
 #ifndef VELK_RENDER_EXT_VIEW_PIPELINE_H
 #define VELK_RENDER_EXT_VIEW_PIPELINE_H
 
-#include <velk/ext/core_object.h>
+#include <velk/ext/object.h>
 
 #include <velk-render/interface/intf_view_pipeline.h>
 
@@ -20,7 +20,7 @@ namespace velk::ext {
  */
 template <class FinalClass, class... ExtraInterfaces>
 class ViewPipeline
-    : public ObjectCore<FinalClass, ::velk::IViewPipeline, ExtraInterfaces...>
+    : public ::velk::ext::Object<FinalClass, ::velk::IViewPipeline, ExtraInterfaces...>
 {
 public:
     ::velk::IRenderPath::Needs needs(const ::velk::FrameContext& /*ctx*/) const override

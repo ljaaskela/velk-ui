@@ -1,8 +1,11 @@
 #ifndef VELK_RENDER_CAMERA_PIPELINE_H
 #define VELK_RENDER_CAMERA_PIPELINE_H
 
+#include <unordered_map>
+
 #include <velk-render/plugin.h>
 #include <velk-render/ext/view_pipeline.h>
+#include <velk-render/interface/intf_post_process.h>
 #include <velk-render/interface/intf_render_path.h>
 #include <velk-render/interface/intf_view_pipeline.h>
 
@@ -50,7 +53,43 @@ private:
     /// forward path when no IRenderPath is attached.
     ::velk::IRenderPath* resolve_path(const ::velk::FrameContext& ctx) const;
 
+    /// Returns the IPostProcess attached to this pipeline, or null if
+    /// none. Discovery via `find_attachment`; if the user attaches
+    /// multiple, the first wins (typical setup is a single root, often
+    /// a `PostProcessChain`).
+    ::velk::IPostProcess::Ptr resolve_post_process();
+
+    /// Per-view storage for the post-process pipeline:
+    ///   - `path_output` is the intermediate the path writes into so
+    ///     the post-process can read it (path normally targets the
+    ///     surface).
+    ///   - `post_output` is the intermediate the post-process writes
+    ///     into so the pipeline can blit it to the surface (compute
+    ///     shaders can't `imageStore` to a window surface).
+    /// Both are storage textures; both lazy-allocate / resize.
+    struct ViewState
+    {
+        ::velk::IRenderTarget::Ptr path_output;
+        ::velk::IRenderTarget::Ptr post_output;
+        int width = 0;
+        int height = 0;
+    };
+    std::unordered_map<::velk::ViewEntry*, ViewState> view_states_;
+
+    ::velk::IRenderTarget::Ptr ensure_storage_target(
+        ::velk::IRenderTarget::Ptr& slot,
+        int width, int height,
+        ::velk::TextureUsage usage,
+        ::velk::FrameContext& ctx);
+
+    void release_view_state(ViewState& vs, ::velk::FrameContext& ctx);
+
     ::velk::IRenderPath::Ptr fallback_path_;
+
+    /// Set of post-process roots the pipeline has dispatched against.
+    /// On_view_removed / shutdown fan out to each so view-keyed effects
+    /// can release their state.
+    std::unordered_map<::velk::IPostProcess*, ::velk::IPostProcess::Ptr> seen_post_;
 };
 
 } // namespace velk::impl

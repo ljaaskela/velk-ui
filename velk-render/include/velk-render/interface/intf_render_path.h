@@ -6,8 +6,9 @@
 #include <velk/vector.h>
 
 #include <velk-render/interface/intf_render_graph.h>
-#include <velk-render/frame/render_view.h>
+#include <velk-render/interface/intf_render_stage.h>
 #include <velk-render/interface/intf_render_target.h>
+#include <velk-render/frame/render_view.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/view_entry.h>
 
@@ -34,7 +35,7 @@ namespace velk {
  * everything during renderer teardown.
  */
 class IRenderPath
-    : public Interface<IRenderPath, IInterface,
+    : public Interface<IRenderPath, IRenderStage,
                        VELK_UID("15116d0d-6a52-40b4-94f9-f5ab9ffc133f")>
 {
 public:
@@ -83,12 +84,6 @@ public:
                               IRenderTarget::Ptr color_target,
                               FrameContext& ctx,
                               IRenderGraph& graph) = 0;
-
-    /** @brief Hook called when a view is removed. Release per-view state. */
-    virtual void on_view_removed(ViewEntry& view, FrameContext& ctx) = 0;
-
-    /** @brief Hook called on Renderer shutdown. Release all remaining state. */
-    virtual void shutdown(FrameContext& ctx) = 0;
 
     /// Debug accessor: returns the per-view G-buffer render target group
     /// if this path maintains one. Used by `Renderer::get_gbuffer_attachment`
