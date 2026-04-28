@@ -24,10 +24,6 @@ public:
 
     GpuResourceType get_type() const override { return GpuResourceType::Texture; }
 
-    // IRenderTarget
-    uint64_t get_render_target_id() const override { return render_target_id_; }
-    void set_render_target_id(uint64_t id) override { render_target_id_ = id; }
-
     // ISurface
     uvec2 get_dimensions() const override { return size_; }
     PixelFormat format() const override { return format_; }
@@ -39,7 +35,6 @@ public:
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }
 
 private:
-    uint64_t render_target_id_ = 0;
     uvec2 size_{};
     PixelFormat format_ = PixelFormat::RGBA8;
     DepthFormat depth_format_ = DepthFormat::None;

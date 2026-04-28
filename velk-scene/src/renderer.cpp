@@ -178,7 +178,7 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
         bentry.size = bsize;
         if (!bentry.handle) return;
         resources_->register_buffer(buf, bentry);
-        buf->set_gpu_address(backend_->gpu_address(bentry.handle));
+        buf->set_gpu_handle(GpuResourceKey::Default, backend_->gpu_address(bentry.handle));
         if (auto* dst = backend_->map(bentry.handle)) {
             std::memcpy(dst, bytes, bsize);
         }
@@ -209,7 +209,7 @@ void Renderer::add_view(const IElement::Ptr& camera_element, const IWindowSurfac
             }
             uint64_t sid = backend_->create_surface(desc);
             if (auto* rt = interface_cast<IRenderTarget>(surface)) {
-                rt->set_render_target_id(sid);
+                rt->set_gpu_handle(GpuResourceKey::Default, sid);
             }
         }
     }
@@ -427,7 +427,7 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                             bentry.size = bsize;
                             resources_->register_buffer(buf, bentry);
                             be = resources_->find_buffer(buf);
-                            buf->set_gpu_address(backend_->gpu_address(bentry.handle));
+                            buf->set_gpu_handle(GpuResourceKey::Default, backend_->gpu_address(bentry.handle));
                         }
                         if (auto* dst = backend_->map(be->handle)) {
                             std::memcpy(dst, bytes, bsize);
@@ -579,7 +579,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                         if (s.log && site.mesh_primitive) {
                             auto* mp = site.mesh_primitive;
                             auto buf = mp->get_buffer();
-                            uint64_t buffer_addr = buf ? buf->get_gpu_address() : 0;
+                            uint64_t buffer_addr = buf ? buf->get_gpu_handle(GpuResourceKey::Default) : 0;
                             uint32_t i_count = mp->get_index_count();
                             uint32_t v_stride = mp->get_vertex_stride();
                             uint32_t triangle_count = i_count / 3u;
@@ -700,7 +700,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             RenderPass op;
             op.kind = PassKind::Blit;
             op.blit_source = ov.texture_id;
-            op.blit_surface_id = ov.surface->get_render_target_id();
+            op.blit_surface_id = ov.surface->get_gpu_handle(GpuResourceKey::Default);
             op.blit_dst_rect = ov.dst_rect;
             slot.graph->add_pass(std::move(op));
         }

@@ -159,7 +159,7 @@ void ensure_data_buffer_uploaded(IBuffer* buf, const FrameResolveContext& ctx)
         bentry.size = bsize;
         ctx.resources->register_buffer(buf, bentry);
         be = ctx.resources->find_buffer(buf);
-        buf->set_gpu_address(backend->gpu_address(bentry.handle));
+        buf->set_gpu_handle(GpuResourceKey::Default, backend->gpu_address(bentry.handle));
     }
     if (buf->is_dirty()) {
         const uint8_t* bytes = buf->get_data();
@@ -200,7 +200,7 @@ FrameSnippetRegistry::resolve_material(IProgram* prog, const FrameResolveContext
     }
     if (data_buf) {
         ensure_data_buffer_uploaded(data_buf.get(), ctx);
-        addr = data_buf->get_gpu_address();
+        addr = data_buf->get_gpu_handle(GpuResourceKey::Default);
         frame_data_buffers_.push_back(data_buf);
     } else if (auto* dd = interface_cast<IDrawData>(prog)) {
         // Fallback: no persistent buffer → serialise into the frame
@@ -234,7 +234,7 @@ uint64_t FrameSnippetRegistry::resolve_data_buffer(IDrawData* dd, const FrameRes
     auto data_buf = dd->get_data_buffer(ctx.resources);
     if (!data_buf) return 0;
     ensure_data_buffer_uploaded(data_buf.get(), ctx);
-    uint64_t addr = data_buf->get_gpu_address();
+    uint64_t addr = data_buf->get_gpu_handle(GpuResourceKey::Default);
     if (addr == 0) return 0;
     frame_data_buffers_.push_back(data_buf);
     return addr;

@@ -61,38 +61,23 @@ public:
      */
     virtual void clear_dirty() = 0;
 
-    /**
-     * @brief Returns the GPU virtual address where this buffer's contents
-     *        currently live, or 0 if not yet uploaded.
-     *
-     * Set by the renderer after `create_buffer` (and after any reallocation
-     * caused by a size change). Read by materials that bind the buffer via
-     * `buffer_reference` in their shader: the material reads the address
-     * directly from the buffer object inside `write_gpu_data` and emits it
-     * into the per-draw GPU data.
-     *
-     * Default returns 0, which is correct for resources that don't bind via
-     * GPU virtual address (e.g. textures, which are bound bindlessly through
-     * a backend-managed image array index instead).
-     */
-    virtual uint64_t get_gpu_address() const { return 0; }
-
-    /**
-     * @brief Stores the GPU virtual address. Called by the renderer after
-     *        upload and after any size-change reallocation.
-     *
-     * Default is a no-op so resources that don't need address tracking
-     * (e.g. textures) can ignore the call.
-     */
-    virtual void set_gpu_address(uint64_t /*addr*/) {}
+    // GPU virtual address access goes through `IGpuResource::get_gpu_handle` /
+    // `set_gpu_handle` with `GpuResourceKey::Default`. The renderer
+    // populates the address after `create_buffer` (and after any
+    // size-change reallocation); materials read it via
+    // `buffer->get_gpu_handle(GpuResourceKey::Default)` inside
+    // `write_gpu_data`.
 };
 
 /**
- * @brief Helper for getting the gpu address of a buffer.
+ * @brief Convenience: returns the buffer's primary GPU handle (device address)
+ *        for any pointer type that holds an `IBuffer`. Returns 0 if null.
  */
-inline uint64_t get_gpu_address(const IBuffer::Ptr& buffer)
+template <typename T>
+uint64_t get_gpu_address(const T& ptr)
 {
-    return buffer ? buffer->get_gpu_address() : 0;
+    auto* buf = interface_cast<IBuffer>(ptr);
+    return buf ? buf->get_gpu_handle(GpuResourceKey::Default) : 0;
 }
 
 } // namespace velk

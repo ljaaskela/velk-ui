@@ -50,7 +50,7 @@ public:
 private:
     struct ViewState
     {
-        TextureId rt_output_tex = 0;
+        ::velk::IRenderTarget::Ptr rt_output;
         int width = 0;
         int height = 0;
     };

@@ -16,17 +16,10 @@ namespace velk {
 class IRenderTarget : public Interface<IRenderTarget, ISurface>
 {
 public:
-    /**
-     * @brief Returns the backend handle for this render target.
-     *
-     * For window surfaces, this is the surface_id from create_surface().
-     * For renderable textures, this is the TextureId (bindless index).
-     * Passed to the backend's begin_pass() to select the target.
-     */
-    virtual uint64_t get_render_target_id() const = 0;
-
-    /** @brief Sets the backend handle. Called by the renderer after creating the backend resource. */
-    virtual void set_render_target_id(uint64_t id) = 0;
+    // Bind handle (the value passed to backend's `begin_pass`) is
+    // accessed via `IGpuResource::get_gpu_handle(GpuResourceKey::Default)`.
+    // For window surfaces the handle is the surface_id from
+    // `create_surface`; for render textures it's the TextureId.
 
     /**
      * @brief Returns the depth attachment format of this target.
@@ -35,20 +28,21 @@ public:
      * uses this to decide whether to wire depth state on pipelines and to
      * clear depth at pass begin.
      */
-    virtual DepthFormat get_depth_format() const { return DepthFormat::None; }
+    virtual DepthFormat get_depth_format() const = 0;
 
     /** @brief Sets the depth attachment format. Called during target creation. */
-    virtual void set_depth_format(DepthFormat /*df*/) {}
+    virtual void set_depth_format(DepthFormat df) = 0;
 };
 
 /**
- * @brief Returns the render target id from any interface pointer that supports IRenderTarget.
+ * @brief Returns the bind handle from any interface pointer that supports IRenderTarget.
+ *        Convenience over `interface_cast<IRenderTarget>(p)->get_gpu_handle(GpuResourceKey::Default)`.
  */
 template <typename T>
 uint64_t get_render_target_id(const T& ptr)
 {
     auto* rt = interface_cast<IRenderTarget>(ptr);
-    return rt ? rt->get_render_target_id() : 0;
+    return rt ? rt->get_gpu_handle(GpuResourceKey::Default) : 0;
 }
 
 } // namespace velk

@@ -86,6 +86,7 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_frame_data_manager.h
     include/velk-render/interface/intf_frame_snippet_registry.h
     include/velk-render/interface/intf_render_graph.h
+    include/velk-render/interface/intf_render_texture_group.h
     src/render_graph.h
     src/render_graph.cpp
     include/velk-render/frame/render_pass.h
@@ -107,6 +108,7 @@ add_library(velk_render SHARED
     src/forward_path.cpp
     src/deferred_path.h
     src/deferred_path.cpp
+    src/render_texture_group.h
     src/camera_pipeline.h
     src/camera_pipeline.cpp
 )

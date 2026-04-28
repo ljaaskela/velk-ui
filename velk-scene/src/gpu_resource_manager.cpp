@@ -13,6 +13,9 @@ TextureId GpuResourceManager::find_texture(ISurface* surf) const
 void GpuResourceManager::register_texture(ISurface* surf, TextureId tid)
 {
     texture_map_[surf] = tid;
+    if (surf) {
+        surf->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(tid));
+    }
 }
 
 IGpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
@@ -23,6 +26,10 @@ IGpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
 
 void GpuResourceManager::register_buffer(IBuffer* buf, const BufferEntry& entry)
 {
+    // Note: doesn't populate `buf->set_gpu_handle(Default, ...)`. For
+    // BDA-style buffers the renderer follows up with
+    // `set_gpu_handle(Default, backend->gpu_address(entry.handle))`
+    // — the GPU virtual address, not the backend handle.
     buffer_map_[buf] = entry;
 }
 

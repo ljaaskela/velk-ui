@@ -65,7 +65,7 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
             rte.width = w;
             rte.height = h;
             if (rte.texture_id != 0) {
-                rte.target->set_render_target_id(static_cast<uint64_t>(rte.texture_id));
+                rte.target->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(rte.texture_id));
             }
         }
     }

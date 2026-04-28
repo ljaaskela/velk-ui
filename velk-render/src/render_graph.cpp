@@ -59,47 +59,79 @@ void RenderGraph::add_pass(::velk::RenderPass&& body)
 void RenderGraph::compile()
 {
     barriers_.assign(passes_.size(), Barrier{});
+    states_.clear();
 
-    /// Tier 1 conservative state machine. Mirrors the heuristic the
-    /// old `Renderer::present()` loop used (`had_texture_pass`):
-    /// GBufferFill / Raster-into-texture leaves the target in
-    /// ColorWrite; the next consumer needs a barrier to its stage
-    /// (Compute or Fragment). Reads are inferred from pass kind in
-    /// Tier 1; Tier 2 will drive transitions from declared reads/writes.
-    bool had_texture_pass = false;
+    /// Per-resource state machine driving barriers. Each pass:
+    ///  1. If it reads textures (any consumer pass except RTT-style
+    ///     Raster-into-texture, which is assumed to write fresh content
+    ///     without sampling previously-written graph resources),
+    ///     scans the state map for resources in writeable states
+    ///     (ColorWrite / Storage), emits a single transition barrier
+    ///     from the producer stage to the consumer stage, then marks
+    ///     those resources as ShaderRead.
+    ///  2. Applies its declared writes, transitioning each written
+    ///     resource into the new state implied by the pass kind.
+    ///
+    /// Bindless texture reads from materials are NOT declared on the
+    /// pass; they're caught by step (1)'s scan because the producing
+    /// resource (RTT, gbuffer attachment, deferred output) is in the
+    /// state map after its write. Tier 2 will require explicit reads
+    /// + per-Ptr barrier emission once transient pooling needs them.
+    auto consumer_stage = [](::velk::PassKind k) {
+        switch (k) {
+        case ::velk::PassKind::Raster:
+        case ::velk::PassKind::GBufferFill:
+            return ::velk::PipelineStage::FragmentShader;
+        case ::velk::PassKind::Compute:
+        case ::velk::PassKind::ComputeBlit:
+        case ::velk::PassKind::Blit:
+            return ::velk::PipelineStage::ComputeShader;
+        }
+        return ::velk::PipelineStage::FragmentShader;
+    };
+
+    auto reads_textures = [](::velk::PassKind k, bool raster_to_texture) {
+        // Raster-to-texture (RTT) passes write a fresh target without
+        // sampling previously-written graph resources; skip the
+        // pre-pass barrier for them. Every other pass kind samples
+        // bindless textures or storage images and needs the barrier
+        // when prior writes are in flight.
+        if (k == ::velk::PassKind::Raster) return !raster_to_texture;
+        return true;
+    };
+
     for (size_t i = 0; i < passes_.size(); ++i) {
         auto& gp = passes_[i];
         auto& barrier = barriers_[i];
 
-        bool is_compute_consumer =
-            gp.body.kind == ::velk::PassKind::ComputeBlit ||
-            gp.body.kind == ::velk::PassKind::Compute ||
-            gp.body.kind == ::velk::PassKind::Blit;
-        bool is_fragment_consumer = gp.body.kind == ::velk::PassKind::GBufferFill;
-        bool is_raster = gp.body.kind == ::velk::PassKind::Raster;
         bool raster_to_texture = false;
-        if (is_raster) {
+        if (gp.body.kind == ::velk::PassKind::Raster) {
             auto* rt = gp.body.target.target.get();
             raster_to_texture = rt && rt->get_type() == ::velk::GpuResourceType::Texture;
         }
 
-        if (had_texture_pass) {
-            if (is_compute_consumer) {
-                barrier.emit = true;
-                barrier.src = ::velk::PipelineStage::ColorOutput;
-                barrier.dst = ::velk::PipelineStage::ComputeShader;
-                had_texture_pass = false;
-            } else if (is_fragment_consumer ||
-                       (is_raster && !raster_to_texture)) {
-                barrier.emit = true;
-                barrier.src = ::velk::PipelineStage::ColorOutput;
-                barrier.dst = ::velk::PipelineStage::FragmentShader;
-                had_texture_pass = false;
+        if (reads_textures(gp.body.kind, raster_to_texture)) {
+            ::velk::PipelineStage src_stage = ::velk::PipelineStage::ColorOutput;
+            bool need_barrier = false;
+            for (auto& [r, st] : states_) {
+                if (st == ResourceState::ColorWrite) {
+                    src_stage = ::velk::PipelineStage::ColorOutput;
+                    need_barrier = true;
+                } else if (st == ResourceState::Storage) {
+                    src_stage = ::velk::PipelineStage::ComputeShader;
+                    need_barrier = true;
+                }
             }
-        }
-
-        if (gp.body.kind == ::velk::PassKind::GBufferFill || raster_to_texture) {
-            had_texture_pass = true;
+            if (need_barrier) {
+                barrier.emit = true;
+                barrier.src = src_stage;
+                barrier.dst = consumer_stage(gp.body.kind);
+                for (auto& [r, st] : states_) {
+                    if (st == ResourceState::ColorWrite || st == ResourceState::Storage) {
+                        st = ResourceState::ShaderRead;
+                    }
+                }
+            }
         }
 
         for (auto& w : gp.writes) {
@@ -149,7 +181,7 @@ void RenderGraph::execute(::velk::IRenderBackend& backend)
 
         case ::velk::PassKind::Raster: {
             auto* rt = pass.target.target.get();
-            uint64_t pass_target_id = rt ? rt->get_render_target_id() : 0;
+            uint64_t pass_target_id = rt ? rt->get_gpu_handle(GpuResourceKey::Default) : 0;
             backend.begin_pass(pass_target_id);
             backend.submit({pass.draw_calls.data(), pass.draw_calls.size()},
                            pass.viewport);

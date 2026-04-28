@@ -9,8 +9,10 @@
 #include <velk-render/frustum.h>
 #include <velk-render/plugin.h>
 #include <velk-render/ext/render_path.h>
-#include <velk-render/render_path/frame_context.h>
 #include <velk-render/interface/intf_render_path.h>
+#include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_render_texture_group.h>
+#include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/view_entry.h>
 
 namespace velk {
@@ -62,22 +64,23 @@ public:
     RenderTargetGroup find_gbuffer_group(ViewEntry* view) const override;
     TextureId find_shadow_debug_tex(ViewEntry* view) const override;
 
-private:
+public:
     struct ViewState
     {
-        RenderTargetGroup gbuffer_group = 0;
+        IRenderTextureGroup::Ptr gbuffer;
         int gbuffer_width = 0;
         int gbuffer_height = 0;
 
-        TextureId deferred_output_tex = 0;
+        IRenderTarget::Ptr deferred_output;
         int deferred_width = 0;
         int deferred_height = 0;
 
-        TextureId shadow_debug_tex = 0;
+        IRenderTarget::Ptr shadow_debug;
         int shadow_debug_width = 0;
         int shadow_debug_height = 0;
     };
 
+private:
     std::unordered_map<ViewEntry*, ViewState> view_states_;
 
     /// Compiled compute pipelines keyed by FNV hash of active intersect

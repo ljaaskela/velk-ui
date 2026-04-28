@@ -50,8 +50,17 @@ class Material : public GpuResource<T, IMaterialInternal, IDrawData, Extra...>
     using Base = GpuResource<T, IMaterialInternal, IDrawData, Extra...>;
 
 public:
-    uint64_t get_pipeline_handle(IRenderContext&) override { return handle_; }
-    void set_pipeline_handle(uint64_t handle) override { handle_ = handle; }
+    // Pipeline handle is stored as the resource's primary handle (key
+    // GpuResourceKey::Default) by `ext::GpuResource`. The IMaterialInternal
+    // accessors below are thin wrappers for ergonomic call sites.
+    uint64_t get_pipeline_handle(IRenderContext&) override
+    {
+        return this->get_gpu_handle(GpuResourceKey::Default);
+    }
+    void set_pipeline_handle(uint64_t handle) override
+    {
+        this->set_gpu_handle(GpuResourceKey::Default, handle);
+    }
 
     /// Subscribe / unsubscribe to IMaterialOptions attachments so option
     /// writes propagate into pipeline invalidation without polling.
@@ -164,9 +173,10 @@ protected:
     uint64_t ensure_pipeline(IRenderContext& ctx, string_view fragment_source, string_view vertex_source = {})
     {
         if (!has_pipeline_handle()) {
-            handle_ = ctx.compile_pipeline(fragment_source, vertex_source);
+            this->set_gpu_handle(GpuResourceKey::Default,
+                                 ctx.compile_pipeline(fragment_source, vertex_source));
         }
-        return handle_;
+        return this->get_gpu_handle(GpuResourceKey::Default);
     }
 
     /**
@@ -178,13 +188,17 @@ protected:
                              const IShader::Ptr& vertex = {})
     {
         if (!has_pipeline_handle()) {
-            handle_ = ctx.create_pipeline(vertex, fragment);
+            this->set_gpu_handle(GpuResourceKey::Default,
+                                 ctx.create_pipeline(vertex, fragment));
         }
-        return handle_;
+        return this->get_gpu_handle(GpuResourceKey::Default);
     }
 
     /** @brief Returns true if the pipeline handle has already been created. */
-    bool has_pipeline_handle() const { return handle_ != 0; }
+    bool has_pipeline_handle() const
+    {
+        return this->get_gpu_handle(GpuResourceKey::Default) != 0;
+    }
 
     /**
      * @brief Writes a typed material params struct into the GPU data buffer.
@@ -212,13 +226,13 @@ private:
     void bind_options_subscription(IMaterialOptions* opts)
     {
         if (opts) {
-            options_sub_ = ScopedHandler(opts->on_options_changed(), [this]() { handle_ = 0; });
+            options_sub_ = ScopedHandler(opts->on_options_changed(),
+                [this]() { this->set_gpu_handle(GpuResourceKey::Default, 0); });
         } else {
             options_sub_.reset();
         }
     }
 
-    uint64_t handle_{};
     ::velk::IProgramDataBuffer::Ptr data_buffer_;
     ScopedHandler options_sub_;
 };

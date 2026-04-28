@@ -37,13 +37,10 @@ public:
     }
     bool is_dirty() const override { return dirty_; }
     void clear_dirty() override { dirty_ = false; }
-    uint64_t get_gpu_address() const override { return gpu_addr_; }
-    void set_gpu_address(uint64_t addr) override { gpu_addr_ = addr; }
 
 private:
     ::velk::vector<uint8_t> bytes_;    ///< Committed content visible to consumers.
     ::velk::vector<uint8_t> pending_;  ///< Reused write scratch, diffed vs bytes_.
-    uint64_t gpu_addr_ = 0;
     bool dirty_ = false;
 };
 

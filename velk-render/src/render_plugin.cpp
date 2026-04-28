@@ -4,6 +4,7 @@
 #include "deferred_path.h"
 #include "forward_path.h"
 #include "render_graph.h"
+#include "render_texture_group.h"
 #include "material_property.h"
 #include "mesh.h"
 #include "mesh_buffer.h"
@@ -30,6 +31,7 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     rv &= register_type<Shader>(velk);
     rv &= register_type<WindowSurface>(velk);
     rv &= register_type<RenderTexture>(velk);
+    rv &= register_type<impl::RenderTextureGroup>(velk);
     rv &= register_type<impl::ShaderMaterial>(velk);
     rv &= register_type<impl::StandardMaterial>(velk);
     rv &= register_type<impl::BaseColorProperty>(velk);

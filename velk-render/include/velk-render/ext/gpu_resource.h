@@ -98,9 +98,25 @@ public:
         }
     }
 
+    /// Default get/set for the canonical primary handle. Single-handle
+    /// resources (most subclasses) inherit this storage and don't need
+    /// to override. Multi-handle resources (e.g. `RenderTextureGroup`)
+    /// override both methods to manage their own per-key storage.
+    uint64_t get_gpu_handle(uint64_t key) const override
+    {
+        return key == GpuResourceKey::Default ? handle_ : 0;
+    }
+    void set_gpu_handle(uint64_t key, uint64_t value) override
+    {
+        if (key == GpuResourceKey::Default) {
+            handle_ = value;
+        }
+    }
+
 private:
     vector<IGpuResourceObserver*> gpu_observers_;
     mutable std::mutex gpu_observers_mutex_;
+    uint64_t handle_ = 0;
 };
 
 } // namespace ext

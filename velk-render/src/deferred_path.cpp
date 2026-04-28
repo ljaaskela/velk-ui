@@ -76,24 +76,34 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
                                                FrameContext& ctx)
 {
     if (width <= 0 || height <= 0 || !ctx.backend) return 0;
-    if (vs.gbuffer_group != 0 &&
-        vs.gbuffer_width == width && vs.gbuffer_height == height) {
-        return vs.gbuffer_group;
+    if (vs.gbuffer && vs.gbuffer_width == width && vs.gbuffer_height == height) {
+        return vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
     }
-    if (vs.gbuffer_group != 0) {
-        ctx.backend->destroy_render_target_group(vs.gbuffer_group);
-        vs.gbuffer_group = 0;
+    if (vs.gbuffer) {
+        ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
+        vs.gbuffer.reset();
     }
-    vs.gbuffer_group = ctx.backend->create_render_target_group(
+    auto group = ctx.backend->create_render_target_group(
         array_view<const PixelFormat>(kGBufferFormats,
                                       static_cast<uint32_t>(GBufferAttachment::Count)),
         width, height,
         DepthFormat::Default);
-    if (vs.gbuffer_group != 0) {
-        vs.gbuffer_width = width;
-        vs.gbuffer_height = height;
+    if (group == 0) return 0;
+
+    vs.gbuffer = instance().create<IRenderTextureGroup>(ClassId::RenderTextureGroup);
+    if (!vs.gbuffer) {
+        ctx.backend->destroy_render_target_group(group);
+        return 0;
     }
-    return vs.gbuffer_group;
+    vs.gbuffer->set_gpu_handle(GpuResourceKey::Default, group);
+    vs.gbuffer->set_depth_format(DepthFormat::Default);
+    for (uint32_t i = 0; i < static_cast<uint32_t>(GBufferAttachment::Count); ++i) {
+        vs.gbuffer->set_attachment(
+            i, static_cast<TextureId>(ctx.backend->get_render_target_group_attachment(group, i)));
+    }
+    vs.gbuffer_width = width;
+    vs.gbuffer_height = height;
+    return group;
 }
 
 void DeferredPath::build_passes(ViewEntry& entry,
@@ -109,8 +119,8 @@ void DeferredPath::build_passes(ViewEntry& entry,
 
     auto& vs = view_states_[&entry];
 
-    auto gbuffer_group = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
-    if (gbuffer_group == 0) return;
+    auto gbuffer_handle = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
+    if (gbuffer_handle == 0) return;
 
     emit_gbuffer_pass(entry, vs, render_view, ctx, graph);
 
@@ -125,23 +135,25 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
 {
     if (!render_view.batches) return;
 
+    auto group_id = vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
     auto gbuffer_draw_calls = ctx.render_ctx->build_gbuffer_draw_calls(
         *render_view.batches,
         *ctx.frame_buffer,
         *ctx.resources,
         render_view.frame_globals_addr,
-        vs.gbuffer_group,
+        group_id,
         ctx.observer,
         *ctx.material_cache,
         render_view.has_frustum ? &render_view.frustum : nullptr);
 
-    RenderPass g_pass;
-    g_pass.kind = PassKind::GBufferFill;
-    g_pass.gbuffer_group = vs.gbuffer_group;
-    g_pass.viewport = {0, 0, static_cast<float>(vs.gbuffer_width),
-                       static_cast<float>(vs.gbuffer_height)};
-    g_pass.draw_calls = std::move(gbuffer_draw_calls);
-    graph.add_pass(std::move(g_pass));
+    GraphPass gp;
+    gp.body.kind = PassKind::GBufferFill;
+    gp.body.gbuffer_group = group_id;
+    gp.body.viewport = {0, 0, static_cast<float>(vs.gbuffer_width),
+                        static_cast<float>(vs.gbuffer_height)};
+    gp.body.draw_calls = std::move(gbuffer_draw_calls);
+    gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.gbuffer));
+    graph.add_pass(std::move(gp));
 }
 
 void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
@@ -152,41 +164,55 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
                                       IRenderGraph& graph)
 {
     // Allocate / resize the output storage image.
-    if (vs.deferred_output_tex != 0 &&
+    if (vs.deferred_output &&
         (vs.deferred_width != w || vs.deferred_height != h)) {
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
-                vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
+                vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
+                ctx.present_counter + ctx.latency_frames);
         }
-        vs.deferred_output_tex = 0;
+        vs.deferred_output.reset();
     }
-    if (vs.deferred_output_tex == 0) {
+    if (!vs.deferred_output) {
         TextureDesc td{};
         td.width = w;
         td.height = h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        vs.deferred_output_tex = ctx.backend->create_texture(td);
+        auto tex_id = ctx.backend->create_texture(td);
+        if (tex_id != 0) {
+            vs.deferred_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
+            if (vs.deferred_output) {
+                vs.deferred_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
+            }
+        }
         vs.deferred_width = w;
         vs.deferred_height = h;
     }
-    if (vs.deferred_output_tex == 0) return;
+    if (!vs.deferred_output) return;
 
-    if (vs.shadow_debug_tex != 0 &&
+    if (vs.shadow_debug &&
         (vs.shadow_debug_width != w || vs.shadow_debug_height != h)) {
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
-                vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
+                vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
+                ctx.present_counter + ctx.latency_frames);
         }
-        vs.shadow_debug_tex = 0;
+        vs.shadow_debug.reset();
     }
-    if (vs.shadow_debug_tex == 0) {
+    if (!vs.shadow_debug) {
         TextureDesc td{};
         td.width = w;
         td.height = h;
         td.format = PixelFormat::RGBA32F;
         td.usage = TextureUsage::Storage;
-        vs.shadow_debug_tex = ctx.backend->create_texture(td);
+        auto tex_id = ctx.backend->create_texture(td);
+        if (tex_id != 0) {
+            vs.shadow_debug = instance().create<IRenderTarget>(ClassId::RenderTexture);
+            if (vs.shadow_debug) {
+                vs.shadow_debug->set_gpu_handle(GpuResourceKey::Default, tex_id);
+            }
+        }
         vs.shadow_debug_width = w;
         vs.shadow_debug_height = h;
     }
@@ -196,14 +222,10 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     auto pit = ctx.pipeline_map->find(pipeline_key);
     if (pit == ctx.pipeline_map->end()) return;
 
-    auto albedo_id   = ctx.backend->get_render_target_group_attachment(
-        vs.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Albedo));
-    auto normal_id   = ctx.backend->get_render_target_group_attachment(
-        vs.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::Normal));
-    auto worldpos_id = ctx.backend->get_render_target_group_attachment(
-        vs.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::WorldPos));
-    auto material_id = ctx.backend->get_render_target_group_attachment(
-        vs.gbuffer_group, static_cast<uint32_t>(GBufferAttachment::MaterialParams));
+    auto albedo_id   = vs.gbuffer->attachment(static_cast<uint32_t>(GBufferAttachment::Albedo));
+    auto normal_id   = vs.gbuffer->attachment(static_cast<uint32_t>(GBufferAttachment::Normal));
+    auto worldpos_id = vs.gbuffer->attachment(static_cast<uint32_t>(GBufferAttachment::WorldPos));
+    auto material_id = vs.gbuffer->attachment(static_cast<uint32_t>(GBufferAttachment::MaterialParams));
 
     // Lights and env come pre-resolved from RenderView. ViewPreparer
     // registered shadow techniques against the snippet registry and
@@ -240,7 +262,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     pc.cam_pos[1] = render_view.cam_pos.y;
     pc.cam_pos[2] = render_view.cam_pos.z;
     pc.cam_pos[3] = 0.f;
-    pc.output_image_id = vs.deferred_output_tex;
+    pc.output_image_id = static_cast<uint32_t>(vs.deferred_output->get_gpu_handle(GpuResourceKey::Default));
     pc.albedo_tex_id   = albedo_id;
     pc.normal_tex_id   = normal_id;
     pc.worldpos_tex_id = worldpos_id;
@@ -249,58 +271,60 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     pc.height = static_cast<uint32_t>(h);
     pc.light_count = static_cast<uint32_t>(render_view.lights.size());
     pc.env_texture_id = render_view.env.texture_id;
-    pc.shadow_debug_image_id = vs.shadow_debug_tex;
+    pc.shadow_debug_image_id = static_cast<uint32_t>(vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default));
     pc.lights_addr = lights_addr;
     pc.env_data_addr = render_view.env.data_addr;
     pc.globals_addr = render_view.frame_globals_addr;
 
-    RenderPass pass;
-    pass.kind = PassKind::ComputeBlit;
-    pass.compute.pipeline = pit->second;
-    pass.compute.groups_x = (w + 7) / 8;
-    pass.compute.groups_y = (h + 7) / 8;
-    pass.compute.groups_z = 1;
-    pass.compute.root_constants_size = sizeof(PushC);
-    std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
-    pass.blit_source = vs.deferred_output_tex;
-    pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
-    pass.blit_dst_rect = render_view.viewport;
-    graph.add_pass(std::move(pass));
+    GraphPass gp;
+    gp.body.kind = PassKind::ComputeBlit;
+    gp.body.compute.pipeline = pit->second;
+    gp.body.compute.groups_x = (w + 7) / 8;
+    gp.body.compute.groups_y = (h + 7) / 8;
+    gp.body.compute.groups_z = 1;
+    gp.body.compute.root_constants_size = sizeof(PushC);
+    std::memcpy(gp.body.compute.root_constants, &pc, sizeof(PushC));
+    gp.body.blit_source = vs.deferred_output->get_gpu_handle(GpuResourceKey::Default);
+    gp.body.blit_surface_id = color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0;
+    gp.body.blit_dst_rect = render_view.viewport;
+    gp.reads.push_back(interface_pointer_cast<IGpuResource>(vs.gbuffer));
+    gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.deferred_output));
+    if (color_target) gp.writes.push_back(interface_pointer_cast<IGpuResource>(color_target));
+    graph.add_pass(std::move(gp));
 }
+
+namespace {
+template <class ViewState>
+void release_deferred_view_state(ViewState& vs, FrameContext& ctx)
+{
+    if (vs.gbuffer && ctx.backend) {
+        ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
+    }
+    if (vs.deferred_output && ctx.resources) {
+        ctx.resources->defer_texture_destroy(
+            vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
+            ctx.present_counter + ctx.latency_frames);
+    }
+    if (vs.shadow_debug && ctx.resources) {
+        ctx.resources->defer_texture_destroy(
+            vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
+            ctx.present_counter + ctx.latency_frames);
+    }
+}
+} // namespace
 
 void DeferredPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
 {
     auto it = view_states_.find(&entry);
     if (it == view_states_.end()) return;
-    auto& vs = it->second;
-    if (vs.gbuffer_group != 0 && ctx.backend) {
-        ctx.backend->destroy_render_target_group(vs.gbuffer_group);
-    }
-    if (vs.deferred_output_tex != 0 && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
-    }
-    if (vs.shadow_debug_tex != 0 && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
-    }
+    release_deferred_view_state(it->second, ctx);
     view_states_.erase(it);
 }
 
 void DeferredPath::shutdown(FrameContext& ctx)
 {
     for (auto& [v, vs] : view_states_) {
-        if (vs.gbuffer_group != 0 && ctx.backend) {
-            ctx.backend->destroy_render_target_group(vs.gbuffer_group);
-        }
-        if (vs.deferred_output_tex != 0 && ctx.resources) {
-            ctx.resources->defer_texture_destroy(
-                vs.deferred_output_tex, ctx.present_counter + ctx.latency_frames);
-        }
-        if (vs.shadow_debug_tex != 0 && ctx.resources) {
-            ctx.resources->defer_texture_destroy(
-                vs.shadow_debug_tex, ctx.present_counter + ctx.latency_frames);
-        }
+        release_deferred_view_state(vs, ctx);
     }
     view_states_.clear();
     compiled_pipelines_.clear();
@@ -309,13 +333,15 @@ void DeferredPath::shutdown(FrameContext& ctx)
 RenderTargetGroup DeferredPath::find_gbuffer_group(ViewEntry* view) const
 {
     auto it = view_states_.find(view);
-    return (it == view_states_.end()) ? 0 : it->second.gbuffer_group;
+    if (it == view_states_.end() || !it->second.gbuffer) return 0;
+    return it->second.gbuffer->get_gpu_handle(GpuResourceKey::Default);
 }
 
 TextureId DeferredPath::find_shadow_debug_tex(ViewEntry* view) const
 {
     auto it = view_states_.find(view);
-    return (it == view_states_.end()) ? 0 : it->second.shadow_debug_tex;
+    if (it == view_states_.end() || !it->second.shadow_debug) return 0;
+    return it->second.shadow_debug->get_gpu_handle(GpuResourceKey::Default);
 }
 
 } // namespace velk

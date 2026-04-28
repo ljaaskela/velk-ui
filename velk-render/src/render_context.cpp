@@ -156,7 +156,7 @@ IWindowSurface::Ptr RenderContextImpl::create_surface(const SurfaceConfig& confi
         desc.depth = config.depth;
         uint64_t sid = backend_->create_surface(desc);
         if (sid != 0) {
-            surface->set_render_target_id(sid);
+            surface->set_gpu_handle(GpuResourceKey::Default, sid);
         }
     }
 
@@ -466,19 +466,19 @@ vector<DrawCall> RenderContextImpl::build_draw_calls(
         header.instances_address = instances_addr;
         header.texture_id = texture_id;
         header.instance_count = batch.instance_count;
-        header.vbo_address = buffer->get_gpu_address();
+        header.vbo_address = buffer->get_gpu_handle(GpuResourceKey::Default);
         if (!header.vbo_address) continue;
 
         // Resolve TEXCOORD_1: primitive's own UV1 stream if present,
         // otherwise the context-owned default (read as index 0).
         if (auto uv1 = primitive->get_uv1_buffer()) {
-            uint64_t uv1_base = uv1->get_gpu_address();
+            uint64_t uv1_base = uv1->get_gpu_handle(GpuResourceKey::Default);
             if (!uv1_base) continue;
             header.uv1_address = uv1_base + primitive->get_uv1_offset();
             header.uv1_enabled = 1;
         } else {
             auto def = get_default_buffer(DefaultBufferType::Uv1);
-            header.uv1_address = def ? def->get_gpu_address() : 0;
+            header.uv1_address = def ? def->get_gpu_handle(GpuResourceKey::Default) : 0;
             header.uv1_enabled = 0;
             if (!header.uv1_address) continue;
         }
@@ -595,17 +595,17 @@ vector<DrawCall> RenderContextImpl::build_gbuffer_draw_calls(
         header.instances_address = instances_addr;
         header.texture_id = texture_id;
         header.instance_count = batch.instance_count;
-        header.vbo_address = buffer->get_gpu_address();
+        header.vbo_address = buffer->get_gpu_handle(GpuResourceKey::Default);
         if (!header.vbo_address) continue;
 
         if (auto uv1 = primitive->get_uv1_buffer()) {
-            uint64_t uv1_base = uv1->get_gpu_address();
+            uint64_t uv1_base = uv1->get_gpu_handle(GpuResourceKey::Default);
             if (!uv1_base) continue;
             header.uv1_address = uv1_base + primitive->get_uv1_offset();
             header.uv1_enabled = 1;
         } else {
             auto def = get_default_buffer(DefaultBufferType::Uv1);
-            header.uv1_address = def ? def->get_gpu_address() : 0;
+            header.uv1_address = def ? def->get_gpu_handle(GpuResourceKey::Default) : 0;
             header.uv1_enabled = 0;
             if (!header.uv1_address) continue;
         }

@@ -77,23 +77,29 @@ void RtPath::build_passes(ViewEntry& entry,
     auto& vs = view_states_[&entry];
 
     // (Re)create storage output texture sized to the viewport.
-    if (vs.rt_output_tex != 0 &&
-        (vs.width != vp_w || vs.height != vp_h)) {
+    if (vs.rt_output && (vs.width != vp_w || vs.height != vp_h)) {
         ctx.resources->defer_texture_destroy(
-            vs.rt_output_tex, ctx.present_counter + ctx.latency_frames);
-        vs.rt_output_tex = 0;
+            vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
+            ctx.present_counter + ctx.latency_frames);
+        vs.rt_output.reset();
     }
-    if (vs.rt_output_tex == 0) {
+    if (!vs.rt_output) {
         TextureDesc td{};
         td.width = vp_w;
         td.height = vp_h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        vs.rt_output_tex = ctx.backend->create_texture(td);
+        auto tex_id = ctx.backend->create_texture(td);
+        if (tex_id != 0) {
+            vs.rt_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
+            if (vs.rt_output) {
+                vs.rt_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
+            }
+        }
         vs.width = vp_w;
         vs.height = vp_h;
     }
-    if (vs.rt_output_tex == 0) {
+    if (!vs.rt_output) {
         return;
     }
 
@@ -212,7 +218,7 @@ void RtPath::build_passes(ViewEntry& entry,
     pc.cam_pos[1] = render_view.cam_pos.y;
     pc.cam_pos[2] = render_view.cam_pos.z;
     pc.cam_pos[3] = 0.f;
-    pc.image_index = vs.rt_output_tex;
+    pc.image_index = static_cast<uint32_t>(vs.rt_output->get_gpu_handle(GpuResourceKey::Default));
     pc.width = static_cast<uint32_t>(vp_w);
     pc.height = static_cast<uint32_t>(vp_h);
     pc.shape_count = static_cast<uint32_t>(shapes.size());
@@ -229,27 +235,30 @@ void RtPath::build_passes(ViewEntry& entry,
     pc.light_count = static_cast<uint32_t>(render_view.lights.size());
     pc.globals_addr = render_view.frame_globals_addr;
 
-    RenderPass pass;
-    pass.kind = PassKind::ComputeBlit;
-    pass.compute.pipeline = pit->second;
-    pass.compute.groups_x = (vp_w + 7) / 8;
-    pass.compute.groups_y = (vp_h + 7) / 8;
-    pass.compute.groups_z = 1;
-    pass.compute.root_constants_size = sizeof(PushC);
-    std::memcpy(pass.compute.root_constants, &pc, sizeof(PushC));
-    pass.blit_source = vs.rt_output_tex;
-    pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
-    pass.blit_dst_rect = render_view.viewport;
-    graph.add_pass(std::move(pass));
+    GraphPass gp;
+    gp.body.kind = PassKind::ComputeBlit;
+    gp.body.compute.pipeline = pit->second;
+    gp.body.compute.groups_x = (vp_w + 7) / 8;
+    gp.body.compute.groups_y = (vp_h + 7) / 8;
+    gp.body.compute.groups_z = 1;
+    gp.body.compute.root_constants_size = sizeof(PushC);
+    std::memcpy(gp.body.compute.root_constants, &pc, sizeof(PushC));
+    gp.body.blit_source = vs.rt_output->get_gpu_handle(GpuResourceKey::Default);
+    gp.body.blit_surface_id = color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0;
+    gp.body.blit_dst_rect = render_view.viewport;
+    gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.rt_output));
+    if (color_target) gp.writes.push_back(interface_pointer_cast<IGpuResource>(color_target));
+    graph.add_pass(std::move(gp));
 }
 
 void RtPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
 {
     auto it = view_states_.find(&entry);
     if (it == view_states_.end()) return;
-    if (it->second.rt_output_tex != 0 && ctx.resources) {
+    if (it->second.rt_output && ctx.resources) {
         ctx.resources->defer_texture_destroy(
-            it->second.rt_output_tex, ctx.present_counter + ctx.latency_frames);
+            it->second.rt_output->get_gpu_handle(GpuResourceKey::Default),
+            ctx.present_counter + ctx.latency_frames);
     }
     view_states_.erase(it);
 }
@@ -258,9 +267,10 @@ void RtPath::shutdown(FrameContext& ctx)
 {
     if (ctx.resources) {
         for (auto& [v, vs] : view_states_) {
-            if (vs.rt_output_tex != 0) {
+            if (vs.rt_output) {
                 ctx.resources->defer_texture_destroy(
-                    vs.rt_output_tex, ctx.present_counter + ctx.latency_frames);
+                    vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
+                    ctx.present_counter + ctx.latency_frames);
             }
         }
     }
