@@ -16,7 +16,7 @@ uint64_t FrameDataManager::write(const void* data, size_t size, size_t alignment
     return r.gpu_addr;
 }
 
-FrameDataManager::WriteResult FrameDataManager::reserve(size_t size, size_t alignment)
+IFrameDataManager::WriteResult FrameDataManager::reserve(size_t size, size_t alignment)
 {
     write_offset_ = (write_offset_ + alignment - 1) & ~(alignment - 1);
 

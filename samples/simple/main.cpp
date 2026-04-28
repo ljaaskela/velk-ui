@@ -63,12 +63,11 @@ int main(int argc, char* argv[])
     auto camera = scene.find_first<velk::ICamera>();   // first camera in pre-order = ortho
     auto camera_3d = scene.find_first<velk::IOrbit>(); // only the perspective one has orbit
 
+    // Forward is the default path (no IRenderPath attachment needed).
     if (camera) {
-        velk::Camera(camera.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
         app.add_view(window, camera, {0.5f, 0, 0.5f, 1.0f});
     }
     if (camera_3d) {
-        velk::Camera(camera_3d.find_trait<velk::ICamera>()).set_render_path(velk::RenderPath::Forward);
         app.add_view(window, camera_3d, {0, 0, .5f, 1.0f});
     }
 

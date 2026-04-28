@@ -20,16 +20,13 @@ add_library(velk_scene SHARED
     src/scene.h
     src/scene.cpp
 
-    # Renderer + render paths
+    # Renderer + scene-side rendering plumbing
     src/renderer.h
     src/renderer.cpp
-    src/view_renderer.h
-    src/rasterizer.h
-    src/rasterizer.cpp
-    src/deferred_lighter.h
-    src/deferred_lighter.cpp
-    src/ray_tracer.h
-    src/ray_tracer.cpp
+    src/render_target_cache.h
+    src/render_target_cache.cpp
+    src/view_preparer.h
+    src/view_preparer.cpp
 
     # Scene-side rendering plumbing
     src/scene_bvh.h
@@ -46,7 +43,6 @@ add_library(velk_scene SHARED
     src/gpu_resource_manager.cpp
     src/env_helper.h
     src/env_helper.cpp
-    src/default_ui_shaders.h
 
     # 3D visuals
     src/visual/cube_visual.h
@@ -103,6 +99,7 @@ add_library(velk_scene SHARED
 
     # Render-feeding traits public surface
     include/velk-scene/api/render_trait.h
+    include/velk-scene/api/render_path.h
     include/velk-scene/api/camera.h
     include/velk-scene/api/trait/light.h
 

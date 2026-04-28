@@ -75,14 +75,11 @@ public:
         bytes_.clear();
         bytes_.shrink_to_fit();
     }
-    uint64_t get_gpu_address() const override { return gpu_addr_; }
-    void set_gpu_address(uint64_t addr) override { gpu_addr_ = addr; }
 
 private:
     ::velk::vector<uint8_t> bytes_;
     size_t vbo_size_ = 0;
     size_t ibo_size_ = 0;
-    uint64_t gpu_addr_ = 0;
     bool dirty_ = false;
 };
 

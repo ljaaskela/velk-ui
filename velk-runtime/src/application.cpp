@@ -32,6 +32,7 @@ bool Application::init(const ApplicationConfig& config)
     reg.load_plugin_from_path("velk_render.dll");
     reg.load_plugin_from_path("velk_scene.dll");
     reg.load_plugin_from_path("velk_vk.dll");
+    reg.load_plugin_from_path("velk_rt.dll");
     reg.load_plugin_from_path("velk_text.dll");
     reg.load_plugin_from_path("velk_image.dll");
     reg.load_plugin_from_path("velk_gltf.dll");

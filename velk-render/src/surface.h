@@ -14,8 +14,6 @@ public:
     VELK_CLASS_UID(ClassId::WindowSurface, "WindowSurface");
 
     GpuResourceType get_type() const override { return GpuResourceType::Surface; }
-    uint64_t get_render_target_id() const override { return render_target_id_; }
-    void set_render_target_id(uint64_t id) override { render_target_id_ = id; }
 
     uvec2 get_dimensions() const override
     {
@@ -30,7 +28,6 @@ public:
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }
 
 private:
-    uint64_t render_target_id_ = 0;
     PixelFormat format_ = PixelFormat::RGBA8;
     DepthFormat depth_format_ = DepthFormat::None;
 };

@@ -58,13 +58,10 @@ public:
     const uint8_t* get_data() const override;
     bool is_dirty() const override;
     void clear_dirty() override;
-    uint64_t get_gpu_address() const override { return gpu_addr_; }
-    void set_gpu_address(uint64_t addr) override { gpu_addr_ = addr; }
 
 private:
     FontBuffers* fb_ = nullptr;
     FontGpuBufferRole role_ = FontGpuBufferRole::Curves;
-    uint64_t gpu_addr_ = 0;
 };
 
 } // namespace velk::ui

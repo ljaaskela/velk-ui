@@ -5,14 +5,18 @@
 #include <velk/vector.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include "batch_builder.h"
 #include "frame_data_manager.h"
 #include "frame_snippet_registry.h"
 #include "gpu_resource_manager.h"
-#include "deferred_lighter.h"
-#include "ray_tracer.h"
-#include "rasterizer.h"
-#include "view_renderer.h"
+#include "render_target_cache.h"
+#include "view_preparer.h"
+#include <velk-render/interface/intf_render_graph.h>
+#include <velk-render/render_path/frame_context.h>
+#include <velk-render/interface/intf_render_path.h>
+#include <velk-render/interface/intf_view_pipeline.h>
+#include <velk-render/render_path/view_entry.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_gpu_resource.h>
@@ -68,29 +72,39 @@ private:
     struct FrameSlot
     {
         uint64_t id = 0;
-        vector<RenderPass> passes;
+        IRenderGraph::Ptr graph;
         bool ready = false;
         uint64_t presented_at = 0;
-        FrameDataManager::Slot buffer;
+        IFrameDataManager::Slot buffer;
     };
 
     FrameSlot* claim_frame_slot();
+    /// Scene-side per-view bookkeeping. `entry` is the velk-render-pure
+    /// ViewEntry handed to paths; `camera_element` is the IElement
+    /// the entry was registered against (used by Renderer + ViewPreparer
+    /// for camera/env lookups, never by paths).
+    struct ViewSlot
+    {
+        IElement::Ptr camera_element;
+        ViewEntry entry;
+    };
+
     std::unordered_map<IScene*, SceneState> consume_scenes(const FrameDesc& desc);
     void build_frame_passes(const FrameDesc& desc,
                             std::unordered_map<IScene*, SceneState>& consumed_scenes,
                             FrameSlot& slot);
-    bool view_matches(const ViewEntry& entry, const FrameDesc& desc) const;
+    bool view_matches(const ViewSlot& slot, const FrameDesc& desc) const;
     FrameContext make_frame_context();
 
     IRenderBackend::Ptr backend_;
     IRenderContext* render_ctx_ = nullptr;
 
-    // resources_ must outlive any member that holds IProgram::Ptr refs
-    // (views_, batch_builder_): material dtors invoke on_gpu_resource_destroyed
-    // which calls into resources_.
-    GpuResourceManager resources_;
+    // resources_ must outlive any member that holds IProgram::Ptr
+    // refs (views_, batch_builder_): material dtors invoke
+    // on_gpu_resource_destroyed which calls into resources_.
+    IGpuResourceManager::Ptr resources_;
 
-    vector<ViewEntry> views_;
+    vector<ViewSlot> views_;
     const std::unordered_map<uint64_t, PipelineId>* pipeline_map_ = nullptr;
 
     struct DebugOverlay {
@@ -107,10 +121,17 @@ private:
     bool log_bvh_next_ = false;
 
     // Shared visual-command / gpu-resource cache. Both the dirty-resource
-    // upload in consume_scenes and the Rasterizer path read from it, so it
+    // upload in consume_scenes and the raster paths read from it, so it
     // lives here rather than inside a single sub-renderer.
     BatchBuilder batch_builder_;
-    FrameDataManager frame_buffer_;
+
+    // Per-frame material upload dedup cache. Cleared once per frame by
+    // Renderer; exposed to paths via FrameContext::material_cache.
+    MaterialAddrCache material_cache_;
+
+    // Frame data buffer (per-slot GPU staging). Slot lifecycle is on the
+    // interface, so a single Ptr is sufficient.
+    IFrameDataManager::Ptr frame_buffer_;
 
     FrameSlot* active_slot_ = nullptr;
 
@@ -118,7 +139,7 @@ private:
     // techniques). Owned here so both the scene-wide BVH build and
     // the sub-renderers (RayTracer composer, DeferredLighter light
     // resolution) read from the same stable ids.
-    FrameSnippetRegistry snippets_;
+    IFrameSnippetRegistry::Ptr snippets_;
 
     // Per-scene concrete SceneBvh pointer cache. The attachment on the
     // scene root owns the lifetime; we just cache the typed pointer so
@@ -127,10 +148,20 @@ private:
     // whose scene is currently in `consumed_scenes`.
     std::unordered_map<IScene*, impl::SceneBvh*> scene_bvh_cache_;
 
-    // Sub-renderers; one per render path.
-    Rasterizer rasterizer_;
-    RayTracer ray_tracer_;
-    DeferredLighter deferred_lighter_;
+    // Shared RTT (render-to-texture) subtree cache. Used by Forward +
+    // Deferred raster paths via FrameContext.
+    RenderTargetCache render_target_cache_;
+
+    // Per-view scene-data preparer. Walks scene state once per view
+    // per frame and produces a flat `RenderView` that paths consume.
+    // Owns the per-view raster batch cache.
+    ViewPreparer view_preparer_;
+
+    // Set of pipelines the Renderer has dispatched to during this run.
+    // Populated by build_frame_passes; iterated for lifecycle hooks
+    // (on_view_removed, shutdown) so we don't have to track which
+    // pipeline was last used by which view.
+    std::unordered_set<IViewPipeline*> seen_pipelines_;
 
     static constexpr uint64_t kGpuLatencyFrames = 3;
     static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;

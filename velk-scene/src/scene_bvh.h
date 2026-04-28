@@ -1,12 +1,12 @@
 #ifndef VELK_UI_SCENE_BVH_H
 #define VELK_UI_SCENE_BVH_H
 
-#include "frame_data_manager.h"
 #include "scene_collector.h"
 
 #include <velk/api/velk.h>
 #include <velk/ext/object.h>
 
+#include <velk-render/interface/intf_frame_data_manager.h>
 #include <velk-render/interface/intf_bvh.h>
 #include <velk-scene/plugin.h>
 
@@ -50,7 +50,7 @@ public:
      * TextureIds) — scenes that invalidate those fields must force
      * @p dirty = true.
      */
-    void rebuild(IScene* scene, IRenderContext* ctx, FrameDataManager& frame_buffer, bool dirty,
+    void rebuild(IScene* scene, IRenderContext* ctx, IFrameDataManager& frame_buffer, bool dirty,
                  ShapeCb shape_cb, void* shape_user);
 
     /// Frame-local GPU addresses. Only valid for the frame in which

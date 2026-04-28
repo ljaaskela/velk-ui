@@ -14,6 +14,17 @@ enum class GpuResourceType : uint8_t
     Program
 };
 
+/**
+ * @brief Reserved keys for `IGpuResource::get_gpu_handle` /
+ *        `set_gpu_handle`. Each resource type defines its own
+ *        additional conventions (e.g. attachment indices for
+ *        `IRenderTextureGroup`); `Default` is the canonical primary
+ *        handle and is always available.
+ */
+namespace GpuResourceKey {
+inline constexpr uint64_t Default = 0;
+} // namespace GpuResourceKey
+
 class IGpuResource;
 
 /**
@@ -90,6 +101,32 @@ public:
      * Safe to call if the observer was never added.
      */
     virtual void remove_gpu_resource_observer(IGpuResourceObserver* obs) = 0;
+
+    /**
+     * @brief Returns a backend handle for this resource keyed by @p key.
+     *
+     * `GpuResourceKey::Default` (0) is the resource's primary handle —
+     * for surfaces / render targets the bind handle (passed to
+     * `begin_pass`), for buffers the GPU device address, for programs
+     * the pipeline handle. Non-zero keys retrieve alternates:
+     * per-attachment ids for a multi-attachment group, per-frame-slot
+     * rotated handles, format variants, aliased transient backings.
+     *
+     * Each implementation defines its own key conventions. Returns 0
+     * when @p key has no associated handle on this resource.
+     */
+    virtual uint64_t get_gpu_handle(uint64_t key) const = 0;
+
+    /**
+     * @brief Stores a backend handle for this resource at @p key.
+     *
+     * Mirrors `get_gpu_handle`. The renderer / resource manager calls
+     * this after the backend allocates a handle — e.g. after
+     * `register_texture` populates the bindless TextureId, the
+     * manager calls `surf->set_gpu_handle(GpuResourceKey::Default, tid)`
+     * so subsequent samplers can fetch the id from the resource itself.
+     */
+    virtual void set_gpu_handle(uint64_t key, uint64_t value) = 0;
 };
 
 } // namespace velk

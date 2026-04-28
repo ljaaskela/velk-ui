@@ -55,6 +55,8 @@ inline constexpr Uid Light{"6267f894-7953-45df-adb2-7eaaa5fe2def"};
 
 } // namespace Render
 
+// ClassId::Path::Forward / Deferred / Rt moved to velk-render/plugin.h.
+
 } // namespace ClassId
 
 namespace PluginId {

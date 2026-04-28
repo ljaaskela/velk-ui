@@ -4,238 +4,18 @@
 #include <velk/string.h>
 #include <velk/string_view.h>
 
-#include <velk-render/ext/element_vertex.h>
-#include <velk-scene/ext/material_shaders.h>
+#include <velk-render/interface/intf_frame_snippet_registry.h>
+#include <velk-render/frame/raster_shaders.h>
 
 #include <cstdio>
 #include <cstring>
 
 namespace velk {
 
-// The default vertex/fragment shader pair used when a visual or material
-// does not supply its own. Both the forward and gbuffer default vertex
-// shaders are now the single shared element vertex shader in
-// velk-render/ext/element_vertex.h; no per-path variants remain.
-
-[[maybe_unused]] constexpr string_view default_vertex_src =
-    ::velk::ext::element_vertex_src;
-
-[[maybe_unused]] constexpr string_view default_fragment_src = R"(
-#version 450
-
-// The shared element vertex shader writes the full canonical varying
-// set (locations 0..6). Declare every input even when unused so the
-// SPIR-V interface matches and the validator doesn't warn about
-// dropped outputs.
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 v_local_uv;
-layout(location = 2) flat in vec2 v_size;
-layout(location = 3) in vec3 v_world_pos;
-layout(location = 4) in vec3 v_world_normal;
-layout(location = 5) flat in uint v_shape_param;
-layout(location = 6) in vec2 v_uv1;
-
-layout(location = 0) out vec4 frag_color;
-
-void main()
-{
-    frag_color = v_color;
-}
-)";
-
-[[maybe_unused]] constexpr string_view default_gbuffer_vertex_src =
-    ::velk::ext::element_vertex_src;
-
-// Default fragment shader for the deferred G-buffer fill. Writes the
-// instance color straight through to albedo, marks the fragment as
-// "unlit" so the compute lighting pass passes albedo through unchanged.
-// Materials that want lighting (StandardMaterial) override this.
-[[maybe_unused]] constexpr string_view default_gbuffer_fragment_src = R"(
-#version 450
-
-// Canonical deferred varyings; the shared element vertex shader emits
-// the full set (locations 0..6). Declare every input even when unused
-// so the SPIR-V interface matches and the validator doesn't warn
-// about dropped outputs.
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 v_local_uv;
-layout(location = 2) flat in vec2 v_size;
-layout(location = 3) in vec3 v_world_pos;
-layout(location = 4) in vec3 v_world_normal;
-layout(location = 5) flat in uint v_shape_param;
-layout(location = 6) in vec2 v_uv1;
-
-// Canonical G-buffer attachments (see velk-render/gbuffer.h).
-layout(location = 0) out vec4 g_albedo;         // rgba: surface albedo
-layout(location = 1) out vec4 g_normal;         // xyz: world normal
-layout(location = 2) out vec4 g_world_pos;      // xyz: world position
-layout(location = 3) out vec4 g_material;       // r: metallic, g: roughness, b: lighting_mode, a: _
-
-// Forward decl; the batch_builder composer appends either the visual's
-// discard snippet or an empty stub after this fragment's body.
-void velk_visual_discard();
-
-void main()
-{
-    velk_visual_discard();
-    g_albedo      = v_color;
-    g_normal      = vec4(normalize(v_world_normal), 0.0);
-    g_world_pos   = vec4(v_world_pos, 0.0);
-    g_material    = vec4(0.0, 0.5, 1.0 / 255.0 /*Standard*/, 0.0);
-}
-)";
-
-// ===== Material eval-driver fragment templates =====
-// Forward and deferred fragment shaders that materials with a
-// `velk_eval_<name>` body share. The raster-pipeline composer
-// concatenates these with the material's eval_src, vertex_src, and the
-// visual's (optional) discard snippet, then compiles.
-//
-// Each template assumes:
-//   - `velk.glsl` and `velk-ui.glsl` are #included by the composer
-//     (which gives EvalContext / MaterialEval / VELK_LIGHTING_*).
-//   - A literal  <%EVAL_FN%>  is replaced with the material's eval
-//     function name (e.g. "velk_eval_gradient").
-//   - A literal  <%DISCARD%>  is replaced with a float literal for the
-//     alpha-discard threshold.
-//   - The composer emits the eval_src (declares the material's own
-//     buffer_reference types + velk_eval_<name>) BEFORE this template.
-//   - The DrawData buffer_reference here uses OpaquePtr for the
-//     instance and material slots — the fragment doesn't dereference
-//     the typed layouts, it just forwards the material address via
-//     ctx.data_addr and lets the eval's own typed pointer pick it up.
-
-[[maybe_unused]] constexpr string_view forward_fragment_driver_template = R"(
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(OpaquePtr, OpaquePtr)
-    OpaquePtr material;
-};
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 v_local_uv;
-layout(location = 2) flat in vec2 v_size;
-layout(location = 3) in vec3 v_world_pos;
-layout(location = 4) in vec3 v_world_normal;
-layout(location = 5) flat in uint v_shape_param;
-layout(location = 6) in vec2 v_uv1;
-
-layout(location = 0) out vec4 frag_color;
-
-void main()
-{
-    EvalContext ctx;
-    ctx.globals     = root.global_data;
-    ctx.data_addr   = uint64_t(root.material);
-    ctx.texture_id  = root.texture_id;  // per-drawcall, shared by all instances
-    ctx.shape_param = v_shape_param;
-    ctx.uv          = v_local_uv;
-    ctx.uv1         = v_uv1;
-    ctx.base        = v_color;
-    ctx.ray_dir     = normalize(v_world_pos - root.global_data.cam_pos.xyz);
-    ctx.normal      = v_world_normal;
-    ctx.hit_pos     = v_world_pos;
-
-    MaterialEval e = <%EVAL_FN%>(ctx);
-    if (e.color.a < <%DISCARD%>) discard;
-    frag_color = e.color;
-}
-)";
-
-[[maybe_unused]] constexpr string_view deferred_fragment_driver_template = R"(
-layout(buffer_reference, std430) readonly buffer DrawData {
-    VELK_DRAW_DATA(OpaquePtr, OpaquePtr)
-    OpaquePtr material;
-};
-layout(push_constant) uniform PC { DrawData root; };
-
-layout(location = 0) in vec4 v_color;
-layout(location = 1) in vec2 v_local_uv;
-layout(location = 2) flat in vec2 v_size;
-layout(location = 3) in vec3 v_world_pos;
-layout(location = 4) in vec3 v_world_normal;
-layout(location = 5) flat in uint v_shape_param;
-layout(location = 6) in vec2 v_uv1;
-
-layout(location = 0) out vec4 g_albedo;
-layout(location = 1) out vec4 g_normal;
-layout(location = 2) out vec4 g_world_pos;
-layout(location = 3) out vec4 g_material;
-
-// Composer appends either the visual's discard snippet or an empty stub.
-void velk_visual_discard();
-
-void main()
-{
-    velk_visual_discard();
-
-    EvalContext ctx;
-    ctx.globals     = root.global_data;
-    ctx.data_addr   = uint64_t(root.material);
-    ctx.texture_id  = root.texture_id;
-    ctx.shape_param = v_shape_param;
-    ctx.uv          = v_local_uv;
-    ctx.uv1         = v_uv1;
-    ctx.base        = v_color;
-    ctx.ray_dir     = normalize(v_world_pos - root.global_data.cam_pos.xyz);
-    ctx.normal      = v_world_normal;
-    ctx.hit_pos     = v_world_pos;
-
-    MaterialEval e = <%EVAL_FN%>(ctx);
-    if (e.color.a < <%DISCARD%>) discard;
-
-    vec3 N = normalize(length(e.normal) > 0.0 ? e.normal : v_world_normal);
-    g_albedo    = e.color;
-    g_normal    = vec4(N, 0.0);
-    g_world_pos = vec4(v_world_pos, 0.0);
-    g_material  = vec4(e.metallic, e.roughness, float(e.lighting_mode) / 255.0, 0.0);
-}
-)";
-
-/**
- * @brief Composes a full fragment shader from a driver template and a
- *        material's eval source.
- *
- * Substitutes `<%EVAL_FN%>` with @p eval_fn and `<%DISCARD%>` with a
- * float literal of @p discard_threshold, then prepends a preamble
- * (`#version`, shared includes) and the material's @p eval_src. The
- * result is the complete fragment source ready for `compile_pipeline`.
- */
-inline string compose_eval_fragment(string_view driver_template,
-                                    string_view eval_src,
-                                    string_view eval_fn,
-                                    float discard_threshold)
-{
-    string out;
-    out.append(string_view("#version 450\n"
-                           "#define VELK_RASTER 1\n"
-                           "#include \"velk.glsl\"\n"
-                           "#include \"velk-ui.glsl\"\n"));
-    out.append(eval_src);
-    out.append(string_view("\n"));
-
-    char thr_buf[32];
-    int tn = std::snprintf(thr_buf, sizeof(thr_buf), "%f", discard_threshold);
-    string_view thr(thr_buf, tn > 0 ? static_cast<size_t>(tn) : 0);
-
-    // Tiny placeholder replacement: scan for <%EVAL_FN%> and <%DISCARD%>.
-    size_t i = 0;
-    while (i < driver_template.size()) {
-        if (i + 10 <= driver_template.size()
-            && std::memcmp(driver_template.data() + i, "<%EVAL_FN%>", 11) == 0) {
-            out.append(eval_fn);
-            i += 11;
-        } else if (i + 11 <= driver_template.size()
-                   && std::memcmp(driver_template.data() + i, "<%DISCARD%>", 11) == 0) {
-            out.append(thr);
-            i += 11;
-        } else {
-            out.append(string_view(driver_template.data() + i, 1));
-            ++i;
-        }
-    }
-    return out;
-}
+// Raster default shaders + driver templates + compose_eval_fragment
+// live in <velk-render/frame/raster_shaders.h>. This file holds the
+// scene-side shader bits: the velk-ui GLSL include, the deferred-lighting
+// compute shader, and the RT compute prelude/main.
 
 // Default compute shader for the deferred lighting pass. Samples the
 // G-buffer attachments + light buffer and writes the shaded color to
@@ -1690,6 +1470,139 @@ void main()
                vec4(final * (1.0 / float(kPrimarySamples)), 1.0));
 }
 )";
+
+/**
+ * @brief Composes the full RT compute pipeline source from registered
+ *        material / shadow / intersect snippets.
+ *
+ * RT-side equivalent of compose_eval_fragment. Unlike the raster driver
+ * templates (which substitute a single material's eval function name
+ * via `<%EVAL_FN%>`), the RT pipeline dispatches to every active
+ * material in a switch — so the composer is a procedural builder rather
+ * than a placeholder template. Sections, in order:
+ *
+ *   1. rt_compute_prelude_src                (shared prelude)
+ *   2. material #include lines               (one per active material)
+ *   3. shadow tech #include lines
+ *   4. intersect #include lines
+ *   5. velk_eval_shadow switch               (calls registered shadow snippets)
+ *   6. rt_pbr_shade_src                      (uses velk_eval_shadow)
+ *   7. velk_resolve_fill switch              (calls eval_fn, may call velk_pbr_shade)
+ *   8. intersect_shape switch                (built-in kinds + registered snippets)
+ *   9. rt_compute_main_src                   (primary loop + bounce logic)
+ */
+inline string compose_rt_compute(const IFrameSnippetRegistry& snippets)
+{
+    const auto& material_ids        = snippets.frame_materials();
+    const auto& shadow_tech_ids     = snippets.frame_shadow_techs();
+    const auto& intersect_ids       = snippets.frame_intersects();
+    const auto& material_info       = snippets.material_info_by_id();
+    const auto& shadow_tech_info    = snippets.shadow_tech_info_by_id();
+    const auto& intersect_info      = snippets.intersect_info_by_id();
+
+    string src;
+    src += rt_compute_prelude_src;
+    for (auto id : material_ids) {
+        if (id == 0 || id > material_info.size()) continue;
+        const auto& mi = material_info[id - 1];
+        src += string_view("#include \"", 10);
+        src += mi.include_name;
+        src += string_view("\"\n", 2);
+    }
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        src += string_view("#include \"", 10);
+        src += ti.include_name;
+        src += string_view("\"\n", 2);
+    }
+    for (auto id : intersect_ids) {
+        if (id < 3 || id - 3 >= intersect_info.size()) continue;
+        const auto& ii = intersect_info[id - 3];
+        src += string_view("#include \"", 10);
+        src += ii.include_name;
+        src += string_view("\"\n", 2);
+    }
+
+    auto append_literal = [&src](const char* s) {
+        src += string_view(s, std::strlen(s));
+    };
+
+    char buf[128];
+
+    // velk_eval_shadow: dispatch by shadow_tech id.
+    append_literal("float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal) {\n");
+    append_literal("    switch (tech_id) {\n");
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ti.fn_name;
+        append_literal("(light_idx, world_pos, world_normal);\n");
+    }
+    append_literal("        default: return 1.0;\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    // Shared PBR shading helper — defined after velk_eval_shadow (which
+    // it calls) and before velk_resolve_fill (which calls it for Lit
+    // materials).
+    src += rt_pbr_shade_src;
+
+    // velk_resolve_fill: dispatch by material id; route Lit through
+    // velk_pbr_shade and Unlit straight to emission.
+    append_literal("BrdfSample velk_resolve_fill(uint mid, EvalContext ctx) {\n");
+    append_literal("    switch (mid) {\n");
+    for (auto id : material_ids) {
+        if (id == 0 || id > material_info.size()) continue;
+        const auto& mi = material_info[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: { MaterialEval e = ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += mi.fn_name;
+        append_literal("(ctx);"
+                       " if (e.lighting_mode == VELK_LIGHTING_STANDARD)"
+                       " return velk_pbr_shade(e, ctx);"
+                       " BrdfSample bs;"
+                       " bs.emission = e.color;"
+                       " bs.throughput = vec3(0.0);"
+                       " bs.next_dir = vec3(0.0);"
+                       " bs.terminate = true;"
+                       " bs.sample_count_hint = 1u;"
+                       " return bs; }\n");
+    }
+    append_literal("        default: { BrdfSample bs; bs.emission = ctx.base; bs.throughput = vec3(0.0); bs.next_dir = vec3(0.0); bs.terminate = true; bs.sample_count_hint = 1u; return bs; }\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    // intersect_shape: built-in rect/cube/sphere/mesh kinds + registered
+    // visual-contributed kinds (3+).
+    append_literal("bool intersect_shape(Ray ray, RtShape shape, out RayHit hit) {\n");
+    append_literal("    switch (shape.shape_kind) {\n");
+    append_literal("        case 1u: return intersect_cube(ray, shape, hit);\n");
+    append_literal("        case 2u: return intersect_sphere(ray, shape, hit);\n");
+    append_literal("        case 255u: return intersect_mesh(ray, shape, hit);\n");
+    for (auto id : intersect_ids) {
+        if (id < 3 || id - 3 >= intersect_info.size()) continue;
+        const auto& ii = intersect_info[id - 3];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ii.fn_name;
+        append_literal("(ray, shape, hit);\n");
+    }
+    append_literal("        default: return intersect_rect(ray, shape, hit);\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
+    src += rt_compute_main_src;
+    return src;
+}
 
 } // namespace velk
 
