@@ -100,7 +100,7 @@ void DeferredPath::build_passes(ViewEntry& entry,
                                 const RenderView& render_view,
                                 IRenderTarget::Ptr color_target,
                                 FrameContext& ctx,
-                                vector<RenderPass>& out_passes)
+                                IRenderGraph& graph)
 {
     if (!ctx.backend || !ctx.frame_buffer || !ctx.material_cache || !ctx.pipeline_map) {
         return;
@@ -112,16 +112,16 @@ void DeferredPath::build_passes(ViewEntry& entry,
     auto gbuffer_group = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
     if (gbuffer_group == 0) return;
 
-    emit_gbuffer_pass(entry, vs, render_view, ctx, out_passes);
+    emit_gbuffer_pass(entry, vs, render_view, ctx, graph);
 
     if (vs.gbuffer_width <= 0 || vs.gbuffer_height <= 0) return;
     emit_lighting_pass(entry, vs, render_view, color_target, ctx,
-                       vs.gbuffer_width, vs.gbuffer_height, out_passes);
+                       vs.gbuffer_width, vs.gbuffer_height, graph);
 }
 
 void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
                                      const RenderView& render_view, FrameContext& ctx,
-                                     vector<RenderPass>& out_passes)
+                                     IRenderGraph& graph)
 {
     if (!render_view.batches) return;
 
@@ -141,7 +141,7 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
     g_pass.viewport = {0, 0, static_cast<float>(vs.gbuffer_width),
                        static_cast<float>(vs.gbuffer_height)};
     g_pass.draw_calls = std::move(gbuffer_draw_calls);
-    out_passes.push_back(std::move(g_pass));
+    graph.add_pass(std::move(g_pass));
 }
 
 void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
@@ -149,7 +149,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
                                       IRenderTarget::Ptr color_target,
                                       FrameContext& ctx,
                                       int w, int h,
-                                      vector<RenderPass>& out_passes)
+                                      IRenderGraph& graph)
 {
     // Allocate / resize the output storage image.
     if (vs.deferred_output_tex != 0 &&
@@ -265,7 +265,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     pass.blit_source = vs.deferred_output_tex;
     pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
     pass.blit_dst_rect = render_view.viewport;
-    out_passes.push_back(std::move(pass));
+    graph.add_pass(std::move(pass));
 }
 
 void DeferredPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)

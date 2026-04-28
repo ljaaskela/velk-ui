@@ -54,6 +54,9 @@ inline constexpr Uid FrameDataManager{"e957caf0-d5d3-4abb-925b-0d12f63dcb30"};
 /** @brief Scene-wide registry of composed shader snippets (materials / shadow techs / intersects). */
 inline constexpr Uid FrameSnippetRegistry{"6a013996-cdfa-4abf-a738-52eaf18d068f"};
 
+/** @brief Per-frame render graph (Tier 1: ordered passes + barrier insertion). */
+inline constexpr Uid RenderGraph{"cdeab6d1-97dc-480a-ae53-4eb0bc184baf"};
+
 namespace Path {
 
 /** @brief Forward shading: classic raster pass over scene batches. Default fallback. */

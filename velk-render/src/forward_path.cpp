@@ -10,7 +10,7 @@ void ForwardPath::build_passes(ViewEntry& entry,
                                const RenderView& render_view,
                                IRenderTarget::Ptr color_target,
                                FrameContext& ctx,
-                               vector<RenderPass>& out_passes)
+                               IRenderGraph& graph)
 {
     if (!ctx.backend || !ctx.frame_buffer || !ctx.material_cache || !ctx.pipeline_map) {
         return;
@@ -51,7 +51,7 @@ void ForwardPath::build_passes(ViewEntry& entry,
     pass.target.target = color_target;
     pass.viewport = render_view.viewport;
     pass.draw_calls = std::move(draw_calls);
-    out_passes.push_back(std::move(pass));
+    graph.add_pass(std::move(pass));
 }
 
 } // namespace velk

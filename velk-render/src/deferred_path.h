@@ -53,7 +53,7 @@ public:
                       const RenderView& render_view,
                       IRenderTarget::Ptr color_target,
                       FrameContext& ctx,
-                      vector<RenderPass>& out_passes) override;
+                      IRenderGraph& graph) override;
 
     void on_view_removed(ViewEntry& view, FrameContext& ctx) override;
     void shutdown(FrameContext& ctx) override;
@@ -91,14 +91,14 @@ private:
 
     void emit_gbuffer_pass(ViewEntry& view, ViewState& vs,
                            const RenderView& render_view, FrameContext& ctx,
-                           vector<RenderPass>& out_passes);
+                           IRenderGraph& graph);
 
     void emit_lighting_pass(ViewEntry& view, ViewState& vs,
                             const RenderView& render_view,
                             IRenderTarget::Ptr color_target,
                             FrameContext& ctx,
                             int w, int h,
-                            vector<RenderPass>& out_passes);
+                            IRenderGraph& graph);
 };
 
 } // namespace velk

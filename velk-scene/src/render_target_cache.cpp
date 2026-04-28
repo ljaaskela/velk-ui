@@ -72,7 +72,7 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
 }
 
 void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_builder,
-                                    vector<RenderPass>& out_passes)
+                                    IRenderGraph& graph)
 {
     if (!ctx.backend || !ctx.frame_buffer || !ctx.pipeline_map) {
         return;
@@ -110,7 +110,7 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         rt_pass.target.target = rte.target;
         rt_pass.viewport = {0, 0, static_cast<float>(rte.width), static_cast<float>(rte.height)};
         rt_pass.draw_calls = std::move(draw_calls);
-        out_passes.push_back(std::move(rt_pass));
+        graph.add_pass(std::move(rt_pass));
         rte.dirty = false;
     }
 }

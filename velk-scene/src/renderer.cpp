@@ -300,7 +300,10 @@ Renderer::FrameSlot* Renderer::claim_frame_slot()
     }
 
     slot->id = next_frame_id_++;
-    slot->passes.clear();
+    if (!slot->graph) {
+        slot->graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
+    }
+    slot->graph->clear();
     return slot;
 }
 
@@ -456,7 +459,10 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
     static constexpr int kMaxRecordRetries = 3;
     for (int attempt = 0;; ++attempt) {
         frame_buffer_->begin_frame(slot.buffer);
-        slot.passes.clear();
+        if (!slot.graph) {
+            slot.graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
+        }
+        slot.graph->clear();
 
         FrameContext ctx = make_frame_context();
 
@@ -594,10 +600,12 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             log_bvh_next_ = false;
         }
 
-        // Per-view passes go into a temp so the shared passes (RTT, etc.)
-        // can be emitted first into slot.passes; shared must render before
-        // any view pass that samples their output.
-        vector<RenderPass> view_passes;
+        // Per-view passes are staged in a local graph so the shared
+        // RTT passes can be added to slot.graph first. Bindless texture
+        // reads from materials are graph-invisible (Tier 1), so RTT-
+        // before-views ordering is enforced by emit order rather than
+        // by graph dependencies.
+        auto view_graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
         for (auto& view_slot : views_) {
             if (!view_matches(view_slot, desc)) {
                 continue;
@@ -670,7 +678,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                     interface_pointer_cast<IRenderTarget>(entry.surface);
                 for (auto& p : pipelines) {
                     seen_pipelines_.insert(p.get());
-                    p->emit(entry, render_view, color_target, ctx, view_passes);
+                    p->emit(entry, render_view, color_target, ctx, *view_graph);
                 }
             }
             ctx.view_camera_trait = nullptr;
@@ -680,9 +688,9 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         // ForwardPath::build_shared_passes). Renderer-side now since
         // RTT is scene-aware (subtrees of IElement) and IRenderPath is
         // moving to velk-render where IElement is not reachable.
-        render_target_cache_.emit_passes(ctx, batch_builder_, slot.passes);
-        for (auto& p : view_passes) {
-            slot.passes.push_back(std::move(p));
+        render_target_cache_.emit_passes(ctx, batch_builder_, *slot.graph);
+        for (auto& gp : view_graph->passes()) {
+            slot.graph->add_pass(std::move(gp));
         }
 
         // Debug overlays: tail-appended so they blit on top of whatever
@@ -694,7 +702,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             op.blit_source = ov.texture_id;
             op.blit_surface_id = ov.surface->get_render_target_id();
             op.blit_dst_rect = ov.dst_rect;
-            slot.passes.push_back(std::move(op));
+            slot.graph->add_pass(std::move(op));
         }
 
         if (!frame_buffer_->overflowed()) {
@@ -774,31 +782,39 @@ void Renderer::present(Frame frame)
             return;
         }
 
-        // Discard older unpresented frames that target overlapping surfaces
+        // Discard older unpresented frames that target overlapping
+        // surfaces. Walks Raster passes (the only kind whose
+        // body.target.target is set today) and drops those whose
+        // target matches any Raster target in the frame being
+        // presented. Tier 2 graph deps will subsume this.
         for (auto& s : frame_slots_) {
             if (!s.ready || s.id >= frame.id) {
                 continue;
             }
-            // Remove passes that overlap with the frame being presented
-            for (auto it = s.passes.begin(); it != s.passes.end();) {
+            if (!s.graph || !target->graph) continue;
+            auto& s_passes = s.graph->passes();
+            auto& t_passes = target->graph->passes();
+            for (auto it = s_passes.begin(); it != s_passes.end();) {
                 bool overlaps = false;
-                uint64_t it_id = get_render_target_id(it->target.target);
-                for (auto& tp : target->passes) {
-                    uint64_t tp_id = get_render_target_id(tp.target.target);
-                    if (it_id == tp_id) {
-                        overlaps = true;
-                        break;
+                uint64_t it_id = get_render_target_id(it->body.target.target);
+                if (it_id != 0) {
+                    for (auto& tp : t_passes) {
+                        uint64_t tp_id = get_render_target_id(tp.body.target.target);
+                        if (tp_id != 0 && it_id == tp_id) {
+                            overlaps = true;
+                            break;
+                        }
                     }
                 }
                 if (overlaps) {
-                    it = s.passes.erase(it);
+                    it = s_passes.erase(it);
                 } else {
                     ++it;
                 }
             }
             // If all passes were removed, mark slot as not ready but preserve presented_at
             // so the buffer isn't reused before the GPU is done with it
-            if (s.passes.empty()) {
+            if (s_passes.empty()) {
                 s.ready = false;
                 s.presented_at = present_counter_ + 1;
             }
@@ -809,95 +825,10 @@ void Renderer::present(Frame frame)
             VELK_PERF_SCOPE("renderer.wait_vsync");
             backend_->begin_frame();
         }
-        bool had_texture_pass = false;
-        for (size_t i = 0; i < target->passes.size(); ++i) {
-            auto& pass = target->passes[i];
-
-            if (pass.kind == PassKind::ComputeBlit) {
-                // Ray-traced view or deferred lighting: dispatch compute
-                // then blit output texture onto the swapchain image.
-                // Barrier target is ComputeShader because this pass
-                // reads prior texture writes from compute, not fragment.
-                if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
-                    had_texture_pass = false;
-                }
-                backend_->dispatch({&pass.compute, 1});
-                backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
-                if (pass.blit_depth_source_group != 0) {
-                    backend_->blit_group_depth_to_surface(
-                        pass.blit_depth_source_group, pass.blit_surface_id, pass.blit_dst_rect);
-                }
-                continue;
-            }
-
-            if (pass.kind == PassKind::Blit) {
-                // Bare blit from a texture (e.g. a G-buffer attachment)
-                // to a surface subrect. Used for debug overlays on top
-                // of whatever was already drawn/blitted to the surface.
-                if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
-                    had_texture_pass = false;
-                }
-                backend_->blit_to_surface(pass.blit_source, pass.blit_surface_id, pass.blit_dst_rect);
-                continue;
-            }
-
-            if (pass.kind == PassKind::Compute) {
-                // Pure compute dispatch (e.g. deferred lighting). Output
-                // consumed by a later pass via sampled image / storage;
-                // no surface blit here.
-                if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::ComputeShader);
-                    had_texture_pass = false;
-                }
-                backend_->dispatch({&pass.compute, 1});
-                continue;
-            }
-
-            if (pass.kind == PassKind::GBufferFill) {
-                // Deferred G-buffer fill: raster-draw into an MRT group.
-                // Produces no surface output on its own; the compute
-                // lighting pass samples these attachments later.
-                if (had_texture_pass) {
-                    backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
-                    had_texture_pass = false;
-                }
-                backend_->begin_pass(pass.gbuffer_group);
-                backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
-                backend_->end_pass();
-                // Attachments transition to SHADER_READ_ONLY_OPTIMAL via
-                // the group's render pass finalLayout; a sampling pass
-                // can read them immediately once a pipeline barrier is
-                // inserted (done by the lighting pass in B.3).
-                had_texture_pass = true;
-                continue;
-            }
-
-            auto* rt = pass.target.target.get();
-            uint64_t pass_target_id = rt ? rt->get_render_target_id() : 0;
-            bool is_texture = rt && rt->get_type() == GpuResourceType::Texture;
-
-            // Insert barrier when transitioning from texture passes to surface pass
-            if (!is_texture && had_texture_pass) {
-                backend_->barrier(PipelineStage::ColorOutput, PipelineStage::FragmentShader);
-                had_texture_pass = false;
-            }
-
-            backend_->begin_pass(pass_target_id);
-
-            RENDER_LOG(
-                "present: submitting %zu draw calls to target %llu", pass.draw_calls.size(), pass_target_id);
-            {
-                VELK_PERF_SCOPE("renderer.submit");
-                backend_->submit({pass.draw_calls.data(), pass.draw_calls.size()}, pass.viewport);
-            }
-
-            backend_->end_pass();
-
-            if (is_texture) {
-                had_texture_pass = true;
-            }
+        target->graph->compile();
+        {
+            VELK_PERF_SCOPE("renderer.submit");
+            target->graph->execute(*backend_);
         }
         {
             VELK_PERF_SCOPE("renderer.end_frame");
@@ -906,7 +837,7 @@ void Renderer::present(Frame frame)
         present_counter_++;
         target->ready = false;
         target->presented_at = present_counter_;
-        target->passes.clear();
+        target->graph->clear();
 
         slot_cv_.notify_one();
     }

@@ -62,7 +62,7 @@ void RtPath::build_passes(ViewEntry& entry,
                              const RenderView& render_view,
                              IRenderTarget::Ptr color_target,
                              FrameContext& ctx,
-                             vector<RenderPass>& out_passes)
+                             IRenderGraph& graph)
 {
     if (!ctx.backend || !ctx.render_ctx || !ctx.frame_buffer || !ctx.resources ||
         !ctx.pipeline_map) {
@@ -240,7 +240,7 @@ void RtPath::build_passes(ViewEntry& entry,
     pass.blit_source = vs.rt_output_tex;
     pass.blit_surface_id = color_target ? color_target->get_render_target_id() : 0;
     pass.blit_dst_rect = render_view.viewport;
-    out_passes.push_back(std::move(pass));
+    graph.add_pass(std::move(pass));
 }
 
 void RtPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)

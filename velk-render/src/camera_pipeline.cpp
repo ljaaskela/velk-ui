@@ -35,10 +35,10 @@ void CameraPipeline::emit(::velk::ViewEntry& view,
                           const ::velk::RenderView& render_view,
                           ::velk::IRenderTarget::Ptr color_target,
                           ::velk::FrameContext& ctx,
-                          ::velk::vector<::velk::RenderPass>& out_passes)
+                          ::velk::IRenderGraph& graph)
 {
     if (auto* path = resolve_path(ctx)) {
-        path->build_passes(view, render_view, color_target, ctx, out_passes);
+        path->build_passes(view, render_view, color_target, ctx, graph);
     }
 }
 

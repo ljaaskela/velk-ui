@@ -38,7 +38,7 @@ public:
               const ::velk::RenderView& render_view,
               ::velk::IRenderTarget::Ptr color_target,
               ::velk::FrameContext& ctx,
-              ::velk::vector<::velk::RenderPass>& out_passes) override;
+              ::velk::IRenderGraph& graph) override;
 
     void on_view_removed(::velk::ViewEntry& view, ::velk::FrameContext& ctx) override;
     void shutdown(::velk::FrameContext& ctx) override;

@@ -5,7 +5,7 @@
 #include <velk/uid.h>
 #include <velk/vector.h>
 
-#include <velk-render/frame/render_pass.h>
+#include <velk-render/frame/intf_render_graph.h>
 #include <velk-render/frame/render_view.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/render_path/frame_context.h>
@@ -73,12 +73,16 @@ public:
      * assume `view.surface`. Today it equals `view.surface`; with
      * post-process chains it becomes an intermediate target; with the
      * future transient pool it becomes a graph-allocated Ptr.
+     *
+     * Passes are appended via `graph.add_pass(...)`. The graph tracks
+     * resource flow and inserts barriers; paths don't need to think
+     * about ordering with other paths or with RTT subtree passes.
      */
     virtual void build_passes(ViewEntry& view,
                               const RenderView& render_view,
                               IRenderTarget::Ptr color_target,
                               FrameContext& ctx,
-                              vector<RenderPass>& out_passes) = 0;
+                              IRenderGraph& graph) = 0;
 
     /** @brief Hook called when a view is removed. Release per-view state. */
     virtual void on_view_removed(ViewEntry& view, FrameContext& ctx) = 0;

@@ -40,7 +40,7 @@ public:
                       const RenderView& render_view,
                       IRenderTarget::Ptr color_target,
                       FrameContext& ctx,
-                      vector<RenderPass>& out_passes) override;
+                      IRenderGraph& graph) override;
 };
 
 } // namespace velk

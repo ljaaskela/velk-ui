@@ -12,6 +12,7 @@
 #include "gpu_resource_manager.h"
 #include "render_target_cache.h"
 #include "view_preparer.h"
+#include <velk-render/frame/intf_render_graph.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/render_path/intf_render_path.h>
 #include <velk-render/render_path/intf_view_pipeline.h>
@@ -71,7 +72,7 @@ private:
     struct FrameSlot
     {
         uint64_t id = 0;
-        vector<RenderPass> passes;
+        IRenderGraph::Ptr graph;
         bool ready = false;
         uint64_t presented_at = 0;
         IFrameDataManager::Slot buffer;

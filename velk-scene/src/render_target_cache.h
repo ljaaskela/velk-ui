@@ -1,7 +1,7 @@
 #ifndef VELK_UI_RENDER_TARGET_CACHE_H
 #define VELK_UI_RENDER_TARGET_CACHE_H
 
-#include <velk-render/frame/render_pass.h>
+#include <velk-render/frame/intf_render_graph.h>
 #include <velk-render/render_path/frame_context.h>
 
 #include <unordered_map>
@@ -38,16 +38,17 @@ public:
     void ensure(FrameContext& ctx, BatchBuilder& batch_builder);
 
     /**
-     * @brief Emits one Raster pass per RTT subtree into @p out_passes.
+     * @brief Emits one Raster pass per RTT subtree into @p graph.
      *
      * Called from Renderer once per frame after every view has finished
      * its build_passes. The emitted passes target the RTT textures, so
-     * they must run before any surface pass that samples them —
-     * Renderer prepends shared passes to the per-view passes for that
-     * reason.
+     * they must run before any surface pass that samples them. Today
+     * RTT consumers read via bindless textures (graph-invisible), so
+     * Renderer continues to call `emit_passes` *before* per-view
+     * pipeline emit to maintain producer-before-consumer ordering.
      */
     void emit_passes(FrameContext& ctx, BatchBuilder& batch_builder,
-                     vector<RenderPass>& out_passes);
+                     IRenderGraph& graph);
 
     /** @brief Releases the cached entry for @p elem, if any. */
     void on_element_removed(IElement* elem, FrameContext& ctx);

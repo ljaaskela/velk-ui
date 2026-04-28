@@ -3,6 +3,7 @@
 #include "camera_pipeline.h"
 #include "deferred_path.h"
 #include "forward_path.h"
+#include "render_graph.h"
 #include "material_property.h"
 #include "mesh.h"
 #include "mesh_buffer.h"
@@ -57,6 +58,9 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     // so the auto-attach create<>() succeeds. ScenePlugin lists
     // RenderPlugin as a dep so this ordering holds.
     rv &= register_type<impl::CameraPipeline>(velk);
+
+    // Per-frame render graph. Renderer creates one per FrameSlot.
+    rv &= register_type<impl::RenderGraph>(velk);
     return rv;
 }
 
