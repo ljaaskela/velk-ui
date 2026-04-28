@@ -4,6 +4,8 @@
 #include <velk/api/state.h>
 
 #include <velk-render/interface/intf_camera.h>
+#include <velk-render/interface/intf_view_pipeline.h>
+#include <velk-scene/api/post_process.h>
 #include <velk-scene/api/render_path.h>
 #include <velk-scene/api/render_trait.h>
 #include <velk-scene/plugin.h>
@@ -42,6 +44,28 @@ public:
     {
         return path ? remove_attachment(static_cast<IRenderPath::Ptr>(path))
                     : ReturnValue::InvalidArgument;
+    }
+
+    /// Attaches a post-process (or chain) to this camera's default
+    /// view pipeline. Convenience for the common case; users with
+    /// custom IViewPipelines attach directly via the pipeline trait.
+    ReturnValue add_post_process(const PostProcess& post)
+    {
+        if (!post) return ReturnValue::InvalidArgument;
+        auto pipeline = find_attachment<IViewPipeline>();
+        if (!pipeline) return ReturnValue::Fail;
+        return Object(as_object(pipeline)).add_attachment(
+            static_cast<IPostProcess::Ptr>(post));
+    }
+
+    /// Removes a previously attached post-process from the default pipeline.
+    ReturnValue remove_post_process(const PostProcess& post)
+    {
+        if (!post) return ReturnValue::InvalidArgument;
+        auto pipeline = find_attachment<IViewPipeline>();
+        if (!pipeline) return ReturnValue::Fail;
+        return Object(as_object(pipeline)).remove_attachment(
+            static_cast<IPostProcess::Ptr>(post));
     }
 
     auto get_zoom() const { return read_state_value<ICamera>(&ICamera::State::zoom); }

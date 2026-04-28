@@ -59,7 +59,7 @@ public:
     DepthFormat get_depth_format() const override { return depth_format_; }
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }
 
-    void set_size(uint32_t w, uint32_t h) { size_ = {w, h}; }
+    void set_size(uint32_t w, uint32_t h) override { size_ = {w, h}; }
     void set_format(PixelFormat fmt) { format_ = fmt; }
 
     // IRenderTextureGroup

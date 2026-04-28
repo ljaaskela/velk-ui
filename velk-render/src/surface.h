@@ -27,6 +27,9 @@ public:
     DepthFormat get_depth_format() const override { return depth_format_; }
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }
 
+    // Window surfaces get their size from system events; no-op here.
+    void set_size(uint32_t /*w*/, uint32_t /*h*/) override {}
+
 private:
     PixelFormat format_ = PixelFormat::RGBA8;
     DepthFormat depth_format_ = DepthFormat::None;

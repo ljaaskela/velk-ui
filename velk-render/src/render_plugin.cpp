@@ -3,8 +3,10 @@
 #include "camera_pipeline.h"
 #include "deferred_path.h"
 #include "forward_path.h"
+#include "post_process.h"
 #include "render_graph.h"
 #include "render_texture_group.h"
+#include "tonemap.h"
 #include "material_property.h"
 #include "mesh.h"
 #include "mesh_buffer.h"
@@ -63,6 +65,10 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
 
     // Per-frame render graph. Renderer creates one per FrameSlot.
     rv &= register_type<impl::RenderGraph>(velk);
+
+    // Post-processing: container + first built-in effect.
+    rv &= register_type<impl::PostProcess>(velk);
+    rv &= register_type<impl::Tonemap>(velk);
     return rv;
 }
 
