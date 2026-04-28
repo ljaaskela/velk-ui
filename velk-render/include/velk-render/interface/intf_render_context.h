@@ -7,8 +7,8 @@
 #include <unordered_map>
 #include <velk-render/frame/batch.h>
 #include <velk-render/frame/draw_call_emit.h>
-#include <velk-render/frame/intf_frame_data_manager.h>
-#include <velk-render/frame/intf_gpu_resource_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/frustum.h>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/intf_gpu_resource.h>

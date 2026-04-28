@@ -4,7 +4,7 @@
 #include <velk/string.h>
 #include <velk/string_view.h>
 
-#include <velk-render/frame/intf_frame_snippet_registry.h>
+#include <velk-render/interface/intf_frame_snippet_registry.h>
 #include <velk-render/frame/raster_shaders.h>
 
 #include <cstdio>

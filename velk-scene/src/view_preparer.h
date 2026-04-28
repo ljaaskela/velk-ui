@@ -9,7 +9,7 @@
 #include <velk-render/frame/render_view.h>
 #include <velk-scene/interface/intf_scene_observer.h>
 #include <velk-render/render_path/frame_context.h>
-#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/interface/intf_render_path.h>
 #include <velk-scene/interface/intf_element.h>
 #include <velk-render/render_path/view_entry.h>
 

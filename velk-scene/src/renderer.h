@@ -12,10 +12,10 @@
 #include "gpu_resource_manager.h"
 #include "render_target_cache.h"
 #include "view_preparer.h"
-#include <velk-render/frame/intf_render_graph.h>
+#include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/render_path/frame_context.h>
-#include <velk-render/render_path/intf_render_path.h>
-#include <velk-render/render_path/intf_view_pipeline.h>
+#include <velk-render/interface/intf_render_path.h>
+#include <velk-render/interface/intf_view_pipeline.h>
 #include <velk-render/render_path/view_entry.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/gpu_data.h>

@@ -5,11 +5,11 @@
 #include <velk/uid.h>
 #include <velk/vector.h>
 
-#include <velk-render/frame/intf_render_graph.h>
+#include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/frame/render_view.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/render_path/frame_context.h>
-#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/interface/intf_render_path.h>
 #include <velk-render/render_path/view_entry.h>
 
 namespace velk {

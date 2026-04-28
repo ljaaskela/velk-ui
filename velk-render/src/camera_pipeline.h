@@ -3,8 +3,8 @@
 
 #include <velk-render/plugin.h>
 #include <velk-render/ext/view_pipeline.h>
-#include <velk-render/render_path/intf_render_path.h>
-#include <velk-render/render_path/intf_view_pipeline.h>
+#include <velk-render/interface/intf_render_path.h>
+#include <velk-render/interface/intf_view_pipeline.h>
 
 namespace velk::impl {
 

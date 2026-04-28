@@ -3,7 +3,7 @@
 
 #include <velk/ext/core_object.h>
 
-#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/interface/intf_render_path.h>
 
 namespace velk::ext {
 

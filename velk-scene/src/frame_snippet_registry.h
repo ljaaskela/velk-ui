@@ -7,7 +7,7 @@
 
 #include <unordered_map>
 
-#include <velk-render/frame/intf_frame_snippet_registry.h>
+#include <velk-render/interface/intf_frame_snippet_registry.h>
 #include <velk-render/plugin.h>
 
 namespace velk {

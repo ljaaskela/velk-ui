@@ -6,7 +6,7 @@
 #include <velk/api/velk.h>
 #include <velk/ext/object.h>
 
-#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
 #include <velk-render/interface/intf_bvh.h>
 #include <velk-scene/plugin.h>
 

@@ -5,7 +5,7 @@
 
 #include <unordered_map>
 
-#include <velk-render/frame/intf_render_graph.h>
+#include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/plugin.h>
 
 namespace velk::impl {

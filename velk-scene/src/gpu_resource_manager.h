@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <mutex>
 
-#include <velk-render/frame/intf_gpu_resource_manager.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/plugin.h>

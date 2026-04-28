@@ -5,7 +5,7 @@
 
 #include <unordered_map>
 
-#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_texture_resolver.h>

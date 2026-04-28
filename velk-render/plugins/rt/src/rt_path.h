@@ -9,7 +9,7 @@
 #include <velk-render/plugin.h>
 #include <velk-render/ext/render_path.h>
 #include <velk-render/render_path/frame_context.h>
-#include <velk-render/render_path/intf_render_path.h>
+#include <velk-render/interface/intf_render_path.h>
 #include <velk-render/render_path/view_entry.h>
 
 namespace velk {

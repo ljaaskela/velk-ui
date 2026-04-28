@@ -3,7 +3,7 @@
 
 #include <velk/ext/core_object.h>
 
-#include <velk-render/frame/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
 #include <velk-render/plugin.h>
 
 #include <cstdint>

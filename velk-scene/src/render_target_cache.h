@@ -1,7 +1,7 @@
 #ifndef VELK_UI_RENDER_TARGET_CACHE_H
 #define VELK_UI_RENDER_TARGET_CACHE_H
 
-#include <velk-render/frame/intf_render_graph.h>
+#include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/render_path/frame_context.h>
 
 #include <unordered_map>

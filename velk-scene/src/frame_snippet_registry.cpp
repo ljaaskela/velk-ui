@@ -2,8 +2,8 @@
 
 #include <velk/api/object.h>
 #include <velk/api/velk.h>
-#include <velk-render/frame/intf_frame_data_manager.h>
-#include <velk-render/frame/intf_gpu_resource_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_analytic_shape.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/material/intf_material.h>

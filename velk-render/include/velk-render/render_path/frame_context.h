@@ -6,9 +6,9 @@
 #include <velk/interface/intf_interface.h>
 
 #include <velk-render/frame/draw_call_emit.h>
-#include <velk-render/frame/intf_frame_data_manager.h>
-#include <velk-render/frame/intf_frame_snippet_registry.h>
-#include <velk-render/frame/intf_gpu_resource_manager.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_frame_snippet_registry.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_gpu_resource.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>

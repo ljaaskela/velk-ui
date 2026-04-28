@@ -80,24 +80,25 @@ add_library(velk_render SHARED
     include/velk-render/api/render_technique.h
     include/velk-render/api/shadow_technique.h
 
-    # Frame plumbing (per-frame runtime interfaces + shared types)
-    include/velk-render/frame/intf_gpu_resource_manager.h
-    include/velk-render/frame/intf_frame_data_manager.h
-    include/velk-render/frame/intf_frame_snippet_registry.h
-    include/velk-render/frame/render_pass.h
-    include/velk-render/frame/intf_render_graph.h
+    # Per-frame runtime interfaces (interfaces under interface/, shared
+    # types stay in frame/)
+    include/velk-render/interface/intf_gpu_resource_manager.h
+    include/velk-render/interface/intf_frame_data_manager.h
+    include/velk-render/interface/intf_frame_snippet_registry.h
+    include/velk-render/interface/intf_render_graph.h
     src/render_graph.h
     src/render_graph.cpp
+    include/velk-render/frame/render_pass.h
     include/velk-render/frame/batch.h
     include/velk-render/frame/draw_call_emit.h
     include/velk-render/frame/raster_shaders.h
     include/velk-render/frame/compute_shaders.h
     include/velk-render/frame/render_view.h
 
-    # Render paths (public interface + types live in render_path/;
-    # concrete impls in src/)
-    include/velk-render/render_path/intf_render_path.h
-    include/velk-render/render_path/intf_view_pipeline.h
+    # Render-path interfaces (under interface/) + shared types
+    # (render_path/) + ext:: CRTP helpers (ext/); concrete impls in src/
+    include/velk-render/interface/intf_render_path.h
+    include/velk-render/interface/intf_view_pipeline.h
     include/velk-render/render_path/view_entry.h
     include/velk-render/render_path/frame_context.h
     include/velk-render/ext/render_path.h
