@@ -21,6 +21,53 @@
 namespace velk {
 
 /**
+ * @brief Cache key for compiled pipelines.
+ *
+ * Pipelines are uniquely identified by the tuple
+ * `(user_key, target_format, target_group)`. The user-facing API still
+ * exposes the user-key as a `uint64_t`; lookups reconstruct the full
+ * key from the active path's render target description.
+ *
+ * - `user_key`: stable id chosen by the caller (visual / material /
+ *   built-in `PipelineKey::*`) or auto-assigned when 0.
+ * - `target_format`: the color attachment format the pipeline was
+ *   compiled against. `PixelFormat::Surface` for swapchain / RTT
+ *   targets that follow the surface; explicit format for HDR or
+ *   other non-default render targets.
+ * - `target_group`: non-zero for MRT (G-buffer) variants. Compute
+ *   pipelines and forward raster pipelines use 0.
+ */
+struct PipelineCacheKey
+{
+    uint64_t user_key = 0;
+    PixelFormat target_format = PixelFormat::Surface;
+    RenderTargetGroup target_group = 0;
+
+    bool operator==(const PipelineCacheKey& o) const noexcept
+    {
+        return user_key == o.user_key
+            && target_format == o.target_format
+            && target_group == o.target_group;
+    }
+};
+
+struct PipelineCacheKeyHash
+{
+    size_t operator()(const PipelineCacheKey& k) const noexcept
+    {
+        size_t h = std::hash<uint64_t>{}(k.user_key);
+        h ^= std::hash<uint8_t>{}(static_cast<uint8_t>(k.target_format))
+             + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        h ^= std::hash<uint64_t>{}(static_cast<uint64_t>(k.target_group))
+             + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+using PipelineCacheMap =
+    std::unordered_map<PipelineCacheKey, PipelineId, PipelineCacheKeyHash>;
+
+/**
  * @brief Owns the render backend and provides rendering infrastructure.
  *
  * The context is created via create_render_context(). It loads the backend
@@ -69,19 +116,23 @@ public:
      */
     virtual uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
                                      uint64_t key = 0,
+                                     PixelFormat target_format = PixelFormat::Surface,
                                      RenderTargetGroup target_group = 0,
                                      const PipelineOptions& options = {}) = 0;
 
     /**
      * @brief Convenience: compiles GLSL shaders and creates the pipeline in one call.
      *
-     * Empty sources are substituted with the registered defaults. If
-     * @p target_group is non-zero, the pipeline is compiled against that
-     * MRT group's render pass (for G-buffer fills); otherwise against
-     * the single-attachment swapchain render pass.
+     * Empty sources are substituted with the registered defaults.
+     * @p target_format is the color attachment format the pipeline will
+     * render into (`Surface` to follow the swapchain). When
+     * @p target_group is non-zero the pipeline is compiled against that
+     * MRT group's render pass; otherwise against the single-attachment
+     * render pass for @p target_format.
      */
     virtual uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
                                       uint64_t key = 0,
+                                      PixelFormat target_format = PixelFormat::Surface,
                                       RenderTargetGroup target_group = 0,
                                       const PipelineOptions& options = {}) = 0;
 
@@ -128,18 +179,19 @@ public:
     /** @brief Returns the default G-buffer fragment shader (may be null). */
     virtual IShader::Ptr get_default_gbuffer_fragment_shader() const = 0;
 
-    /** @brief Returns the mapping from pipeline keys to backend PipelineId handles. */
-    virtual const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const = 0;
+    /** @brief Returns the mapping from pipeline cache keys to backend PipelineId handles. */
+    virtual const PipelineCacheMap& pipeline_map() const = 0;
 
     /**
-     * @brief Returns the parallel mapping from pipeline keys to G-buffer
-     *        PipelineId handles. Populated by compile_gbuffer_pipeline().
+     * @brief Returns the parallel mapping from pipeline cache keys to
+     *        G-buffer PipelineId handles. Populated by
+     *        compile_gbuffer_pipeline().
      *
      * G-buffer variants are compiled on-demand once per (forward key,
      * target group) combination — render passes of distinct groups are
      * compatible (same formats) so a single pipeline works across views.
      */
-    virtual const std::unordered_map<uint64_t, PipelineId>& gbuffer_pipeline_map() const = 0;
+    virtual const PipelineCacheMap& gbuffer_pipeline_map() const = 0;
 
     /**
      * @brief Compiles a G-buffer pipeline variant for the given pipeline
@@ -205,6 +257,7 @@ public:
         IFrameDataManager& frame_data,
         IGpuResourceManager& resources,
         uint64_t globals_gpu_addr,
+        PixelFormat target_format,
         IGpuResourceObserver* observer,
         MaterialAddrCache& material_cache,
         const ::velk::render::Frustum* frustum = nullptr) = 0;

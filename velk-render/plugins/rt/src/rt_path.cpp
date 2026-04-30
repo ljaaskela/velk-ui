@@ -121,7 +121,8 @@ void RtPath::build_passes(ViewEntry& entry,
     if (rt_pipeline_key == 0) {
         return;
     }
-    auto pit = ctx.pipeline_map->find(rt_pipeline_key);
+    auto pit = ctx.pipeline_map->find(
+        PipelineCacheKey{rt_pipeline_key, PixelFormat::Surface, 0});
     if (pit == ctx.pipeline_map->end()) {
         return;
     }

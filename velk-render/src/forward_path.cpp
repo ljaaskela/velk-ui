@@ -30,8 +30,8 @@ void ForwardPath::build_passes(ViewEntry& entry,
         env_batches.push_back(render_view.env_batch);
         auto env_draws = ctx.render_ctx->build_draw_calls(
             env_batches, *ctx.frame_buffer, *ctx.resources,
-            render_view.frame_globals_addr, ctx.observer, mcache,
-            /*frustum=*/nullptr);
+            render_view.frame_globals_addr, ctx.target_format,
+            ctx.observer, mcache, /*frustum=*/nullptr);
         for (auto& dc : env_draws) {
             draw_calls.push_back(std::move(dc));
         }
@@ -41,7 +41,8 @@ void ForwardPath::build_passes(ViewEntry& entry,
     if (render_view.batches && !render_view.batches->empty()) {
         auto main_draws = ctx.render_ctx->build_draw_calls(
             *render_view.batches, *ctx.frame_buffer, *ctx.resources,
-            render_view.frame_globals_addr, ctx.observer, mcache, frustum_ptr);
+            render_view.frame_globals_addr, ctx.target_format,
+            ctx.observer, mcache, frustum_ptr);
         for (auto& dc : main_draws) {
             draw_calls.push_back(std::move(dc));
         }

@@ -22,7 +22,10 @@ constexpr ::velk::string_view tonemap_compute_src = R"(
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 1, rgba8) uniform writeonly image2D gStorageImages[];
+// Tonemap reads HDR (RGBA16F path target) and writes the clamped LDR
+// result back into a RGBA16F storage target. The pipeline blits that
+// to the swapchain's BGRA8 image as a single GPU op.
+layout(set = 0, binding = 3, rgba16f) uniform image2D gStorageImagesF16[];
 
 layout(push_constant) uniform PC {
     uint input_tex_id;
@@ -48,7 +51,7 @@ void main()
     vec2 uv = (vec2(coord) + 0.5) / vec2(float(pc.width), float(pc.height));
     vec4 src = velk_texture(pc.input_tex_id, uv);
     vec3 mapped = tonemap_aces(src.rgb);
-    imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord,
+    imageStore(gStorageImagesF16[nonuniformEXT(pc.output_image_id)], coord,
                vec4(mapped, src.a));
 }
 )";
@@ -88,7 +91,8 @@ void Tonemap::emit(::velk::ViewEntry& /*view*/,
 
     uint64_t pipeline_key = ensure_pipeline(ctx);
     if (pipeline_key == 0) return;
-    auto pit = ctx.pipeline_map->find(pipeline_key);
+    auto pit = ctx.pipeline_map->find(
+        ::velk::PipelineCacheKey{pipeline_key, ::velk::PixelFormat::Surface, 0});
     if (pit == ctx.pipeline_map->end()) return;
 
     /// Push constant layout matches the shader's `PC` block above.

@@ -25,10 +25,12 @@ public:
                                 uint64_t key = 0) override;
     uint64_t create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
                              uint64_t key = 0,
+                             PixelFormat target_format = PixelFormat::Surface,
                              RenderTargetGroup target_group = 0,
                              const PipelineOptions& options = {}) override;
     uint64_t compile_pipeline(string_view fragment_source, string_view vertex_source,
                               uint64_t key = 0,
+                              PixelFormat target_format = PixelFormat::Surface,
                               RenderTargetGroup target_group = 0,
                               const PipelineOptions& options = {}) override;
     uint64_t create_compute_pipeline(const IShader::Ptr& compute, uint64_t key = 0) override;
@@ -45,9 +47,9 @@ public:
 
     void register_shader_include(string_view name, string_view content) override;
 
-    const std::unordered_map<uint64_t, PipelineId>& pipeline_map() const override { return pipeline_map_; }
+    const PipelineCacheMap& pipeline_map() const override { return pipeline_map_; }
 
-    const std::unordered_map<uint64_t, PipelineId>& gbuffer_pipeline_map() const override
+    const PipelineCacheMap& gbuffer_pipeline_map() const override
     {
         return gbuffer_pipeline_map_;
     }
@@ -69,6 +71,7 @@ public:
         IFrameDataManager& frame_data,
         IGpuResourceManager& resources,
         uint64_t globals_gpu_addr,
+        PixelFormat target_format,
         IGpuResourceObserver* observer,
         MaterialAddrCache& material_cache,
         const ::velk::render::Frustum* frustum = nullptr) override;
@@ -87,14 +90,14 @@ private:
     IRenderBackend::Ptr backend_;
     IMeshBuilder::Ptr mesh_builder_;
     IMeshBuffer::Ptr default_uv1_;
-    std::unordered_map<uint64_t, PipelineId> pipeline_map_;
+    PipelineCacheMap pipeline_map_;
     ShaderIncludeMap shader_includes_;
     mutable ShaderCache shader_cache_;
     IShader::Ptr default_vertex_shader_;
     IShader::Ptr default_fragment_shader_;
     IShader::Ptr default_gbuffer_vertex_shader_;
     IShader::Ptr default_gbuffer_fragment_shader_;
-    std::unordered_map<uint64_t, PipelineId> gbuffer_pipeline_map_;
+    PipelineCacheMap gbuffer_pipeline_map_;
     uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
     bool initialized_ = false;
 };

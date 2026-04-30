@@ -59,7 +59,9 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
             TextureDesc tdesc{};
             tdesc.width = w;
             tdesc.height = h;
-            tdesc.format = PixelFormat::RGBA8;
+            // Element-cache RTT must match the surface format so the
+            // swapchain-compiled UI pipelines remain render-pass compatible.
+            tdesc.format = PixelFormat::Surface;
             tdesc.usage = TextureUsage::RenderTarget;
             rte.texture_id = ctx.backend->create_texture(tdesc);
             rte.width = w;
@@ -98,11 +100,15 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         rt_globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         uint64_t globals_gpu_addr = ctx.frame_buffer->write(&rt_globals, sizeof(rt_globals));
 
+        // RTT element cache uses surface-format render textures (see
+        // ensure(): tdesc.format = Surface). Pipelines look up under
+        // target_format = Surface regardless of the active scene format.
         auto draw_calls = ctx.render_ctx->build_draw_calls(
             rtp.batches,
             *ctx.frame_buffer,
             *ctx.resources,
             globals_gpu_addr,
+            PixelFormat::Surface,
             ctx.observer,
             *ctx.material_cache);
 

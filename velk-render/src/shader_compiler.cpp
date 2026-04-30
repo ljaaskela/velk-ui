@@ -127,6 +127,14 @@ layout(buffer_reference, std430) readonly buffer OpaquePtr { uint _dummy; };
 // texture by index rather than declaring their own samplers.
 layout(set = 0, binding = 0) uniform sampler2D velk_textures[];
 
+// Storage-image arrays for compute imageStore are declared locally
+// per-shader (rgba8 -> binding 1, rgba32f -> binding 2, rgba16f ->
+// binding 3) rather than here. Putting them in the prelude leaks the
+// declarations into fragment shaders that #include velk.glsl, which
+// then reflect those bindings into the pipeline layout — but the
+// descriptor set layout marks bindings 1..3 as COMPUTE-only, so the
+// resulting layout mismatch silently breaks pipeline creation.
+
 // Sample the bindless texture array by id. nonuniformEXT is always
 // required because texture ids vary per draw / per shape.
 vec4 velk_texture(uint id, vec2 uv)

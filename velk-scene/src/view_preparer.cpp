@@ -2,6 +2,7 @@
 
 #include "batch_builder.h"
 #include "env_helper.h"
+#include "pipeline_options_helpers.h"
 #include "scene_collector.h"
 
 #include <velk/api/perf.h>
@@ -229,7 +230,20 @@ void ViewPreparer::prepare_env(const IElement::Ptr& camera_element, FrameContext
         rv.env_batch.material = env_mat;
         if (auto quad = ctx.render_ctx->get_mesh_builder().get_unit_quad()) {
             auto prims = quad->get_primitives();
-            if (prims.size() > 0) rv.env_batch.primitive = prims[0];
+            if (prims.size() > 0) {
+                rv.env_batch.primitive = prims[0];
+                // Lazy compile in build_draw_calls reads
+                // pipeline_options off the batch — set topology to
+                // match the quad and pull cull/blend/depth from the
+                // env material's options. PipelineOptions defaults
+                // (TriangleList, alpha blend) would mis-compile the
+                // strip-quad and draw only one triangle.
+                rv.env_batch.pipeline_options =
+                    pipeline_options_from_storage(
+                        interface_cast<IObjectStorage>(env_mat.get()));
+                rv.env_batch.pipeline_options.topology =
+                    to_backend_topology(prims[0]->get_topology());
+            }
         }
     }
 }

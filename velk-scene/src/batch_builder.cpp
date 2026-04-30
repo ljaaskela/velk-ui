@@ -1,5 +1,7 @@
 #include "batch_builder.h"
 
+#include "pipeline_options_helpers.h"
+
 #include <velk/api/perf.h>
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
@@ -26,38 +28,6 @@ namespace {
 uint64_t make_batch_key(uint64_t pipeline, uint64_t mesh, uint64_t texture)
 {
     return (pipeline * 31 + mesh) * 31 + texture;
-}
-
-// Builds PipelineOptions from an attached IMaterialOptions. Storage is
-// either the material (IProgram) or, when there is no material, the
-// visual itself — so visuals like CubeVisual that attach their own
-// options still drive pipeline state. If no options are attached,
-// the PipelineOptions defaults (2D-safe: no cull, alpha blend, no depth)
-// apply; topology must still be set explicitly by the caller.
-velk::PipelineOptions pipeline_options_from_storage(velk::IObjectStorage* storage)
-{
-    velk::PipelineOptions o{};
-    if (!storage) return o;
-    auto opts = storage->template find_attachment<velk::IMaterialOptions>();
-    if (!opts) return o;
-    auto r = velk::read_state<velk::IMaterialOptions>(opts.get());
-    if (!r) return o;
-    o.cull_mode = r->cull_mode;
-    o.front_face = r->front_face;
-    // Mask and Opaque both write opaquely; Blend alpha-blends.
-    o.blend_mode = (r->alpha_mode == velk::AlphaMode::Blend)
-                       ? velk::BlendMode::Alpha
-                       : velk::BlendMode::Opaque;
-    o.depth_test = r->depth_test;
-    o.depth_write = r->depth_write;
-    return o;
-}
-
-velk::Topology to_backend_topology(velk::MeshTopology mt)
-{
-    return mt == velk::MeshTopology::TriangleStrip
-             ? velk::Topology::TriangleStrip
-             : velk::Topology::TriangleList;
 }
 
 } // namespace
@@ -142,29 +112,14 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
 
-        // Ensure the visual's built-in pipeline is compiled. Empty shader
-        // sources on the visual fall back to the renderer's registered
-        // defaults (see IRenderContext::compile_pipeline). Visuals that
-        // don't contribute their own shader (TextureVisual, cube/sphere
-        // analytic-only) simply don't implement IRasterShader.
-        //
-        // Pipeline topology must match the mesh bound by the draw; we
-        // take it from the first entry's mesh.
-        if (render_ctx) {
-            if (auto* rs = interface_cast<IRasterShader>(visual)) {
-                vc.raster_shader = interface_pointer_cast<IRasterShader>(att);
-                uint64_t key = rs->get_raster_pipeline_key();
-                if (key != 0 && render_ctx->pipeline_map().find(key) == render_ctx->pipeline_map().end()) {
-                    auto src = rs->get_raster_source(IRasterShader::Target::Forward);
-                    ::velk::Topology topo = ::velk::Topology::TriangleStrip;
-                    if (!vc.entries.empty() && vc.entries.front().primitive) {
-                        topo = to_backend_topology(vc.entries.front().primitive->get_topology());
-                    }
-                    auto po = pipeline_options_from_storage(interface_cast<IObjectStorage>(visual));
-                    po.topology = topo;
-                    render_ctx->compile_pipeline(src.fragment, src.vertex, key, 0, po);
-                }
-            }
+        // Capture the visual's IRasterShader (source of truth for the
+        // raster pipeline). Pipelines compile lazily in build_draw_calls
+        // against the active path's target_format; visual storage is
+        // also re-read there for PipelineOptions, so nothing else is
+        // needed here.
+        if (auto* rs = interface_cast<IRasterShader>(visual)) {
+            (void)rs;
+            vc.raster_shader = interface_pointer_cast<IRasterShader>(att);
         }
 
         // Capture an optional per-visual `velk_visual_discard` snippet.
@@ -182,11 +137,11 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
 
-        // Per-entry material resolution. Each DrawEntry carries its own
-        // material (filled by the visual's get_draw_entries); the visual
-        // itself doesn't advertise one. Compile the forward pipeline
-        // once per unique material, then stash the handle on each entry
-        // as `pipeline_override` for rebuild_batches to pick up.
+        // Per-entry material resolution. Compilation is lazy in
+        // build_draw_calls, so this pass only surfaces the material's
+        // textures for upload registration and seeds entry.pipeline_override
+        // from the material's stored handle (zero on the very first
+        // frame it's used; build_draw_calls allocates and back-fills).
         {
             VELK_PERF_SCOPE("renderer.resolve_material");
             std::unordered_set<IProgram*> seen;
@@ -194,45 +149,11 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                 if (!entry.material || !render_ctx) continue;
                 auto prog = entry.material;
                 if (seen.insert(prog.get()).second) {
-                    if (auto* mat = interface_cast<IMaterial>(prog.get());
-                        mat && prog->get_pipeline_handle(*render_ctx) == 0) {
-                        auto eval_src = mat->get_eval_src();
-                        auto vertex_src = mat->get_vertex_src();
-                        auto eval_fn = mat->get_eval_fn_name();
-                        auto frag_src = mat->get_fragment_src();
-                        auto po = pipeline_options_from_storage(
-                            interface_cast<IObjectStorage>(prog.get()));
-                        // Topology from this entry's primitive. Two entries
-                        // sharing a material must share topology; mixing
-                        // topologies on one material is out of scope (would
-                        // need per-topology pipeline caching).
-                        po.topology = Topology::TriangleList;
-                        if (entry.primitive) {
-                            po.topology = to_backend_topology(entry.primitive->get_topology());
-                        }
-                        uint64_t h = 0;
-                        if (!eval_src.empty() && !vertex_src.empty() && !eval_fn.empty()) {
-                            mat->register_eval_includes(*render_ctx);
-                            string frag = compose_eval_fragment(
-                                forward_fragment_driver_template, eval_src, eval_fn,
-                                mat->get_forward_discard_threshold());
-                            h = render_ctx->compile_pipeline(
-                                string_view(frag), vertex_src, 0, 0, po);
-                        } else if (!frag_src.empty() && !vertex_src.empty()) {
-                            // Raw-shader path: the material supplies a full
-                            // fragment source (e.g. ShaderMaterial).
-                            h = render_ctx->compile_pipeline(
-                                frag_src, vertex_src, 0, 0, po);
-                        }
-                        if (h) {
-                            prog->set_pipeline_handle(h);
-                        }
-                    }
-                    // Multi-texture materials (e.g. StandardMaterial)
-                    // attach their textures to the material. Surface the
-                    // ones that carry uploadable pixel data so renderer's
-                    // upload pass registers them.
                     if (auto* mat = interface_cast<IMaterial>(prog.get())) {
+                        // Multi-texture materials (e.g. StandardMaterial)
+                        // attach their textures to the material. Surface
+                        // the ones that carry uploadable pixel data so
+                        // renderer's upload pass registers them.
                         for (auto* tex : mat->get_textures()) {
                             if (auto buf = ::velk::get_self<IBuffer>(tex)) {
                                 if (observer) {
@@ -342,6 +263,25 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                         batch.discard_key_perturb = vc.discard_key_perturb;
                         batch.primitive = de.primitive;
                         batch.raster_shader = vc.raster_shader;
+
+                        // Capture pipeline options now so build_draw_calls
+                        // can lazy-compile against any target_format
+                        // without re-walking attachments. Material wins
+                        // as the pipeline-source when present (it carries
+                        // its own MaterialOptions); otherwise the visual
+                        // owns the pipeline via IRasterShader.
+                        IObjectStorage* opts_storage = nullptr;
+                        if (de.material) {
+                            opts_storage = interface_cast<IObjectStorage>(de.material.get());
+                        } else if (vc.raster_shader) {
+                            opts_storage = interface_cast<IObjectStorage>(vc.raster_shader.get());
+                        }
+                        batch.pipeline_options = pipeline_options_from_storage(opts_storage);
+                        if (de.primitive) {
+                            batch.pipeline_options.topology =
+                                to_backend_topology(de.primitive->get_topology());
+                        }
+
                         target_batches.push_back(std::move(batch));
                         last_bkey = bkey;
                     }
