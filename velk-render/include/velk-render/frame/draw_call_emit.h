@@ -1,17 +1,25 @@
 #ifndef VELK_RENDER_FRAME_DRAW_CALL_EMIT_H
 #define VELK_RENDER_FRAME_DRAW_CALL_EMIT_H
 
+#include "velk-render/gpu_data.h"
+
 #include <velk/api/perf.h>
-
-#include <unordered_map>
-
-#include <velk-render/interface/intf_frame_data_manager.h>
-#include <velk-render/interface/intf_draw_data.h>
-#include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_texture_resolver.h>
 
 #include <cstdlib>
 #include <cstring>
+#include <unordered_map>
+#include <velk-render/frame/batch.h>
+#include <velk-render/frustum.h>
+#include <velk-render/interface/intf_buffer.h>
+#include <velk-render/interface/intf_draw_data.h>
+#include <velk-render/interface/intf_frame_data_manager.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
+#include <velk-render/interface/intf_program.h>
+#include <velk-render/interface/intf_render_backend.h>
+#include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_surface.h>
+#include <velk-render/interface/intf_texture_resolver.h>
+#include <velk-render/render_types.h>
 
 namespace velk {
 
@@ -72,6 +80,145 @@ inline uint64_t write_material_once(IProgram* prog,
 }
 
 } // namespace detail
+
+/**
+ * @brief Iterates batches and emits a `DrawCall` per batch.
+ *
+ * Generic per-batch glue: frustum cull, instance / material data
+ * upload, IBO + UV1 stream resolution, texture id resolution. Per-
+ * batch pipeline resolution is delegated to @p resolve_pipeline so
+ * each render path picks its own composition strategy (forward fragment
+ * vs. deferred gbuffer fragment etc.) without baking that knowledge
+ * into the renderer or `IRenderContext`.
+ *
+ * The resolver runs once per surviving batch and returns the backend
+ * `PipelineId` to bind. Returning 0 skips the batch.
+ *
+ * @param default_uv1 Fallback UV1 buffer (read as index 0). Pass the
+ *        renderer's context-owned default; null skips batches without
+ *        their own UV1 stream.
+ *
+ * Template parameter inlines the resolver call per call site so
+ * captureful lambdas don't pay a virtual-dispatch tax in the hot loop.
+ */
+template <typename ResolvePipelineFn>
+inline vector<DrawCall> emit_draw_calls(
+    const vector<Batch>& batches,
+    IFrameDataManager& frame_data,
+    IGpuResourceManager& resources,
+    uint64_t globals_gpu_addr,
+    IGpuResourceObserver* observer,
+    MaterialAddrCache& material_cache,
+    IBuffer* default_uv1,
+    ResolvePipelineFn resolve_pipeline,
+    const ::velk::render::Frustum* frustum = nullptr)
+{
+    VELK_PERF_SCOPE("renderer.emit_draw_calls");
+
+    vector<DrawCall> out_calls;
+
+    for (auto& batch : batches) {
+        if (frustum && !::velk::render::aabb_in_frustum(*frustum, batch.world_aabb)) {
+            continue;
+        }
+
+        PipelineId pipeline = resolve_pipeline(batch);
+        if (pipeline == 0) continue;
+
+        uint64_t instances_addr =
+            frame_data.write(batch.instance_data.data(), batch.instance_data.size());
+        if (!instances_addr) continue;
+
+        uint32_t texture_id = 0;
+        if (batch.texture_key != 0) {
+            auto* tex = reinterpret_cast<ISurface*>(batch.texture_key);
+            texture_id = resources.find_texture(tex);
+            if (texture_id == 0) {
+                uint64_t rt_id = get_render_target_id(tex);
+                if (rt_id != 0) texture_id = static_cast<uint32_t>(rt_id);
+            }
+        }
+
+        IMeshPrimitive* primitive = batch.primitive.get();
+        if (!primitive) continue;
+        auto buffer = primitive->get_buffer();
+        if (!buffer) continue;
+
+        // IBO half is optional: indexed draw when ibo_size > 0, plain
+        // vkCmdDraw when 0 (e.g. TriangleStrip unit quad).
+        GpuBuffer ibo_handle = 0;
+        size_t ibo_offset = 0;
+        if (buffer->get_ibo_size() > 0) {
+            auto* buf_entry = resources.find_buffer(buffer.get());
+            if (!buf_entry || !buf_entry->handle) continue;
+            ibo_handle = buf_entry->handle;
+            ibo_offset = buffer->get_ibo_offset();
+        }
+
+        DrawDataHeader header{};
+        header.globals_address = globals_gpu_addr;
+        header.instances_address = instances_addr;
+        header.texture_id = texture_id;
+        header.instance_count = batch.instance_count;
+        header.vbo_address = buffer->get_gpu_handle(GpuResourceKey::Default);
+        if (!header.vbo_address) continue;
+
+        if (auto uv1 = primitive->get_uv1_buffer()) {
+            uint64_t uv1_base = uv1->get_gpu_handle(GpuResourceKey::Default);
+            if (!uv1_base) continue;
+            header.uv1_address = uv1_base + primitive->get_uv1_offset();
+            header.uv1_enabled = 1;
+        } else {
+            header.uv1_address = default_uv1
+                ? default_uv1->get_gpu_handle(GpuResourceKey::Default)
+                : 0;
+            header.uv1_enabled = 0;
+            if (!header.uv1_address) continue;
+        }
+
+        uint64_t material_addr = detail::write_material_once(
+            batch.material.get(), frame_data,
+            static_cast<ITextureResolver*>(&resources), material_cache);
+
+        constexpr size_t kMaterialPtrSize = sizeof(uint64_t);
+        size_t total_size = sizeof(DrawDataHeader) + kMaterialPtrSize;
+
+        auto reservation = frame_data.reserve(total_size);
+        if (!reservation.ptr) continue;
+
+        auto* dst = static_cast<uint8_t*>(reservation.ptr);
+        uint64_t draw_data_addr = reservation.gpu_addr;
+        std::memcpy(dst, &header, sizeof(header));
+        std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
+
+        // Lazy-register the program's pipeline for deferred destruction
+        // on program destruction. Idempotent; subscribes the observer
+        // only once per program.
+        if (batch.material) {
+            if (resources.register_pipeline(batch.material.get(), pipeline) && observer) {
+                batch.material->add_gpu_resource_observer(observer);
+            }
+        }
+
+        DrawCall call{};
+        call.pipeline = pipeline;
+        if (ibo_handle) {
+            call.index_buffer = ibo_handle;
+            call.index_buffer_offset = ibo_offset;
+            call.index_count = primitive->get_index_count();
+        } else {
+            call.vertex_count = primitive->get_vertex_count();
+        }
+        call.instance_count = batch.instance_count;
+        call.root_constants_size = sizeof(uint64_t);
+        std::memcpy(call.root_constants, &draw_data_addr, sizeof(uint64_t));
+
+        out_calls.push_back(call);
+    }
+
+    return out_calls;
+}
+
 } // namespace velk
 
 #endif // VELK_RENDER_FRAME_DRAW_CALL_EMIT_H

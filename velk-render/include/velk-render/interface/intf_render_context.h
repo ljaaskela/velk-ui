@@ -157,55 +157,8 @@ public:
     /** @brief Registers a default fragment shader used when create_pipeline receives nullptr. */
     virtual void set_default_fragment_shader(const IShader::Ptr& shader) = 0;
 
-    /**
-     * @brief Registers the default deferred G-buffer vertex shader.
-     *
-     * Used by the deferred pipeline when a material's
-     * `IProgram::get_gbuffer_vertex_src()` is empty.
-     */
-    virtual void set_default_gbuffer_vertex_shader(const IShader::Ptr& shader) = 0;
-
-    /**
-     * @brief Registers the default deferred G-buffer fragment shader.
-     *
-     * Used by the deferred pipeline when a material's
-     * `IProgram::get_gbuffer_fragment_src()` is empty.
-     */
-    virtual void set_default_gbuffer_fragment_shader(const IShader::Ptr& shader) = 0;
-
-    /** @brief Returns the default G-buffer vertex shader (may be null). */
-    virtual IShader::Ptr get_default_gbuffer_vertex_shader() const = 0;
-
-    /** @brief Returns the default G-buffer fragment shader (may be null). */
-    virtual IShader::Ptr get_default_gbuffer_fragment_shader() const = 0;
-
-    /** @brief Returns the mapping from pipeline cache keys to backend PipelineId handles. */
+    /** @brief Returns the unified pipeline cache keyed by `PipelineCacheKey`. */
     virtual const PipelineCacheMap& pipeline_map() const = 0;
-
-    /**
-     * @brief Returns the parallel mapping from pipeline cache keys to
-     *        G-buffer PipelineId handles. Populated by
-     *        compile_gbuffer_pipeline().
-     *
-     * G-buffer variants are compiled on-demand once per (forward key,
-     * target group) combination — render passes of distinct groups are
-     * compatible (same formats) so a single pipeline works across views.
-     */
-    virtual const PipelineCacheMap& gbuffer_pipeline_map() const = 0;
-
-    /**
-     * @brief Compiles a G-buffer pipeline variant for the given pipeline
-     *        key, targeting the supplied MRT group's render pass.
-     *
-     * Empty sources fall back to the registered default G-buffer shaders.
-     * Registers the result under @p key in gbuffer_pipeline_map().
-     * Idempotent: returns the existing PipelineId on a repeat call.
-     */
-    virtual PipelineId compile_gbuffer_pipeline(string_view fragment_source,
-                                                string_view vertex_source,
-                                                uint64_t key,
-                                                RenderTargetGroup target_group,
-                                                const PipelineOptions& options = {}) = 0;
 
     /**
      * @brief Registers a virtual shader include.
@@ -238,50 +191,6 @@ public:
      * per-slot semantics). Returns nullptr for an unknown type.
      */
     virtual IBuffer::Ptr get_default_buffer(DefaultBufferType type) const = 0;
-
-    /**
-     * @brief Converts batches to forward-pipeline draw calls.
-     *
-     * Writes per-instance data + per-draw `DrawDataHeader` into
-     * @p frame_data, resolves textures + IBO + UV1 streams via
-     * @p resources, looks up pipelines via this context's
-     * `pipeline_map()`, and returns the resulting `DrawCall` list.
-     *
-     * @param material_cache  Per-frame cache that dedupes material
-     *                        uploads across batches sharing the same
-     *                        IProgram. Clear between frames.
-     * @param frustum  Optional frustum for batch-level culling.
-     */
-    virtual vector<DrawCall> build_draw_calls(
-        const vector<Batch>& batches,
-        IFrameDataManager& frame_data,
-        IGpuResourceManager& resources,
-        uint64_t globals_gpu_addr,
-        PixelFormat target_format,
-        IGpuResourceObserver* observer,
-        MaterialAddrCache& material_cache,
-        const ::velk::render::Frustum* frustum = nullptr) = 0;
-
-    /**
-     * @brief Same as build_draw_calls, but emits deferred-pipeline draw
-     *        calls targeting a G-buffer render target group.
-     *
-     * Compiles G-buffer pipeline variants on demand (one per forward
-     * pipeline_key + visual-discard perturbation) using the material's
-     * `get_eval_src` / `get_vertex_src` when present, otherwise the
-     * registered default G-buffer shaders. Variants are cached in
-     * `gbuffer_pipeline_map()` and reused across views (group render
-     * passes are format-compatible).
-     */
-    virtual vector<DrawCall> build_gbuffer_draw_calls(
-        const vector<Batch>& batches,
-        IFrameDataManager& frame_data,
-        IGpuResourceManager& resources,
-        uint64_t globals_gpu_addr,
-        RenderTargetGroup target_group,
-        IGpuResourceObserver* observer,
-        MaterialAddrCache& material_cache,
-        const ::velk::render::Frustum* frustum = nullptr) = 0;
 };
 
 } // namespace velk
