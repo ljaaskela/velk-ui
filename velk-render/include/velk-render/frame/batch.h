@@ -6,9 +6,8 @@
 
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_backend.h>
-#include <velk-render/interface/intf_shader_snippet.h>
+#include <velk-render/interface/intf_shader_source.h>
 
 #include <cstdint>
 
@@ -38,12 +37,17 @@ struct Batch
     uint32_t instance_count = 0;
     aabb world_aabb = aabb::empty();
     IProgram::Ptr material;
-    IShaderSnippet::Ptr visual_discard;
-    /// Precomputed key perturbation for the gbuffer pipeline cache;
-    /// 0 when the visual contributes no discard snippet.
-    uint64_t discard_key_perturb = 0;
     IMeshPrimitive::Ptr primitive;
-    IRasterShader::Ptr raster_shader;
+
+    /// GLSL source contributor for this batch's visual. Each render
+    /// path queries the roles it needs: ForwardPath asks for Vertex +
+    /// Fragment; DeferredPath asks for Vertex (fallback) + Discard
+    /// (the `velk_visual_discard()` body spliced into the gbuffer
+    /// fragment). Null for batches whose pipeline is fully driven by
+    /// a material on the entry. `IObject::get_class_uid` queried
+    /// through this Ptr also gives the deferred composer a stable
+    /// per-visual perturbation for the gbuffer pipeline cache.
+    IShaderSource::Ptr shader_source;
 
     /// Captured at batch-build time so build_draw_calls can lazy-compile
     /// the pipeline against any target format on cache miss without

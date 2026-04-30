@@ -8,9 +8,11 @@
 #include <velk-render/frame/raster_shaders.h>
 #include <velk-render/gbuffer.h>
 #include <velk-render/gpu_data.h>
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/material/intf_material.h>
+
+#include <velk/interface/intf_object.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -21,9 +23,10 @@ namespace velk {
 namespace {
 
 /// Resolves (or lazy-compiles) the deferred g-buffer pipeline for a
-/// batch. `gbuffer_key = forward_key ^ visual_discard_perturb` so two
-/// visuals sharing a material still get distinct pipelines with the
-/// right `velk_visual_discard` body. Returns 0 to skip.
+/// batch. The cache key is the forward key XOR'd with a per-visual-
+/// class perturbation derived from the shader-source class uid; that
+/// way two visuals sharing a material still get distinct pipelines
+/// with the right `velk_visual_discard` body. Returns 0 to skip.
 PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
                                       const Batch& batch,
                                       RenderTargetGroup target_group)
@@ -34,7 +37,12 @@ PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
     }
     if (forward_key == 0) return 0;
 
-    uint64_t gbuffer_key = forward_key ^ batch.discard_key_perturb;
+    uint64_t perturb = 0;
+    if (auto* obj = interface_cast<IObject>(batch.shader_source.get())) {
+        Uid uid = obj->get_class_uid();
+        perturb = uid.lo ^ uid.hi;
+    }
+    uint64_t gbuffer_key = forward_key ^ perturb;
     auto& pipeline_map = ctx.pipeline_map();
     PipelineCacheKey gkey{gbuffer_key, PixelFormat::Surface, target_group};
     if (auto it = pipeline_map.find(gkey); it != pipeline_map.end()) {
@@ -63,10 +71,9 @@ PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
     if (base_fsrc.empty()) {
         base_fsrc = default_gbuffer_fragment_src;
     }
-    if (vsrc.empty() && batch.raster_shader) {
-        auto rsrc = batch.raster_shader->get_raster_source(
-            IRasterShader::Target::Forward);
-        if (!rsrc.vertex.empty()) vsrc = rsrc.vertex;
+    if (vsrc.empty() && batch.shader_source) {
+        auto v = batch.shader_source->get_source(IShaderSource::Role::Vertex);
+        if (!v.empty()) vsrc = v;
     }
     if (vsrc.empty()) {
         vsrc = default_gbuffer_vertex_src;
@@ -75,8 +82,15 @@ PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
     string composed;
     composed.append(base_fsrc);
     composed.append(string_view("\n", 1));
-    if (batch.visual_discard) {
-        composed.append(batch.visual_discard->get_snippet_source());
+    string_view discard_def =
+        batch.shader_source
+            ? batch.shader_source->get_source(IShaderSource::Role::Discard)
+            : string_view{};
+    if (!discard_def.empty()) {
+        // Role::Discard returns the full `void velk_visual_discard()`
+        // definition; the composer appends it verbatim after the
+        // fragment driver template.
+        composed.append(discard_def);
     } else {
         composed.append(string_view("void velk_visual_discard() {}\n", 30));
     }

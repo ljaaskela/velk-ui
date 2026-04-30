@@ -4,9 +4,9 @@
 
 #include <velk-render/frame/draw_call_emit.h>
 #include <velk-render/frame/raster_shaders.h>
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/material/intf_material.h>
 
@@ -15,8 +15,8 @@ namespace velk {
 namespace {
 
 /// Resolves (or lazy-compiles) the forward-rendering pipeline for a
-/// batch. Material wins over the visual's IRasterShader when both are
-/// present; the visual's raster_shader is the no-material fallback.
+/// batch. Material wins over the visual's IShaderSource when both
+/// are present; the visual's source is the no-material fallback.
 /// Returns 0 to skip (no source / compile failure).
 PipelineId resolve_or_compile_forward(IRenderContext& ctx,
                                       const Batch& batch,
@@ -60,11 +60,11 @@ PipelineId resolve_or_compile_forward(IRenderContext& ctx,
                 batch.material->set_pipeline_handle(compiled_key);
             }
         }
-    } else if (batch.raster_shader && user_key != 0) {
-        auto src = batch.raster_shader->get_raster_source(
-            IRasterShader::Target::Forward);
+    } else if (batch.shader_source && user_key != 0) {
+        auto vsrc = batch.shader_source->get_source(IShaderSource::Role::Vertex);
+        auto fsrc = batch.shader_source->get_source(IShaderSource::Role::Fragment);
         compiled_key = ctx.compile_pipeline(
-            src.fragment, src.vertex,
+            fsrc, vsrc,
             user_key, target_format, 0,
             batch.pipeline_options);
     }

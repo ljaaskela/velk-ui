@@ -1,7 +1,6 @@
 #ifndef VELK_UI_MESH_VISUAL_H
 #define VELK_UI_MESH_VISUAL_H
 
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-scene/ext/trait.h>
 #include <velk-scene/plugin.h>
 

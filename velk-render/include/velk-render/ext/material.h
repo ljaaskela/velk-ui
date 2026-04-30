@@ -89,8 +89,7 @@ public:
 
     // IMaterial defaults. Concrete materials override to provide real
     // eval + vertex sources; unimplemented materials return empty and
-    // the composers fall back to the (transitional) IRasterShader /
-    // IShaderSnippet path until every material has migrated.
+    // the composers fall back to the visual's IShaderSource.
     string_view get_eval_src() const override { return {}; }
     string_view get_eval_fn_name() const override { return {}; }
     /// Default: the shared element vertex shader. Materials that need

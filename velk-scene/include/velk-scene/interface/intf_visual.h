@@ -80,11 +80,11 @@ public:
     virtual vector<IBuffer::Ptr> get_gpu_resources(::velk::IRenderContext& ctx) const = 0;
 
     // Shader provision and analytic-shape dispatch live on separate
-    // role interfaces (`IRasterShader`, `IAnalyticShape`). A visual
-    // that contributes its own pipeline implements `IRasterShader`;
-    // a visual that's an analytic RT primitive implements
-    // `IAnalyticShape`. Visuals can implement either, both, or
-    // neither (e.g. a TextureVisual that piggybacks on a paint-
+    // role interfaces (`IShaderSource`, `IAnalyticShape`). A visual
+    // that contributes its own pipeline / discard snippet implements
+    // `IShaderSource`; a visual that's an analytic RT primitive
+    // implements `IAnalyticShape`. Visuals can implement either, both,
+    // or neither (e.g. a TextureVisual that piggybacks on a paint-
     // supplied material).
 };
 

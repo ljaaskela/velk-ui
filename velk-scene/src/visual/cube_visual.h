@@ -3,7 +3,7 @@
 
 #include <velk-render/interface/intf_analytic_shape.h>
 #include <velk-render/interface/intf_primitive_shape.h>
-#include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-scene/ext/trait.h>
 #include <velk-scene/plugin.h>
 
@@ -33,9 +33,9 @@ public:
     vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
                                        const ::velk::size& bounds) override;
 
-    // IRasterShader
-    ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target t) const override;
-    uint64_t get_raster_pipeline_key() const override;
+    // IShaderSource
+    ::velk::string_view get_source(::velk::IShaderSource::Role role) const override;
+    uint64_t get_pipeline_key() const override;
 
     // IAnalyticShape
     uint32_t get_shape_kind() const override { return 1; }

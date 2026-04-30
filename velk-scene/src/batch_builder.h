@@ -12,11 +12,10 @@
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/interface/intf_render_target.h>
-#include <velk-render/interface/intf_shader_snippet.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_texture_resolver.h>
 #include <velk-render/render_types.h>
 #include <velk-scene/interface/intf_element.h>
@@ -36,23 +35,15 @@ public:
     struct VisualCommands
     {
         vector<DrawEntry> entries;
-        // Per-visual deferred-fragment discard snippet (SDF corners,
-        // glyph coverage, ...). Non-null only when the visual opts in
-        // via IShaderSnippet. See batch_builder's gbuffer pipeline
-        // composer for how it's spliced into the material's fragment.
-        // `discard_key_perturb` is a precomputed 64-bit contribution
-        // XORed into the gbuffer pipeline cache key so two visuals that
-        // share a material still get distinct composed pipelines.
-        IShaderSnippet::Ptr visual_discard;
-        uint64_t discard_key_perturb = 0;
-        // The visual's IRasterShader, cached so the deferred gbuffer
-        // pipeline compose can pull its vertex shader when no material
-        // is routed (e.g. primitive mesh visuals).
-        IRasterShader::Ptr raster_shader;
+        // The visual's GLSL source contributor (vertex / fragment /
+        // discard role), copied onto each emitted Batch so render
+        // paths can splice the bits they want without re-querying the
+        // visual. Null for visuals that don't supply their own raster
+        // pipeline (rendering goes through the entry's material).
+        IShaderSource::Ptr shader_source;
         // Materials are per-entry (see DrawEntry::material). Pipeline
-        // compilation runs once per unique material during rebuild_commands
-        // and the resulting handle is stashed on each entry's
-        // pipeline_override.
+        // compilation runs lazily in build_draw_calls; the result is
+        // stashed on each entry's pipeline_override.
     };
 
     struct ElementCache

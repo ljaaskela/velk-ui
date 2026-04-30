@@ -12,11 +12,10 @@
 #include <cstring>
 #include <functional>
 #include <unordered_set>
-#include <velk-render/frame/raster_shaders.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_draw_data.h>
 #include <velk-render/interface/intf_mesh.h>
-#include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
 #include <velk-render/interface/material/intf_material.h>
@@ -112,29 +111,11 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
             }
         }
 
-        // Capture the visual's IRasterShader (source of truth for the
-        // raster pipeline). Pipelines compile lazily in build_draw_calls
-        // against the active path's target_format; visual storage is
-        // also re-read there for PipelineOptions, so nothing else is
-        // needed here.
-        if (auto* rs = interface_cast<IRasterShader>(visual)) {
-            (void)rs;
-            vc.raster_shader = interface_pointer_cast<IRasterShader>(att);
-        }
-
-        // Capture an optional per-visual `velk_visual_discard` snippet.
-        // Deferred gbuffer fragments call this at the top of main(); the
-        // composer in build_gbuffer_draw_calls splices the snippet in.
-        // The key perturbation is folded from the visual's class uid so
-        // two visuals sharing a material still get distinct pipelines.
-        if (auto* snippet = interface_cast<IShaderSnippet>(visual)) {
-            if (!snippet->get_snippet_source().empty()) {
-                vc.visual_discard = interface_pointer_cast<IShaderSnippet>(att);
-                if (auto* obj = interface_cast<IObject>(visual)) {
-                    Uid uid = obj->get_class_uid();
-                    vc.discard_key_perturb = uid.lo ^ uid.hi;
-                }
-            }
+        // Capture the visual's IShaderSource if it has one. Paths
+        // splice the roles they need (Vertex / Fragment / Discard)
+        // into their own driver templates at lazy-compile time.
+        if (interface_cast<IShaderSource>(visual)) {
+            vc.shader_source = interface_pointer_cast<IShaderSource>(att);
         }
 
         // Per-entry material resolution. Compilation is lazy in
@@ -259,22 +240,20 @@ void BatchBuilder::rebuild_batches(const SceneState& state, vector<Batch>& out_b
                         batch.texture_key = texture;
                         batch.instance_stride = de.instance_size;
                         batch.material = de.material;
-                        batch.visual_discard = vc.visual_discard;
-                        batch.discard_key_perturb = vc.discard_key_perturb;
                         batch.primitive = de.primitive;
-                        batch.raster_shader = vc.raster_shader;
+                        batch.shader_source = vc.shader_source;
 
                         // Capture pipeline options now so build_draw_calls
                         // can lazy-compile against any target_format
                         // without re-walking attachments. Material wins
                         // as the pipeline-source when present (it carries
                         // its own MaterialOptions); otherwise the visual
-                        // owns the pipeline via IRasterShader.
+                        // owns the pipeline via IShaderSource.
                         IObjectStorage* opts_storage = nullptr;
                         if (de.material) {
                             opts_storage = interface_cast<IObjectStorage>(de.material.get());
-                        } else if (vc.raster_shader) {
-                            opts_storage = interface_cast<IObjectStorage>(vc.raster_shader.get());
+                        } else if (vc.shader_source) {
+                            opts_storage = interface_cast<IObjectStorage>(vc.shader_source.get());
                         }
                         batch.pipeline_options = pipeline_options_from_storage(opts_storage);
                         if (de.primitive) {

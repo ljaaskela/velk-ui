@@ -15,7 +15,7 @@ vector<DrawEntry> RectVisual::get_draw_entries(::velk::IRenderContext& /*ctx*/,
     }
 
     DrawEntry entry{};
-    entry.pipeline_key = get_raster_pipeline_key();
+    entry.pipeline_key = get_pipeline_key();
     entry.bounds = {0, 0, bounds.width, bounds.height};
     if (state->paint) {
         entry.material = state->paint.get<IProgram>();

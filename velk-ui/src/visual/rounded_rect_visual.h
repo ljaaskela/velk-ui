@@ -2,7 +2,7 @@
 #define VELK_UI_ROUNDED_RECT_VISUAL_H
 
 #include <velk-render/interface/intf_analytic_shape.h>
-#include <velk-render/interface/intf_shader_snippet.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-scene/ext/trait.h>
 #include <velk-ui/plugin.h>
 
@@ -15,8 +15,7 @@ namespace velk::ui {
  * an SDF fragment shader to clip corners with antialiasing.
  */
 class RoundedRectVisual : public ::velk::ext::Visual2D<RoundedRectVisual,
-                                                ::velk::IAnalyticShape,
-                                                ::velk::IShaderSnippet>
+                                                ::velk::IAnalyticShape>
 {
 public:
     VELK_CLASS_UID(ClassId::Visual::RoundedRect, "RoundedRectVisual");
@@ -24,10 +23,11 @@ public:
     vector<DrawEntry> get_draw_entries(::velk::IRenderContext& ctx,
                                        const ::velk::size& bounds) override;
 
-    // IRasterShader overrides: custom fragment for SDF corners;
-    // vertex stays default.
-    ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target t) const override;
-    uint64_t get_raster_pipeline_key() const override;
+    // IShaderSource: custom fragment for SDF corners (vertex stays
+    // default), plus a `velk_visual_discard()` body so the deferred
+    // gbuffer composer clips rounded corners in the deferred pass too.
+    ::velk::string_view get_source(::velk::IShaderSource::Role role) const override;
+    uint64_t get_pipeline_key() const override;
 
     // IAnalyticShape: reports shape_kind 0 (a rect) with a non-empty
     // intersect source, so scene_collector knows to enable the corner
@@ -35,11 +35,6 @@ public:
     uint32_t get_shape_kind() const override { return 0; }
     string_view get_shape_intersect_source() const override;
     string_view get_shape_intersect_fn_name() const override;
-
-    // IShaderSnippet: provides the deferred `velk_visual_discard`
-    // implementation that clips the rect's rounded corners.
-    string_view get_snippet_fn_name() const override;
-    string_view get_snippet_source() const override;
 };
 
 } // namespace velk::ui
