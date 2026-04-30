@@ -13,8 +13,8 @@ namespace velk::ext {
  * Concrete render paths inherit from this instead of `ObjectCore`
  * directly. `build_passes()` stays pure — every path must implement it.
  * Other hooks (`needs`, `on_view_removed`, `shutdown`,
- * `find_gbuffer_group`, `find_shadow_debug_tex`) get empty defaults
- * suitable for paths with no per-view state or no G-buffer.
+ * `find_named_output`) get empty defaults so paths only override what
+ * they actually produce.
  */
 template <class FinalClass, class... ExtraInterfaces>
 class RenderPath
@@ -27,14 +27,10 @@ public:
 
     void shutdown(::velk::FrameContext& /*ctx*/) override {}
 
-    ::velk::RenderTargetGroup find_gbuffer_group(::velk::ViewEntry* /*view*/) const override
+    ::velk::IGpuResource::Ptr find_named_output(::velk::string_view /*name*/,
+                                                ::velk::ViewEntry* /*view*/) const override
     {
-        return 0;
-    }
-
-    ::velk::TextureId find_shadow_debug_tex(::velk::ViewEntry* /*view*/) const override
-    {
-        return 0;
+        return {};
     }
 };
 

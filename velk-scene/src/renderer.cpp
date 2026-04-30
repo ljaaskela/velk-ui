@@ -917,9 +917,9 @@ void Renderer::clear_debug_overlays()
     debug_overlays_.clear();
 }
 
-TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
-                                            const IWindowSurface::Ptr& surface,
-                                            uint32_t attachment_index) const
+IGpuResource::Ptr Renderer::get_named_output(const IElement::Ptr& camera_element,
+                                              const IWindowSurface::Ptr& surface,
+                                              string_view name) const
 {
     for (auto& s : views_) {
         if (s.camera_element.get() != camera_element.get()) continue;
@@ -928,28 +928,10 @@ TextureId Renderer::get_gbuffer_attachment(const IElement::Ptr& camera_element,
         auto path = cam_trait
                         ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
                         : IRenderPath::Ptr{};
-        if (!path || !backend_) return 0;
-        auto group = path->find_gbuffer_group(const_cast<ViewEntry*>(&s.entry));
-        if (group == 0) return 0;
-        return backend_->get_render_target_group_attachment(group, attachment_index);
+        if (!path) return {};
+        return path->find_named_output(name, const_cast<ViewEntry*>(&s.entry));
     }
-    return 0;
-}
-
-TextureId Renderer::get_shadow_debug_texture(const IElement::Ptr& camera_element,
-                                              const IWindowSurface::Ptr& surface) const
-{
-    for (auto& s : views_) {
-        if (s.camera_element.get() != camera_element.get()) continue;
-        if (s.entry.surface.get() != surface.get()) continue;
-        auto cam_trait = ::velk::find_attachment<ICamera>(s.camera_element);
-        auto path = cam_trait
-                        ? ::velk::find_attachment<IRenderPath>(cam_trait.get())
-                        : IRenderPath::Ptr{};
-        if (!path) return 0;
-        return path->find_shadow_debug_tex(const_cast<ViewEntry*>(&s.entry));
-    }
-    return 0;
+    return {};
 }
 
 void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)

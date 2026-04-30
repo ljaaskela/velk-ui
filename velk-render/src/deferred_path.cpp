@@ -426,18 +426,21 @@ void DeferredPath::shutdown(FrameContext& ctx)
     compiled_pipelines_.clear();
 }
 
-RenderTargetGroup DeferredPath::find_gbuffer_group(ViewEntry* view) const
+IGpuResource::Ptr DeferredPath::find_named_output(string_view name, ViewEntry* view) const
 {
     auto it = view_states_.find(view);
-    if (it == view_states_.end() || !it->second.gbuffer) return 0;
-    return it->second.gbuffer->get_gpu_handle(GpuResourceKey::Default);
-}
-
-TextureId DeferredPath::find_shadow_debug_tex(ViewEntry* view) const
-{
-    auto it = view_states_.find(view);
-    if (it == view_states_.end() || !it->second.shadow_debug) return 0;
-    return it->second.shadow_debug->get_gpu_handle(GpuResourceKey::Default);
+    if (it == view_states_.end()) return {};
+    auto& vs = it->second;
+    if (name == "gbuffer") {
+        return interface_pointer_cast<IGpuResource>(vs.gbuffer);
+    }
+    if (name == "shadow.debug") {
+        return interface_pointer_cast<IGpuResource>(vs.shadow_debug);
+    }
+    if (name == "output") {
+        return interface_pointer_cast<IGpuResource>(vs.deferred_output);
+    }
+    return {};
 }
 
 } // namespace velk

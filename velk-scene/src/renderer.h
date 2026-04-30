@@ -60,11 +60,9 @@ public:
                            TextureId texture_id,
                            const rect& dst_rect) override;
     void clear_debug_overlays() override;
-    TextureId get_gbuffer_attachment(const IElement::Ptr& camera_element,
-                                     const IWindowSurface::Ptr& surface,
-                                     uint32_t attachment_index) const override;
-    TextureId get_shadow_debug_texture(const IElement::Ptr& camera_element,
-                                       const IWindowSurface::Ptr& surface) const override;
+    IGpuResource::Ptr get_named_output(const IElement::Ptr& camera_element,
+                                       const IWindowSurface::Ptr& surface,
+                                       string_view name) const override;
     void request_bvh_log() override { log_bvh_next_ = true; }
     void shutdown() override;
 
