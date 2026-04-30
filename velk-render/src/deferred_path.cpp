@@ -4,15 +4,93 @@
 #include <velk/string.h>
 
 #include <velk-render/frame/compute_shaders.h>
+#include <velk-render/frame/draw_call_emit.h>
+#include <velk-render/frame/raster_shaders.h>
 #include <velk-render/gbuffer.h>
 #include <velk-render/gpu_data.h>
+#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/material/intf_material.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 namespace velk {
+
+namespace {
+
+/// Resolves (or lazy-compiles) the deferred g-buffer pipeline for a
+/// batch. `gbuffer_key = forward_key ^ visual_discard_perturb` so two
+/// visuals sharing a material still get distinct pipelines with the
+/// right `velk_visual_discard` body. Returns 0 to skip.
+PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
+                                      const Batch& batch,
+                                      RenderTargetGroup target_group)
+{
+    uint64_t forward_key = batch.pipeline_key;
+    if (forward_key == 0 && batch.material) {
+        forward_key = batch.material->get_pipeline_handle(ctx);
+    }
+    if (forward_key == 0) return 0;
+
+    uint64_t gbuffer_key = forward_key ^ batch.discard_key_perturb;
+    auto& pipeline_map = ctx.pipeline_map();
+    PipelineCacheKey gkey{gbuffer_key, PixelFormat::Surface, target_group};
+    if (auto it = pipeline_map.find(gkey); it != pipeline_map.end()) {
+        return it->second;
+    }
+
+    string_view vsrc;
+    string_view base_fsrc;
+    string composed_fsrc;
+
+    if (batch.material) {
+        if (auto* mat = interface_cast<IMaterial>(batch.material.get());
+            mat && !mat->get_eval_src().empty()
+            && !mat->get_vertex_src().empty()
+            && !mat->get_eval_fn_name().empty()) {
+            mat->register_eval_includes(ctx);
+            composed_fsrc = compose_eval_fragment(
+                deferred_fragment_driver_template,
+                mat->get_eval_src(),
+                mat->get_eval_fn_name(),
+                mat->get_deferred_discard_threshold());
+            vsrc = mat->get_vertex_src();
+            base_fsrc = string_view(composed_fsrc);
+        }
+    }
+    if (base_fsrc.empty()) {
+        base_fsrc = default_gbuffer_fragment_src;
+    }
+    if (vsrc.empty() && batch.raster_shader) {
+        auto rsrc = batch.raster_shader->get_raster_source(
+            IRasterShader::Target::Forward);
+        if (!rsrc.vertex.empty()) vsrc = rsrc.vertex;
+    }
+    if (vsrc.empty()) {
+        vsrc = default_gbuffer_vertex_src;
+    }
+
+    string composed;
+    composed.append(base_fsrc);
+    composed.append(string_view("\n", 1));
+    if (batch.visual_discard) {
+        composed.append(batch.visual_discard->get_snippet_source());
+    } else {
+        composed.append(string_view("void velk_visual_discard() {}\n", 30));
+    }
+
+    PipelineOptions po = batch.pipeline_options;
+    // G-buffer passes always write opaquely regardless of alpha mode.
+    po.blend_mode = BlendMode::Opaque;
+
+    return ctx.compile_pipeline(
+        string_view(composed), vsrc,
+        gbuffer_key, PixelFormat::Surface, target_group, po);
+}
+
+} // namespace
 
 uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
 {
@@ -136,14 +214,20 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
     if (!render_view.batches) return;
 
     auto group_id = vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
-    auto gbuffer_draw_calls = ctx.render_ctx->build_gbuffer_draw_calls(
+
+    auto* default_uv1 = ctx.render_ctx->get_default_buffer(DefaultBufferType::Uv1).get();
+    auto resolve = [&](const Batch& b) {
+        return resolve_or_compile_gbuffer(*ctx.render_ctx, b, group_id);
+    };
+    auto gbuffer_draw_calls = emit_draw_calls(
         *render_view.batches,
         *ctx.frame_buffer,
         *ctx.resources,
         render_view.frame_globals_addr,
-        group_id,
         ctx.observer,
         *ctx.material_cache,
+        default_uv1,
+        resolve,
         render_view.has_frustum ? &render_view.frustum : nullptr);
 
     GraphPass gp;

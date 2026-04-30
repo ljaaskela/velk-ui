@@ -39,52 +39,15 @@ public:
     void set_default_vertex_shader(const IShader::Ptr& shader) override;
     void set_default_fragment_shader(const IShader::Ptr& shader) override;
 
-    void set_default_gbuffer_vertex_shader(const IShader::Ptr& shader) override;
-    void set_default_gbuffer_fragment_shader(const IShader::Ptr& shader) override;
-
-    IShader::Ptr get_default_gbuffer_vertex_shader() const override { return default_gbuffer_vertex_shader_; }
-    IShader::Ptr get_default_gbuffer_fragment_shader() const override { return default_gbuffer_fragment_shader_; }
-
     void register_shader_include(string_view name, string_view content) override;
 
     const PipelineCacheMap& pipeline_map() const override { return pipeline_map_; }
-
-    const PipelineCacheMap& gbuffer_pipeline_map() const override
-    {
-        return gbuffer_pipeline_map_;
-    }
-
-    PipelineId compile_gbuffer_pipeline(string_view fragment_source,
-                                        string_view vertex_source,
-                                        uint64_t key,
-                                        RenderTargetGroup target_group,
-                                        const PipelineOptions& options = {}) override;
 
     IRenderBackend::Ptr backend() const override { return backend_; }
 
     IMeshBuilder& get_mesh_builder() override;
 
     IBuffer::Ptr get_default_buffer(DefaultBufferType type) const override;
-
-    vector<DrawCall> build_draw_calls(
-        const vector<Batch>& batches,
-        IFrameDataManager& frame_data,
-        IGpuResourceManager& resources,
-        uint64_t globals_gpu_addr,
-        PixelFormat target_format,
-        IGpuResourceObserver* observer,
-        MaterialAddrCache& material_cache,
-        const ::velk::render::Frustum* frustum = nullptr) override;
-
-    vector<DrawCall> build_gbuffer_draw_calls(
-        const vector<Batch>& batches,
-        IFrameDataManager& frame_data,
-        IGpuResourceManager& resources,
-        uint64_t globals_gpu_addr,
-        RenderTargetGroup target_group,
-        IGpuResourceObserver* observer,
-        MaterialAddrCache& material_cache,
-        const ::velk::render::Frustum* frustum = nullptr) override;
 
 private:
     IRenderBackend::Ptr backend_;
@@ -95,9 +58,6 @@ private:
     mutable ShaderCache shader_cache_;
     IShader::Ptr default_vertex_shader_;
     IShader::Ptr default_fragment_shader_;
-    IShader::Ptr default_gbuffer_vertex_shader_;
-    IShader::Ptr default_gbuffer_fragment_shader_;
-    PipelineCacheMap gbuffer_pipeline_map_;
     uint64_t next_pipeline_key_ = PipelineKey::CustomBase;
     bool initialized_ = false;
 };

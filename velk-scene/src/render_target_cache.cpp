@@ -5,9 +5,12 @@
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <velk-render/frame/render_view.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-scene/interface/intf_render_to_texture.h>
+
+#include <velk/api/velk.h>
 
 #include <algorithm>
 #include <cstring>
@@ -80,6 +83,18 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         return;
     }
 
+    if (!forward_path_) {
+        forward_path_ = instance().create<IRenderPath>(ClassId::Path::Forward);
+        if (!forward_path_) return;
+    }
+
+    // RTT subtrees render in Surface format regardless of which target
+    // format the active camera path is using. Stash + restore the
+    // FrameContext's format so per-view state set during the camera
+    // loop isn't perturbed.
+    PixelFormat saved_format = ctx.target_format;
+    ctx.target_format = PixelFormat::Surface;
+
     for (auto& rtp : batch_builder.render_target_passes()) {
         auto it = entries_.find(rtp.element);
         if (it == entries_.end()) continue;
@@ -100,25 +115,29 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         rt_globals.bvh_shapes_addr = ctx.bvh_shapes_addr;
         uint64_t globals_gpu_addr = ctx.frame_buffer->write(&rt_globals, sizeof(rt_globals));
 
-        // RTT element cache uses surface-format render textures (see
-        // ensure(): tdesc.format = Surface). Pipelines look up under
-        // target_format = Surface regardless of the active scene format.
-        auto draw_calls = ctx.render_ctx->build_draw_calls(
-            rtp.batches,
-            *ctx.frame_buffer,
-            *ctx.resources,
-            globals_gpu_addr,
-            PixelFormat::Surface,
-            ctx.observer,
-            *ctx.material_cache);
+        RenderView rt_view{};
+        rt_view.batches = &rtp.batches;
+        rt_view.viewport = {0, 0,
+                            static_cast<float>(rte.width),
+                            static_cast<float>(rte.height)};
+        rt_view.width = rte.width;
+        rt_view.height = rte.height;
+        rt_view.frame_globals_addr = globals_gpu_addr;
+        rt_view.bvh_root = ctx.bvh_root;
+        rt_view.bvh_node_count = ctx.bvh_node_count;
+        rt_view.bvh_shape_count = ctx.bvh_shape_count;
+        rt_view.bvh_nodes_addr = ctx.bvh_nodes_addr;
+        rt_view.bvh_shapes_addr = ctx.bvh_shapes_addr;
 
-        RenderPass rt_pass{};
-        rt_pass.target.target = rte.target;
-        rt_pass.viewport = {0, 0, static_cast<float>(rte.width), static_cast<float>(rte.height)};
-        rt_pass.draw_calls = std::move(draw_calls);
-        graph.add_pass(std::move(rt_pass));
+        auto& entry = view_entries_[rtp.element];
+        entry.cached_width = rte.width;
+        entry.cached_height = rte.height;
+
+        forward_path_->build_passes(entry, rt_view, rte.target, ctx, graph);
         rte.dirty = false;
     }
+
+    ctx.target_format = saved_format;
 }
 
 void RenderTargetCache::on_element_removed(IElement* elem, FrameContext& ctx)
