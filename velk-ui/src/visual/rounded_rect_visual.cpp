@@ -92,22 +92,9 @@ vector<DrawEntry> RoundedRectVisual::get_draw_entries(::velk::IRenderContext& /*
     return {entry};
 }
 
-uint64_t RoundedRectVisual::get_raster_pipeline_key() const
+uint64_t RoundedRectVisual::get_pipeline_key() const
 {
     return kPipelineKey;
-}
-
-::velk::ShaderSource RoundedRectVisual::get_raster_source(::velk::IRasterShader::Target t) const
-{
-    // Forward: custom SDF fragment (vertex stays default).
-    // Deferred: no override - the batch_builder composes the material's
-    // deferred fragment with this visual's `velk_visual_discard` snippet
-    // (see get_snippet_source below), so SDF corner clipping lands in
-    // the gbuffer pass without duplicating a full fragment here.
-    if (t == ::velk::IRasterShader::Target::Forward) {
-        return {/*vertex*/ {}, kFragmentSrc};
-    }
-    return {};
 }
 
 namespace {
@@ -141,14 +128,18 @@ string_view RoundedRectVisual::get_shape_intersect_fn_name() const
     return "velk_intersect_rounded_rect";
 }
 
-string_view RoundedRectVisual::get_snippet_fn_name() const
+::velk::string_view RoundedRectVisual::get_source(::velk::IShaderSource::Role role) const
 {
-    return "velk_visual_discard";
-}
-
-string_view RoundedRectVisual::get_snippet_source() const
-{
-    return kDiscardSrc;
+    // Forward: custom SDF fragment (vertex stays default).
+    // Deferred: a `velk_visual_discard()` body so the deferred gbuffer
+    // composer clips rounded corners in the deferred pass too — no
+    // need to ship a full deferred fragment.
+    switch (role) {
+    case ::velk::IShaderSource::Role::Vertex:   return {};
+    case ::velk::IShaderSource::Role::Fragment: return kFragmentSrc;
+    case ::velk::IShaderSource::Role::Discard:  return kDiscardSrc;
+    }
+    return {};
 }
 
 } // namespace velk::ui

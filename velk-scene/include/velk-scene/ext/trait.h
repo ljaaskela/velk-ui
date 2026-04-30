@@ -4,8 +4,8 @@
 #include <velk/ext/object.h>
 #include <velk/interface/intf_metadata_observer.h>
 
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/intf_render_context.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-scene/interface/intf_trait.h>
 #include <velk-scene/interface/intf_transform_trait.h>
 #include <velk-scene/interface/intf_visual.h>
@@ -48,17 +48,17 @@ protected:
 };
 
 template <class T, class Variant, class... Extra>
-class VisualBase : public Trait<T, Variant, ::velk::IRasterShader, Extra...>
+class VisualBase : public Trait<T, Variant, ::velk::IShaderSource, Extra...>
 {
 public:
     TraitPhase get_phase() const override { return TraitPhase::Visual; }
 
-    ::velk::ShaderSource get_raster_source(::velk::IRasterShader::Target) const override
+    ::velk::string_view get_source(::velk::IShaderSource::Role) const override
     {
         return {};
     }
 
-    uint64_t get_raster_pipeline_key() const override { return PipelineKey::Default; }
+    uint64_t get_pipeline_key() const override { return PipelineKey::Default; }
 
     aabb get_local_bounds(const ::velk::size& bounds) const override
     {

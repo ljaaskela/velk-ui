@@ -14,7 +14,6 @@
 #include <velk-render/frame/raster_shaders.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_buffer.h>
-#include <velk-render/interface/intf_raster_shader.h>
 #include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_render_target.h>

@@ -64,15 +64,17 @@ vector<DrawEntry> CubeVisual::get_draw_entries(::velk::IRenderContext& ctx,
     return { entry };
 }
 
-::velk::ShaderSource CubeVisual::get_raster_source(::velk::IRasterShader::Target t) const
+::velk::string_view CubeVisual::get_source(::velk::IShaderSource::Role role) const
 {
-    if (t == ::velk::IRasterShader::Target::Forward) {
-        return { primitive3d_vertex_src, primitive3d_fragment_src };
+    switch (role) {
+    case ::velk::IShaderSource::Role::Vertex:   return primitive3d_vertex_src;
+    case ::velk::IShaderSource::Role::Fragment: return primitive3d_fragment_src;
+    case ::velk::IShaderSource::Role::Discard:  return {};
     }
     return {};
 }
 
-uint64_t CubeVisual::get_raster_pipeline_key() const
+uint64_t CubeVisual::get_pipeline_key() const
 {
     return kPrimitive3DPipelineKey;
 }
