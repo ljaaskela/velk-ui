@@ -105,7 +105,7 @@ private:
     IGpuResourceManager::Ptr resources_;
 
     vector<ViewSlot> views_;
-    const std::unordered_map<uint64_t, PipelineId>* pipeline_map_ = nullptr;
+    const PipelineCacheMap* pipeline_map_ = nullptr;
 
     struct DebugOverlay {
         IWindowSurface::Ptr surface;

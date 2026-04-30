@@ -7,6 +7,7 @@
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_shader_snippet.h>
 
 #include <cstdint>
@@ -43,6 +44,11 @@ struct Batch
     uint64_t discard_key_perturb = 0;
     IMeshPrimitive::Ptr primitive;
     IRasterShader::Ptr raster_shader;
+
+    /// Captured at batch-build time so build_draw_calls can lazy-compile
+    /// the pipeline against any target format on cache miss without
+    /// re-reading the visual / material storage.
+    PipelineOptions pipeline_options{};
 };
 
 } // namespace velk

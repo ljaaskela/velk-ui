@@ -80,6 +80,7 @@ private:
         ::velk::IRenderTarget::Ptr& slot,
         int width, int height,
         ::velk::TextureUsage usage,
+        ::velk::PixelFormat format,
         ::velk::FrameContext& ctx);
 
     void release_view_state(ViewState& vs, ::velk::FrameContext& ctx);

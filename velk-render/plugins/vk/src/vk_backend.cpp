@@ -9,6 +9,19 @@ namespace velk::vk {
 
 namespace {
 
+VkFormat vk_format_for(PixelFormat f)
+{
+    switch (f) {
+        case PixelFormat::R8:         return VK_FORMAT_R8_UNORM;
+        case PixelFormat::RGBA8:      return VK_FORMAT_R8G8B8A8_UNORM;
+        case PixelFormat::RGBA8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+        case PixelFormat::RGBA16F:    return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case PixelFormat::RGBA32F:    return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case PixelFormat::Surface:    break; // Caller resolves the sentinel.
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
 VkFormat choose_surface_format(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     uint32_t count = 0;
@@ -265,6 +278,10 @@ void VkBackend::shutdown()
     if (default_render_pass_) {
         vkDestroyRenderPass(device_, default_render_pass_, nullptr);
     }
+    for (auto& [fmt, rp] : single_attachment_render_passes_) {
+        vkDestroyRenderPass(device_, rp, nullptr);
+    }
+    single_attachment_render_passes_.clear();
     vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, descriptor_layout_, nullptr);
     vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
@@ -608,13 +625,14 @@ bool VkBackend::create_bindless_descriptor()
         return false;
     }
 
-    // Descriptor set layout: three bindings
+    // Descriptor set layout: four bindings
     //   0: variable-length sampler array (combined image+sampler) for sampled reads
     //   1: storage-image array for compute imageStore writes (rgba8-format)
     //   2: storage-image array for compute imageStore writes (rgba32f-format)
-    // Only the LAST binding may use VARIABLE_DESCRIPTOR_COUNT, so binding 2
-    // carries that flag; bindings 0 and 1 use fixed counts.
-    VkDescriptorSetLayoutBinding bindings[3]{};
+    //   3: storage-image array for compute imageStore writes (rgba16f-format)
+    // Only the LAST binding may use VARIABLE_DESCRIPTOR_COUNT, so binding 3
+    // carries that flag; bindings 0..2 use fixed counts.
+    VkDescriptorSetLayoutBinding bindings[4]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = kMaxBindlessTextures;
@@ -630,7 +648,14 @@ bool VkBackend::create_bindless_descriptor()
     bindings[2].descriptorCount = kMaxBindlessTextures;
     bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    VkDescriptorBindingFlags binding_flags[3] = {
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[3].descriptorCount = kMaxBindlessTextures;
+    bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorBindingFlags binding_flags[4] = {
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
@@ -642,14 +667,14 @@ bool VkBackend::create_bindless_descriptor()
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
     flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-    flags_ci.bindingCount = 3;
+    flags_ci.bindingCount = 4;
     flags_ci.pBindingFlags = binding_flags;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layout_ci.pNext = &flags_ci;
     layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    layout_ci.bindingCount = 3;
+    layout_ci.bindingCount = 4;
     layout_ci.pBindings = bindings;
 
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &descriptor_layout_) != VK_SUCCESS) {
@@ -657,19 +682,21 @@ bool VkBackend::create_bindless_descriptor()
     }
 
     // Pool
-    VkDescriptorPoolSize pool_sizes[3]{};
+    VkDescriptorPoolSize pool_sizes[4]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[0].descriptorCount = kMaxBindlessTextures;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     pool_sizes[1].descriptorCount = kMaxBindlessTextures;
     pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     pool_sizes[2].descriptorCount = kMaxBindlessTextures;
+    pool_sizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    pool_sizes[3].descriptorCount = kMaxBindlessTextures;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     pool_ci.maxSets = 1;
-    pool_ci.poolSizeCount = 3;
+    pool_ci.poolSizeCount = 4;
     pool_ci.pPoolSizes = pool_sizes;
 
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &descriptor_pool_) != VK_SUCCESS) {
@@ -1113,17 +1140,15 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
     td.format = desc.format;
     td.bindless_index = next_bindless_index_++;
 
-    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
-    if (desc.usage == TextureUsage::RenderTarget && default_surface_format_ != VK_FORMAT_UNDEFINED) {
-        // Render targets must use the same format as the surface so pipelines are compatible
-        vk_format = default_surface_format_;
-    } else {
-        switch (desc.format) {
-            case PixelFormat::R8:         vk_format = VK_FORMAT_R8_UNORM; break;
-            case PixelFormat::RGBA8:      vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
-            case PixelFormat::RGBA8_SRGB: vk_format = VK_FORMAT_R8G8B8A8_SRGB; break;
-            case PixelFormat::RGBA16F:    vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
-            case PixelFormat::RGBA32F:    vk_format = VK_FORMAT_R32G32B32A32_SFLOAT; break;
+    VkFormat vk_format = vk_format_for(desc.format);
+    if (desc.format == PixelFormat::Surface) {
+        // Sentinel: follow the swapchain's chosen format. Used by the
+        // default LDR RenderTarget path so pipelines compiled against
+        // the swapchain render pass remain compatible.
+        if (default_surface_format_ != VK_FORMAT_UNDEFINED) {
+            vk_format = default_surface_format_;
+        } else {
+            vk_format = VK_FORMAT_R8G8B8A8_UNORM;
         }
     }
     const bool is_color_attachment = (desc.usage == TextureUsage::ColorAttachment);
@@ -1205,13 +1230,17 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
     vkUpdateDescriptorSets(device_, 1, &sampler_write, 0, nullptr);
 
     // For storage textures, also register as a storage image so compute
-    // shaders can imageStore via the same bindless_index. RGBA8-format
-    // textures land on binding 1 (matched by `image2D rgba8` in GLSL);
-    // RGBA32F-format textures land on binding 2 (matched by `image2D
-    // rgba32f`). Per-format bindings are required because Vulkan's
-    // image-format compatibility rules forbid writing rgba32f data
-    // through an rgba8-typed image view.
+    // shaders can imageStore via the same bindless_index. Per-format
+    // bindings are required because Vulkan's image-format compatibility
+    // rules forbid writing through a view of a different format class:
+    //   binding 1 — rgba8   (image2D rgba8 in GLSL, gStorageImages)
+    //   binding 2 — rgba32f (image2D rgba32f, gStorageImagesF32)
+    //   binding 3 — rgba16f (image2D rgba16f, gStorageImagesF16)
     if (desc.usage == TextureUsage::Storage) {
+        uint32_t storage_binding = 1; // RGBA8 default
+        if (desc.format == PixelFormat::RGBA32F) storage_binding = 2;
+        else if (desc.format == PixelFormat::RGBA16F) storage_binding = 3;
+
         VkDescriptorImageInfo storage_info{};
         storage_info.imageView = td.view;
         storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -1219,7 +1248,7 @@ TextureId VkBackend::create_texture(const TextureDesc& desc)
         VkWriteDescriptorSet storage_write{};
         storage_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         storage_write.dstSet = descriptor_set_;
-        storage_write.dstBinding = (desc.format == PixelFormat::RGBA32F) ? 2u : 1u;
+        storage_write.dstBinding = storage_binding;
         storage_write.dstArrayElement = td.bindless_index;
         storage_write.descriptorCount = 1;
         storage_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -1533,7 +1562,63 @@ bool VkBackend::read_texture(TextureId texture, vector<uint8_t>& out_pixels,
 // Pipelines
 // ============================================================================
 
+VkRenderPass VkBackend::get_or_create_single_attachment_render_pass(VkFormat color_format)
+{
+    auto it = single_attachment_render_passes_.find(color_format);
+    if (it != single_attachment_render_passes_.end()) {
+        return it->second;
+    }
+
+    // Single color attachment, no depth, identical structure to the
+    // standalone RTT render pass in create_texture (line 1234 area) so
+    // pipelines compiled here are render-pass compatible with rendering
+    // into create_texture's RTT for the same format.
+    VkAttachmentDescription color_att{};
+    color_att.format = color_format;
+    color_att.samples = VK_SAMPLE_COUNT_1_BIT;
+    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    color_att.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference color_ref{};
+    color_ref.attachment = 0;
+    color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &color_ref;
+
+    VkSubpassDependency dep{};
+    dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass = 0;
+    dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo rp_ci{};
+    rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rp_ci.attachmentCount = 1;
+    rp_ci.pAttachments = &color_att;
+    rp_ci.subpassCount = 1;
+    rp_ci.pSubpasses = &subpass;
+    rp_ci.dependencyCount = 1;
+    rp_ci.pDependencies = &dep;
+
+    VkRenderPass rp = VK_NULL_HANDLE;
+    if (vkCreateRenderPass(device_, &rp_ci, nullptr, &rp) != VK_SUCCESS) {
+        VELK_LOG(E, "VkBackend: failed to create single-attachment render pass");
+        return VK_NULL_HANDLE;
+    }
+    single_attachment_render_passes_[color_format] = rp;
+    return rp;
+}
+
 PipelineId VkBackend::create_pipeline(const PipelineDesc& desc,
+                                      PixelFormat target_format,
                                       RenderTargetGroup target_group)
 {
     if (!default_render_pass_) {
@@ -1544,6 +1629,8 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc,
     VkRenderPass render_pass = default_render_pass_;
     uint32_t color_attachment_count = 1;
     if (target_group != 0) {
+        // MRT path: group's render pass dictates attachment count + formats.
+        // target_format is ignored here.
         auto git = render_target_groups_.find(target_group);
         if (git == render_target_groups_.end()) {
             VELK_LOG(E, "VkBackend: create_pipeline: unknown render target group");
@@ -1551,6 +1638,20 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc,
         }
         render_pass = git->second.render_pass;
         color_attachment_count = static_cast<uint32_t>(git->second.attachments.size());
+    } else if (target_format != PixelFormat::Surface) {
+        // Single-attachment, no-depth render pass for an explicit color
+        // format (HDR path target, format-explicit RTT). Pipelines
+        // compiled here are render-pass compatible with create_texture's
+        // standalone RTT render pass (also single-color, no depth).
+        VkFormat vk_color = vk_format_for(target_format);
+        if (vk_color == VK_FORMAT_UNDEFINED) {
+            VELK_LOG(E, "VkBackend: create_pipeline: unsupported target_format");
+            return 0;
+        }
+        render_pass = get_or_create_single_attachment_render_pass(vk_color);
+        if (!render_pass) {
+            return 0;
+        }
     }
 
     // Shader modules
@@ -1656,7 +1757,12 @@ PipelineId VkBackend::create_pipeline(const PipelineDesc& desc,
     // silently has depth testing off — this is the "(a) ignore" edge case.
     bool target_has_depth = false;
     if (target_group == 0) {
-        target_has_depth = (default_depth_format_ != VK_FORMAT_UNDEFINED);
+        // Surface follows the swapchain's default render pass (which may
+        // carry depth); explicit non-surface formats use the single-color
+        // no-depth cache, so depth state must be omitted for those.
+        if (target_format == PixelFormat::Surface) {
+            target_has_depth = (default_depth_format_ != VK_FORMAT_UNDEFINED);
+        }
     } else {
         auto git = render_target_groups_.find(target_group);
         target_has_depth = (git != render_target_groups_.end())
@@ -2600,14 +2706,8 @@ RenderTargetGroup VkBackend::create_render_target_group(
         }
         gd.attachments.push_back(t);
 
-        VkFormat vk_f = VK_FORMAT_R8G8B8A8_UNORM;
-        switch (f) {
-            case PixelFormat::R8:         vk_f = VK_FORMAT_R8_UNORM; break;
-            case PixelFormat::RGBA8:      vk_f = VK_FORMAT_R8G8B8A8_UNORM; break;
-            case PixelFormat::RGBA8_SRGB: vk_f = VK_FORMAT_R8G8B8A8_SRGB; break;
-            case PixelFormat::RGBA16F:    vk_f = VK_FORMAT_R16G16B16A16_SFLOAT; break;
-            case PixelFormat::RGBA32F:    vk_f = VK_FORMAT_R32G32B32A32_SFLOAT; break;
-        }
+        VkFormat vk_f = vk_format_for(f);
+        if (vk_f == VK_FORMAT_UNDEFINED) vk_f = VK_FORMAT_R8G8B8A8_UNORM;
         gd.vk_formats.push_back(vk_f);
     }
 

@@ -250,6 +250,11 @@ FrameContext Renderer::make_frame_context()
     ctx.observer = this;
     ctx.present_counter = present_counter_;
     ctx.latency_frames = kGpuLatencyFrames;
+    // ctx.target_format is set per-camera by IViewPipeline::emit before
+    // the path runs; the renderer-level FrameContext leaves it at the
+    // FrameContext default (Surface). Pre-emit consumers (snippet
+    // resolution etc.) don't compile pipelines so the field is unused
+    // there.
     return ctx;
 }
 
@@ -362,7 +367,9 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
             }
         }
 
-        // Rebuild draw commands for changed elements
+        // Rebuild draw commands for changed elements. Pipelines are
+        // not pre-compiled here; build_draw_calls / build_gbuffer_draw_calls
+        // compile lazily on cache miss against the path's target_format.
         for (auto* element : state.redraw_list) {
             batch_builder_.rebuild_commands(element, this, render_ctx_);
         }

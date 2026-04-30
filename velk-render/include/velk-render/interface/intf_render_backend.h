@@ -37,6 +37,7 @@ inline constexpr bool is_render_target_group(uint64_t id)
 /// Pixel format for textures.
 enum class PixelFormat : uint8_t
 {
+    Surface,    ///< Sentinel: resolves to the swapchain's chosen format. Used where a render target or pipeline wants to follow the surface format.
     RGBA8,      ///< 4 bytes per pixel, linear color.
     RGBA8_SRGB, ///< 4 bytes per pixel, sRGB-tagged (auto-linearised on sample).
     R8,         ///< 1 byte per pixel, glyph atlases.
@@ -305,12 +306,18 @@ public:
     /**
      * @brief Creates a graphics pipeline from SPIR-V shaders. Returns a handle.
      *
+     * @param target_format Color attachment format the pipeline will
+     *        render into. `Surface` follows the swapchain (default,
+     *        used by direct-to-swapchain and surface-format RTT).
+     *        Explicit formats (e.g. `RGBA16F` for HDR) get a per-format
+     *        single-attachment render pass cached internally so the
+     *        pipeline is render-pass compatible with the target.
      * @param target_group If non-zero, the pipeline is compiled against
-     *        the render pass of the given group (so its fragment shader
-     *        can write multiple color outputs). Defaults to the single-
-     *        attachment swapchain render pass.
+     *        the render pass of the given MRT group; in that case
+     *        @p target_format is ignored (group attachments are fixed).
      */
     virtual PipelineId create_pipeline(const PipelineDesc& desc,
+                                       PixelFormat target_format = PixelFormat::Surface,
                                        RenderTargetGroup target_group = 0) = 0;
 
     /** @brief Creates a compute pipeline from a compute shader. Returns a handle. */

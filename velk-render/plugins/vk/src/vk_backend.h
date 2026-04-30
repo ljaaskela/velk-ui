@@ -46,6 +46,7 @@ public:
         RenderTargetGroup group, uint32_t index) const override;
 
     PipelineId create_pipeline(const PipelineDesc& desc,
+                               PixelFormat target_format = PixelFormat::Surface,
                                RenderTargetGroup target_group = 0) override;
     PipelineId create_compute_pipeline(const ComputePipelineDesc& desc) override;
     void destroy_pipeline(PipelineId pipeline) override;
@@ -131,6 +132,13 @@ private:
     VkRenderPass default_render_pass_ = VK_NULL_HANDLE;
     VkFormat default_surface_format_ = VK_FORMAT_UNDEFINED;
     VkFormat default_depth_format_ = VK_FORMAT_UNDEFINED; ///< VK_FORMAT_UNDEFINED = no depth.
+
+    /// Per-color-format single-attachment, no-depth render passes used
+    /// to compile pipelines that render into format-explicit RTTs (HDR
+    /// path target etc.). `Surface` callers go through `default_render_pass_`
+    /// and are not stored here. Created lazily on first request.
+    std::unordered_map<VkFormat, VkRenderPass> single_attachment_render_passes_;
+    VkRenderPass get_or_create_single_attachment_render_pass(VkFormat color_format);
 
     // Surfaces
     struct SurfaceData

@@ -14,6 +14,8 @@
 #include <velk-render/frame/raster_shaders.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_buffer.h>
+#include <velk-render/interface/intf_raster_shader.h>
+#include <velk-render/interface/material/intf_material.h>
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
@@ -232,7 +234,8 @@ IShader::Ptr RenderContextImpl::compile_shader(string_view source, ShaderStage s
 }
 
 uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IShader::Ptr& fragment,
-                                            uint64_t key, RenderTargetGroup target_group,
+                                            uint64_t key, PixelFormat target_format,
+                                            RenderTargetGroup target_group,
                                             const PipelineOptions& options)
 {
     if (!initialized_ || !backend_) {
@@ -258,7 +261,7 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
     desc.fragment = frag_shader;
     desc.options = options;
 
-    PipelineId pid = backend_->create_pipeline(desc, target_group);
+    PipelineId pid = backend_->create_pipeline(desc, target_format, target_group);
     if (!pid) {
         return 0;
     }
@@ -266,17 +269,18 @@ uint64_t RenderContextImpl::create_pipeline(const IShader::Ptr& vertex, const IS
     if (key == 0) {
         key = next_pipeline_key_++;
     }
-    pipeline_map_[key] = pid;
+    pipeline_map_[PipelineCacheKey{key, target_format, target_group}] = pid;
     return key;
 }
 
 uint64_t RenderContextImpl::compile_pipeline(string_view fragment_source, string_view vertex_source,
-                                             uint64_t key, RenderTargetGroup target_group,
+                                             uint64_t key, PixelFormat target_format,
+                                             RenderTargetGroup target_group,
                                              const PipelineOptions& options)
 {
     auto vert = vertex_source.empty() ? nullptr : compile_shader(vertex_source, ShaderStage::Vertex);
     auto frag = fragment_source.empty() ? nullptr : compile_shader(fragment_source, ShaderStage::Fragment);
-    return create_pipeline(vert, frag, key, target_group, options);
+    return create_pipeline(vert, frag, key, target_format, target_group, options);
 }
 
 uint64_t RenderContextImpl::create_compute_pipeline(const IShader::Ptr& compute, uint64_t key)
@@ -296,7 +300,10 @@ uint64_t RenderContextImpl::create_compute_pipeline(const IShader::Ptr& compute,
     if (key == 0) {
         key = next_pipeline_key_++;
     }
-    pipeline_map_[key] = pid;
+    // Compute pipelines are render-pass independent; key under the
+    // default (Surface, group 0) tuple so call sites can look them up
+    // with just the user_key.
+    pipeline_map_[PipelineCacheKey{key, PixelFormat::Surface, 0}] = pid;
     return key;
 }
 
@@ -321,7 +328,11 @@ PipelineId RenderContextImpl::compile_gbuffer_pipeline(string_view fragment_sour
     if (!initialized_ || !backend_ || key == 0 || target_group == 0) {
         return 0;
     }
-    auto it = gbuffer_pipeline_map_.find(key);
+    // G-buffer pipelines are keyed by (user_key, target_group); they
+    // always render into MRT groups whose attachment formats are fixed
+    // by the group, so target_format is implicit (encoded as Surface).
+    PipelineCacheKey gkey{key, PixelFormat::Surface, target_group};
+    auto it = gbuffer_pipeline_map_.find(gkey);
     if (it != gbuffer_pipeline_map_.end()) {
         return it->second;
     }
@@ -345,11 +356,11 @@ PipelineId RenderContextImpl::compile_gbuffer_pipeline(string_view fragment_sour
     // G-buffer passes always write opaquely regardless of alpha mode.
     desc.options.blend_mode = BlendMode::Opaque;
 
-    PipelineId pid = backend_->create_pipeline(desc, target_group);
+    PipelineId pid = backend_->create_pipeline(desc, PixelFormat::Surface, target_group);
     if (!pid) {
         return 0;
     }
-    gbuffer_pipeline_map_[key] = pid;
+    gbuffer_pipeline_map_[gkey] = pid;
     return pid;
 }
 
@@ -415,6 +426,7 @@ vector<DrawCall> RenderContextImpl::build_draw_calls(
     IFrameDataManager& frame_data,
     IGpuResourceManager& resources,
     uint64_t globals_gpu_addr,
+    PixelFormat target_format,
     IGpuResourceObserver* observer,
     MaterialAddrCache& material_cache,
     const ::velk::render::Frustum* frustum)
@@ -502,13 +514,66 @@ vector<DrawCall> RenderContextImpl::build_draw_calls(
         std::memcpy(dst, &header, sizeof(header));
         std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
 
-        uint64_t effective_pipeline_key = batch.pipeline_key;
-        if (effective_pipeline_key == 0 && batch.material) {
-            effective_pipeline_key = batch.material->get_pipeline_handle(*this);
-        }
-        auto pit = pipeline_map_.find(effective_pipeline_key);
+        // Pipeline source priority: a material attached to the entry
+        // wins over the visual's own raster shader. (The visual's
+        // raster_shader is captured on the batch as a fallback
+        // vertex-shader source when the material doesn't supply one;
+        // see the lazy-compile branch below.) When neither is present
+        // batch.pipeline_key is the visual's stable key.
+        const bool use_material = (batch.material != nullptr);
+        uint64_t effective_pipeline_key = use_material
+            ? batch.material->get_pipeline_handle(*this)
+            : batch.pipeline_key;
+
+        auto pit = pipeline_map_.find(
+            PipelineCacheKey{effective_pipeline_key, target_format, 0});
         if (pit == pipeline_map_.end()) {
-            continue;
+            // Lazy compile: pipeline cache miss for this (user_key,
+            // target_format) tuple. Source comes from either the
+            // material (preferred when present) or the visual's
+            // IRasterShader. PipelineOptions were captured at batch
+            // build time. compile_pipeline auto-allocates a key when we
+            // pass 0; we back-fill the material's handle so subsequent
+            // frames / formats share the same user_key.
+            uint64_t compiled_key = 0;
+            if (use_material) {
+                if (auto* mat = interface_cast<IMaterial>(batch.material.get())) {
+                    auto eval_src = mat->get_eval_src();
+                    auto vertex_src = mat->get_vertex_src();
+                    auto eval_fn = mat->get_eval_fn_name();
+                    auto frag_src = mat->get_fragment_src();
+                    if (!eval_src.empty() && !vertex_src.empty() && !eval_fn.empty()) {
+                        mat->register_eval_includes(*this);
+                        string frag = compose_eval_fragment(
+                            forward_fragment_driver_template, eval_src, eval_fn,
+                            mat->get_forward_discard_threshold());
+                        compiled_key = compile_pipeline(
+                            string_view(frag), vertex_src,
+                            effective_pipeline_key, target_format, 0,
+                            batch.pipeline_options);
+                    } else if (!frag_src.empty() && !vertex_src.empty()) {
+                        compiled_key = compile_pipeline(
+                            frag_src, vertex_src,
+                            effective_pipeline_key, target_format, 0,
+                            batch.pipeline_options);
+                    }
+                    if (compiled_key && batch.material->get_pipeline_handle(*this) == 0) {
+                        batch.material->set_pipeline_handle(compiled_key);
+                    }
+                }
+            } else if (batch.raster_shader && effective_pipeline_key != 0) {
+                auto src = batch.raster_shader->get_raster_source(
+                    IRasterShader::Target::Forward);
+                compiled_key = compile_pipeline(
+                    src.fragment, src.vertex,
+                    effective_pipeline_key, target_format, 0,
+                    batch.pipeline_options);
+            }
+            if (compiled_key == 0) continue;
+            effective_pipeline_key = compiled_key;
+            pit = pipeline_map_.find(
+                PipelineCacheKey{effective_pipeline_key, target_format, 0});
+            if (pit == pipeline_map_.end()) continue;
         }
 
         // Lazy-register the program's pipeline for deferred destruction
@@ -641,7 +706,8 @@ vector<DrawCall> RenderContextImpl::build_gbuffer_draw_calls(
         uint64_t gbuffer_key = forward_key ^ batch.discard_key_perturb;
 
         PipelineId gpid = 0;
-        auto git = gbuffer_pipeline_map_.find(gbuffer_key);
+        PipelineCacheKey gbuf_lookup{gbuffer_key, PixelFormat::Surface, target_group};
+        auto git = gbuffer_pipeline_map_.find(gbuf_lookup);
         if (git != gbuffer_pipeline_map_.end()) {
             gpid = git->second;
         } else {

@@ -71,8 +71,16 @@ public:
         vector<Batch> batches;
     };
 
-    /** @brief Rebuilds visual commands for a single element from its traits. */
-    void rebuild_commands(IElement* element, IGpuResourceObserver* observer, IRenderContext* render_ctx);
+    /**
+     * @brief Rebuilds visual commands for a single element from its traits.
+     *
+     * Captures shader sources, pipeline options, and material textures
+     * onto the cached visual / draw entries. Pipeline compilation is
+     * deferred to `IRenderContext::build_draw_calls`, which compiles
+     * lazily against the active path's `FrameContext::target_format`.
+     */
+    void rebuild_commands(IElement* element, IGpuResourceObserver* observer,
+                          IRenderContext* render_ctx);
 
     /** @brief Rebuilds batches from the visual list, pre-filtering render target subtrees. */
     void rebuild_batches(const SceneState& state, vector<Batch>& out_batches);

@@ -49,6 +49,7 @@ CameraPipeline::CameraPipeline()
 CameraPipeline::ensure_storage_target(::velk::IRenderTarget::Ptr& slot,
                                       int width, int height,
                                       ::velk::TextureUsage usage,
+                                      ::velk::PixelFormat format,
                                       ::velk::FrameContext& ctx)
 {
     if (slot) return slot;
@@ -57,7 +58,7 @@ CameraPipeline::ensure_storage_target(::velk::IRenderTarget::Ptr& slot,
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
-    td.format = ::velk::PixelFormat::RGBA8;
+    td.format = format;
     td.usage = usage;
     auto tex_id = ctx.backend->create_texture(td);
     if (tex_id == 0) return {};
@@ -128,10 +129,20 @@ void CameraPipeline::emit(::velk::ViewEntry& view,
     ///   (so a path that writes via Compute must blit, not imageStore).
     /// post_target: Storage so post-process compute shaders can
     ///   `imageStore` here. Sampleable too, so a final blit reads it.
+    /// HDR intermediates: cameras with a post-process attached
+    /// (typically a tonemap chain) render through RGBA16F so the
+    /// effects compose in linear high-range space. The final blit
+    /// converts RGBA16F to the swapchain's display format in one GPU
+    /// op. ctx.target_format flows to forward pipelines so they
+    /// compile against an RGBA16F render pass.
+    ctx.target_format = ::velk::PixelFormat::RGBA16F;
+
     auto path_target = ensure_storage_target(vs.path_output, w, h,
-                                             ::velk::TextureUsage::RenderTarget, ctx);
+                                             ::velk::TextureUsage::RenderTarget,
+                                             ::velk::PixelFormat::RGBA16F, ctx);
     auto post_target = ensure_storage_target(vs.post_output, w, h,
-                                             ::velk::TextureUsage::Storage, ctx);
+                                             ::velk::TextureUsage::Storage,
+                                             ::velk::PixelFormat::RGBA16F, ctx);
     if (!path_target || !post_target) {
         // Allocation failure: fall back to direct rendering.
         path->build_passes(view, render_view, color_target, ctx, graph);

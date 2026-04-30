@@ -177,7 +177,10 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         TextureDesc td{};
         td.width = w;
         td.height = h;
-        td.format = PixelFormat::RGBA8;
+        // Lighting compute shader writes raw HDR linear radiance via
+        // gStorageImagesF16 (binding 3). Tonemap, if requested, is a
+        // separate post-process effect attached to the camera pipeline.
+        td.format = PixelFormat::RGBA16F;
         td.usage = TextureUsage::Storage;
         auto tex_id = ctx.backend->create_texture(td);
         if (tex_id != 0) {
@@ -223,7 +226,8 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
 
     uint64_t pipeline_key = ensure_pipeline(ctx);
     if (pipeline_key == 0) return;
-    auto pit = ctx.pipeline_map->find(pipeline_key);
+    auto pit = ctx.pipeline_map->find(
+        PipelineCacheKey{pipeline_key, PixelFormat::Surface, 0});
     if (pit == ctx.pipeline_map->end()) return;
 
     auto albedo_id   = vs.gbuffer->attachment(static_cast<uint32_t>(GBufferAttachment::Albedo));

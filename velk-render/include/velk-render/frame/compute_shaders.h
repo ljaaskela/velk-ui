@@ -34,8 +34,9 @@ namespace velk {
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 1, rgba8) uniform writeonly image2D gStorageImages[];
+layout(set = 0, binding = 1, rgba8)   uniform writeonly image2D gStorageImages[];
 layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D gStorageImagesF32[];
+layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D gStorageImagesF16[];
 
 // Mirrors C++ GpuLight (80 bytes) in ray_tracer.cpp / deferred_lighter.cpp.
 struct Light {
@@ -567,8 +568,9 @@ void main()
         vec3 far_w  = far_h.xyz  / far_h.w;
         vec3 rd = normalize(far_w - near_w);
         vec3 sky = env_miss_color(rd);
-        sky = velk_tonemap_aces(sky);
-        imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord, vec4(sky, 1.0));
+        // Sky is HDR; output linearly. Post-process tonemap (if attached)
+        // brings it to LDR display range.
+        imageStore(gStorageImagesF16[nonuniformEXT(pc.output_image_id)], coord, vec4(sky, 1.0));
         return;
     }
 
@@ -689,8 +691,10 @@ void main()
             + F_env * env_specular;
     }
 
-    rgb = velk_tonemap_aces(rgb);
-    imageStore(gStorageImages[nonuniformEXT(pc.output_image_id)], coord, vec4(rgb, albedo.a));
+    // Output raw HDR linear radiance. Tonemapping is the post-process
+    // chain's responsibility; cameras that need an LDR display must
+    // attach a tonemap effect (or any other HDR -> LDR mapper).
+    imageStore(gStorageImagesF16[nonuniformEXT(pc.output_image_id)], coord, vec4(rgb, albedo.a));
 }
 )";
 
