@@ -60,9 +60,11 @@ public:
     void on_view_removed(ViewEntry& view, FrameContext& ctx) override;
     void shutdown(FrameContext& ctx) override;
 
-    /// IRenderPath debug accessors.
-    RenderTargetGroup find_gbuffer_group(ViewEntry* view) const override;
-    TextureId find_shadow_debug_tex(ViewEntry* view) const override;
+    /// Exposes per-view "gbuffer" (the IRenderTextureGroup),
+    /// "shadow.debug", and "output" outputs for debug overlays /
+    /// readback. See `IRenderPath::find_named_output`.
+    IGpuResource::Ptr find_named_output(string_view name,
+                                        ViewEntry* view) const override;
 
 public:
     struct ViewState

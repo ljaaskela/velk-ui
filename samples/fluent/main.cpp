@@ -18,6 +18,7 @@
 #include <velk-render/debug/render_target_dump.h>
 #include <velk-render/gbuffer.h>
 #include <velk-render/interface/intf_camera.h>
+#include <velk-render/interface/intf_render_texture_group.h>
 #include <velk-render/interface/intf_image.h>
 #include <velk-runtime/api/application.h>
 #include <velk-scene/api/camera.h>
@@ -349,9 +350,13 @@ int main(int /*argc*/, char* /*argv*/[])
             constexpr float kThumbW = 220.f;
             const float col_x = static_cast<float>(kWidth) - kThumbW;
             const float thumb_h = static_cast<float>(kHeight) / 4.f;
+            auto gbuffer_out = renderer->get_named_output(
+                camera_3d, window_surface, "gbuffer");
+            auto* gbuffer_group = gbuffer_out
+                ? gbuffer_out->get_interface<velk::IRenderTextureGroup>()
+                : nullptr;
             for (uint32_t i = 0; i < 4; ++i) {
-                velk::TextureId tid =
-                    renderer->get_gbuffer_attachment(camera_3d, window_surface, i);
+                velk::TextureId tid = gbuffer_group ? gbuffer_group->attachment(i) : 0;
                 if (tid != 0) {
                     renderer->add_debug_overlay(
                         window_surface, tid,

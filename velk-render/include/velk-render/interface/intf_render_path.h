@@ -2,8 +2,11 @@
 #define VELK_SCENE_INTF_RENDER_PATH_H
 
 #include <velk/interface/intf_interface.h>
+#include <velk/string.h>
 #include <velk/uid.h>
 #include <velk/vector.h>
+
+#include <velk-render/interface/intf_gpu_resource.h>
 
 #include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/interface/intf_render_stage.h>
@@ -85,14 +88,23 @@ public:
                               FrameContext& ctx,
                               IRenderGraph& graph) = 0;
 
-    /// Debug accessor: returns the per-view G-buffer render target group
-    /// if this path maintains one. Used by `Renderer::get_gbuffer_attachment`
-    /// for debug-overlay readback; non-deferred paths return 0.
-    virtual RenderTargetGroup find_gbuffer_group(ViewEntry* view) const = 0;
-
-    /// Debug accessor: returns the per-view RT-shadow debug storage
-    /// texture if this path maintains one. Returns 0 if absent.
-    virtual TextureId find_shadow_debug_tex(ViewEntry* view) const = 0;
+    /**
+     * @brief Looks up a per-view named output produced by this path.
+     *
+     * Generic introspection hook for debug overlays / external readback.
+     * Names are path-specific; conventional names today:
+     *   - "gbuffer"       — the deferred G-buffer (IRenderTextureGroup;
+     *                       caller indexes attachments via
+     *                       `attachment(uint32_t)`).
+     *   - "shadow.debug"  — RT-shadow debug storage texture
+     *                       (IRenderTarget).
+     *
+     * Returns null when the path doesn't produce that output for the
+     * given view. Non-introspecting paths can leave the empty default
+     * provided by `ext::RenderPath`.
+     */
+    virtual IGpuResource::Ptr find_named_output(string_view name,
+                                                ViewEntry* view) const = 0;
 };
 
 } // namespace velk

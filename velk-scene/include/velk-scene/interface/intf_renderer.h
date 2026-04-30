@@ -3,8 +3,10 @@
 
 #include <velk/api/math_types.h>
 #include <velk/interface/intf_metadata.h>
+#include <velk/string.h>
 #include <velk/vector.h>
 
+#include <velk-render/interface/intf_gpu_resource.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_window_surface.h>
 #include <velk-scene/interface/intf_element.h>
@@ -133,28 +135,26 @@ public:
     virtual void clear_debug_overlays() = 0;
 
     /**
-     * @brief Returns the bindless texture id of a G-buffer attachment
-     *        for the given (camera, surface) view. Attachment indices
-     *        follow the GBufferAttachment enum (Albedo=0, Normal=1,
-     *        WorldPos=2, MaterialParams=3). Returns 0 if the view has
-     *        no G-buffer allocated yet (e.g. first frame not rendered
-     *        or the camera is not Deferred).
+     * @brief Returns a per-view named output produced by the path
+     *        attached to @p camera_element.
+     *
+     * Generic introspection hook for debug overlays / external readback.
+     * Names are path-specific. Conventional names today (Deferred path):
+     *   - "gbuffer"      — the G-buffer (cast to IRenderTextureGroup;
+     *                      caller indexes attachments via
+     *                      `attachment(uint32_t)`).
+     *   - "shadow.debug" — RT-shadow diagnostic RGBA32F texture
+     *                      (IRenderTarget); each pixel carries
+     *                      (buffer_addr_lo, buffer_addr_hi, ibo_offset,
+     *                      triangle_count) of the BLAS instance the
+     *                      shadow ray walked.
+     *
+     * Returns null when the view has no path / the path doesn't produce
+     * that output.
      */
-    virtual TextureId get_gbuffer_attachment(const IElement::Ptr& camera_element,
-                                             const IWindowSurface::Ptr& surface,
-                                             uint32_t attachment_index) const = 0;
-
-    /**
-     * @brief Returns the bindless texture id of the per-view RT shadow
-     *        diagnostic image (RGBA32F) for the given (camera, surface)
-     *        view. The image is written by the deferred shadow compute
-     *        when the shadow_debug_image_id push constant is non-zero;
-     *        each pixel carries (buffer_addr_lo, buffer_addr_hi,
-     *        ibo_offset, triangle_count) of the BLAS instance the
-     *        shadow ray walked. Returns 0 if no Deferred view is set up.
-     */
-    virtual TextureId get_shadow_debug_texture(const IElement::Ptr& camera_element,
-                                               const IWindowSurface::Ptr& surface) const = 0;
+    virtual IGpuResource::Ptr get_named_output(const IElement::Ptr& camera_element,
+                                               const IWindowSurface::Ptr& surface,
+                                               string_view name) const = 0;
 
     /**
      * @brief Requests a one-shot dump of every mesh shape's MeshStaticData
