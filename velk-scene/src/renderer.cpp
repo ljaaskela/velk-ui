@@ -598,29 +598,63 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             log_bvh_next_ = false;
         }
 
-        // Per-view passes are staged in a local graph so the shared
-        // RTT passes can be added to slot.graph first. Bindless texture
-        // reads from materials are graph-invisible (Tier 1), so RTT-
-        // before-views ordering is enforced by emit order rather than
-        // by graph dependencies.
-        auto view_graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
+        // Two-phase view processing so RTT passes can sit ahead of view
+        // passes in the single slot.graph without shuffling between two
+        // graphs. Phase 1 prepares each view (rebuild_batches accumulates
+        // RTT subtrees into render_target_passes_); Phase 2 emits view
+        // pipelines into the graph after RTT passes are already in.
+        struct PreparedView
+        {
+            ViewSlot* slot;
+            RenderView render_view;
+            IInterface::Ptr camera_trait;
+            vector<IViewPipeline::Ptr> pipelines;
+            // BVH state captured at prepare time so emit doesn't need to
+            // re-resolve scene -> BVH.
+            uint64_t bvh_nodes_addr = 0;
+            uint64_t bvh_shapes_addr = 0;
+            uint32_t bvh_root = 0;
+            uint32_t bvh_node_count = 0;
+            uint32_t bvh_shape_count = 0;
+        };
+        vector<PreparedView> prepared;
+        prepared.reserve(views_.size());
+
+        // Phase 1: prepare each matching view.
         for (auto& view_slot : views_) {
             if (!view_matches(view_slot, desc)) {
                 continue;
             }
-            auto& entry = view_slot.entry;
 
             auto scene_ptr = view_slot.camera_element->get_scene();
             auto* scene = interface_cast<IScene>(scene_ptr);
             if (!scene) {
                 continue;
             }
-
             auto sit = consumed_scenes.find(scene);
             if (sit == consumed_scenes.end()) {
                 continue;
             }
 
+            // Discover view pipelines attached to the camera trait.
+            auto camera_trait = ::velk::find_attachment<ICamera>(view_slot.camera_element);
+            vector<IViewPipeline::Ptr> pipelines;
+            if (auto* storage = interface_cast<IObjectStorage>(camera_trait.get())) {
+                AttachmentQuery q;
+                q.interfaceUid = IViewPipeline::UID;
+                for (auto& a : storage->find_attachments(q)) {
+                    if (auto p = interface_pointer_cast<IViewPipeline>(a)) {
+                        pipelines.emplace_back(std::move(p));
+                    }
+                }
+            }
+            if (pipelines.empty()) {
+                continue;
+            }
+
+            // BVH state for this view's scene. Set on ctx temporarily so
+            // pipeline `needs()` and view_preparer that read it observe
+            // the correct values for this view.
             auto bit = scene_bvhs.find(scene);
             if (bit != scene_bvhs.end() && bit->second) {
                 auto* b = bit->second;
@@ -636,59 +670,62 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                 ctx.bvh_node_count = 0;
                 ctx.bvh_shape_count = 0;
             }
-
-            // Discover view pipelines attached to the camera trait. The
-            // Camera trait auto-attaches a default `CameraPipeline` so
-            // trivial UI samples don't need to opt in. Multiple
-            // pipelines can be attached for half-rate / split-output
-            // configurations; each self-gates inside `emit`. Cache
-            // pipelines in seen_pipelines_ for lifecycle hooks.
-            auto camera_trait = ::velk::find_attachment<ICamera>(view_slot.camera_element);
             ctx.view_camera_trait = camera_trait.get();
-            vector<IViewPipeline::Ptr> pipelines;
-            if (auto* storage = interface_cast<IObjectStorage>(camera_trait.get())) {
-                AttachmentQuery q;
-                q.interfaceUid = IViewPipeline::UID;
-                for (auto& a : storage->find_attachments(q)) {
-                    if (auto p = interface_pointer_cast<IViewPipeline>(a)) {
-                        pipelines.emplace_back(std::move(p));
-                    }
-                }
+
+            IRenderPath::Needs needs;
+            for (auto& p : pipelines) {
+                auto n = p->needs(ctx);
+                needs.batches |= n.batches;
+                needs.shapes  |= n.shapes;
+                needs.lights  |= n.lights;
             }
-            if (!pipelines.empty()) {
-                IRenderPath::Needs needs;
-                for (auto& p : pipelines) {
-                    auto n = p->needs(ctx);
-                    needs.batches |= n.batches;
-                    needs.shapes  |= n.shapes;
-                    needs.lights  |= n.lights;
-                }
-                auto render_view = view_preparer_.prepare(entry,
-                                                          view_slot.camera_element,
-                                                          sit->second, ctx,
-                                                          batch_builder_,
-                                                          needs);
-                // RTT textures must exist + carry the right render_target_id
-                // BEFORE the path's build_draw_calls bakes those ids into
-                // draw data. Idempotent across views in the same frame.
-                render_target_cache_.ensure(ctx, batch_builder_);
-                IRenderTarget::Ptr color_target =
-                    interface_pointer_cast<IRenderTarget>(entry.surface);
-                for (auto& p : pipelines) {
-                    seen_pipelines_.insert(p.get());
-                    p->emit(entry, render_view, color_target, ctx, *view_graph);
-                }
-            }
+
+            PreparedView pv;
+            pv.slot = &view_slot;
+            pv.camera_trait = camera_trait;
+            pv.pipelines = std::move(pipelines);
+            pv.bvh_nodes_addr = ctx.bvh_nodes_addr;
+            pv.bvh_shapes_addr = ctx.bvh_shapes_addr;
+            pv.bvh_root = ctx.bvh_root;
+            pv.bvh_node_count = ctx.bvh_node_count;
+            pv.bvh_shape_count = ctx.bvh_shape_count;
+            pv.render_view = view_preparer_.prepare(view_slot.entry,
+                                                    view_slot.camera_element,
+                                                    sit->second, ctx,
+                                                    batch_builder_,
+                                                    needs);
+            prepared.push_back(std::move(pv));
+
             ctx.view_camera_trait = nullptr;
         }
 
-        // RTT subtree passes (formerly emitted via
-        // ForwardPath::build_shared_passes). Renderer-side now since
-        // RTT is scene-aware (subtrees of IElement) and IRenderPath is
-        // moving to velk-render where IElement is not reachable.
+        // RTT textures must exist + carry the right render_target_id
+        // BEFORE any draw_calls bake those ids into draw data. Run once
+        // on the union of all views' render_target_passes_ now that
+        // every view's batches have been rebuilt above.
+        render_target_cache_.ensure(ctx, batch_builder_);
+
+        // RTT subtree passes go into slot.graph first. Bindless texture
+        // reads from materials are graph-invisible (Tier 1), so the
+        // RTT-before-views ordering is enforced by emit order here.
         render_target_cache_.emit_passes(ctx, batch_builder_, *slot.graph);
-        for (auto& gp : view_graph->passes()) {
-            slot.graph->add_pass(std::move(gp));
+
+        // Phase 2: emit each prepared view's pipelines into slot.graph.
+        for (auto& pv : prepared) {
+            ctx.bvh_nodes_addr = pv.bvh_nodes_addr;
+            ctx.bvh_shapes_addr = pv.bvh_shapes_addr;
+            ctx.bvh_root = pv.bvh_root;
+            ctx.bvh_node_count = pv.bvh_node_count;
+            ctx.bvh_shape_count = pv.bvh_shape_count;
+            ctx.view_camera_trait = pv.camera_trait.get();
+
+            IRenderTarget::Ptr color_target =
+                interface_pointer_cast<IRenderTarget>(pv.slot->entry.surface);
+            for (auto& p : pv.pipelines) {
+                seen_pipelines_.insert(p.get());
+                p->emit(pv.slot->entry, pv.render_view, color_target, ctx, *slot.graph);
+            }
+            ctx.view_camera_trait = nullptr;
         }
 
         // Debug overlays: tail-appended so they blit on top of whatever
