@@ -18,42 +18,40 @@ void RenderGraph::import(const ::velk::IGpuResource::Ptr& resource)
     states_.emplace(raw, ResourceState::Undefined);
 }
 
-void RenderGraph::note_resource(const ::velk::IGpuResource::Ptr& resource)
-{
-    if (!resource) return;
-    states_.emplace(resource.get(), ResourceState::Undefined);
-}
-
-RenderGraph::ResourceState
-RenderGraph::write_state_for(const ::velk::RenderPass& body)
-{
-    switch (body.kind) {
-    case ::velk::PassKind::Raster:
-    case ::velk::PassKind::GBufferFill:
-    case ::velk::PassKind::ComputeBlit:
-    case ::velk::PassKind::Blit:
-        return ResourceState::ColorWrite;
-    case ::velk::PassKind::Compute:
-        return ResourceState::Storage;
-    }
-    return ResourceState::ColorWrite;
-}
-
 void RenderGraph::add_pass(::velk::GraphPass&& pass)
 {
-    if (pass.writes.empty() && pass.body.target.target) {
-        pass.writes.push_back(pass.body.target.target);
+    for (auto& r : pass.reads) {
+        if (r) states_.emplace(r.get(), ResourceState::Undefined);
     }
-    for (auto& r : pass.reads)  note_resource(r);
-    for (auto& w : pass.writes) note_resource(w);
+    for (auto& w : pass.writes) {
+        if (w) states_.emplace(w.get(), ResourceState::Undefined);
+    }
     passes_.push_back(std::move(pass));
 }
 
-void RenderGraph::add_pass(::velk::RenderPass&& body)
+RenderGraph::PassClass RenderGraph::classify(const ::velk::GraphPass& pass)
 {
-    ::velk::GraphPass gp;
-    gp.body = std::move(body);
-    add_pass(std::move(gp));
+    // Last-op-wins: the post-pass resource state matches the kind of
+    // the last work-doing op. Submit -> ColorWrite (raster); Dispatch
+    // alone -> Storage (compute); BlitToSurface (with or without a
+    // preceding Dispatch) -> ColorWrite (blit destination ends up in
+    // a color-attachment-readable layout).
+    bool has_submit = false;
+    bool has_dispatch = false;
+    bool has_blit = false;
+    for (auto& op : pass.ops) {
+        if (std::holds_alternative<::velk::ops::Submit>(op)) has_submit = true;
+        else if (std::holds_alternative<::velk::ops::Dispatch>(op)) has_dispatch = true;
+        else if (std::holds_alternative<::velk::ops::BlitToSurface>(op)
+                 || std::holds_alternative<::velk::ops::BlitGroupDepthToSurface>(op)) {
+            has_blit = true;
+        }
+    }
+    if (has_blit) return PassClass::Blit;
+    if (has_submit) return PassClass::Raster;
+    if (has_dispatch) return PassClass::Compute;
+    // Empty / barrier-only pass: treat as Raster for default barrier dst.
+    return PassClass::Raster;
 }
 
 void RenderGraph::compile()
@@ -61,56 +59,60 @@ void RenderGraph::compile()
     barriers_.assign(passes_.size(), Barrier{});
     states_.clear();
 
-    /// Per-resource state machine driving barriers. Each pass:
-    ///  1. If it reads textures (any consumer pass except RTT-style
-    ///     Raster-into-texture, which is assumed to write fresh content
-    ///     without sampling previously-written graph resources),
-    ///     scans the state map for resources in writeable states
-    ///     (ColorWrite / Storage), emits a single transition barrier
-    ///     from the producer stage to the consumer stage, then marks
-    ///     those resources as ShaderRead.
-    ///  2. Applies its declared writes, transitioning each written
-    ///     resource into the new state implied by the pass kind.
-    ///
-    /// Bindless texture reads from materials are NOT declared on the
-    /// pass; they're caught by step (1)'s scan because the producing
-    /// resource (RTT, gbuffer attachment, deferred output) is in the
-    /// state map after its write. Tier 2 will require explicit reads
-    /// + per-Ptr barrier emission once transient pooling needs them.
-    auto consumer_stage = [](::velk::PassKind k) {
-        switch (k) {
-        case ::velk::PassKind::Raster:
-        case ::velk::PassKind::GBufferFill:
-            return ::velk::PipelineStage::FragmentShader;
-        case ::velk::PassKind::Compute:
-        case ::velk::PassKind::ComputeBlit:
-        case ::velk::PassKind::Blit:
-            return ::velk::PipelineStage::ComputeShader;
+    /// Coarse per-resource state machine. For each pass that consumes
+    /// data (i.e., any work-doing pass — bindless reads aren't declared
+    /// so we conservatively assume every pass might sample any prior
+    /// writer), we scan the state map for resources still in a
+    /// writeable state, emit a single transition barrier from their
+    /// producer stage to this pass's consumer stage, and flip them to
+    /// ShaderRead. Then we transition each declared write into the
+    /// post-state implied by this pass's class.
+    auto consumer_stage = [](PassClass c) {
+        switch (c) {
+        case PassClass::Raster:  return ::velk::PipelineStage::FragmentShader;
+        case PassClass::Compute: return ::velk::PipelineStage::ComputeShader;
+        case PassClass::Blit:    return ::velk::PipelineStage::ComputeShader;
         }
         return ::velk::PipelineStage::FragmentShader;
     };
 
-    auto reads_textures = [](::velk::PassKind k, bool raster_to_texture) {
-        // Raster-to-texture (RTT) passes write a fresh target without
-        // sampling previously-written graph resources; skip the
-        // pre-pass barrier for them. Every other pass kind samples
-        // bindless textures or storage images and needs the barrier
-        // when prior writes are in flight.
-        if (k == ::velk::PassKind::Raster) return !raster_to_texture;
-        return true;
+    auto write_state = [](PassClass c) {
+        switch (c) {
+        case PassClass::Raster:  return ResourceState::ColorWrite;
+        case PassClass::Compute: return ResourceState::Storage;
+        case PassClass::Blit:    return ResourceState::ColorWrite;
+        }
+        return ResourceState::ColorWrite;
+    };
+
+    /// Raster passes that target an RTT texture write a fresh target
+    /// without sampling prior graph resources. Skip the pre-pass barrier
+    /// for them (matches old `reads_textures(Raster, raster_to_texture)`).
+    auto skip_pre_barrier = [](const ::velk::GraphPass& pass, PassClass c) {
+        if (c != PassClass::Raster) return false;
+        for (auto& op : pass.ops) {
+            if (auto* bp = std::get_if<::velk::ops::BeginPass>(&op)) {
+                // A BeginPass on a non-zero target could be either a
+                // surface or an RTT texture; raster-into-texture is the
+                // case we want to skip. We can't tell the difference
+                // from the target_id alone (both encode as uint64), so
+                // err on the conservative side: only skip when there's
+                // a write declared (which is the RTT case — RenderTarget
+                // RTT path always pushes its target into writes).
+                (void)bp;
+                return !pass.writes.empty();
+            }
+        }
+        return false;
     };
 
     for (size_t i = 0; i < passes_.size(); ++i) {
         auto& gp = passes_[i];
         auto& barrier = barriers_[i];
 
-        bool raster_to_texture = false;
-        if (gp.body.kind == ::velk::PassKind::Raster) {
-            auto* rt = gp.body.target.target.get();
-            raster_to_texture = rt && rt->get_type() == ::velk::GpuResourceType::Texture;
-        }
+        PassClass cls = classify(gp);
 
-        if (reads_textures(gp.body.kind, raster_to_texture)) {
+        if (!skip_pre_barrier(gp, cls)) {
             ::velk::PipelineStage src_stage = ::velk::PipelineStage::ColorOutput;
             bool need_barrier = false;
             for (auto& [r, st] : states_) {
@@ -125,7 +127,7 @@ void RenderGraph::compile()
             if (need_barrier) {
                 barrier.emit = true;
                 barrier.src = src_stage;
-                barrier.dst = consumer_stage(gp.body.kind);
+                barrier.dst = consumer_stage(cls);
                 for (auto& [r, st] : states_) {
                     if (st == ResourceState::ColorWrite || st == ResourceState::Storage) {
                         st = ResourceState::ShaderRead;
@@ -134,8 +136,9 @@ void RenderGraph::compile()
             }
         }
 
+        ResourceState new_state = write_state(cls);
         for (auto& w : gp.writes) {
-            states_[w.get()] = write_state_for(gp.body);
+            if (w) states_[w.get()] = new_state;
         }
     }
 }
@@ -145,49 +148,31 @@ void RenderGraph::execute(::velk::IRenderBackend& backend)
     for (size_t i = 0; i < passes_.size(); ++i) {
         auto& gp = passes_[i];
         auto& barrier = barriers_[i];
-        auto& pass = gp.body;
 
         if (barrier.emit) {
             backend.barrier(barrier.src, barrier.dst);
         }
 
-        switch (pass.kind) {
-        case ::velk::PassKind::ComputeBlit:
-            backend.dispatch({&pass.compute, 1});
-            backend.blit_to_surface(pass.blit_source, pass.blit_surface_id,
-                                    pass.blit_dst_rect);
-            if (pass.blit_depth_source_group != 0) {
-                backend.blit_group_depth_to_surface(pass.blit_depth_source_group,
-                                                    pass.blit_surface_id,
-                                                    pass.blit_dst_rect);
-            }
-            break;
-
-        case ::velk::PassKind::Blit:
-            backend.blit_to_surface(pass.blit_source, pass.blit_surface_id,
-                                    pass.blit_dst_rect);
-            break;
-
-        case ::velk::PassKind::Compute:
-            backend.dispatch({&pass.compute, 1});
-            break;
-
-        case ::velk::PassKind::GBufferFill:
-            backend.begin_pass(pass.gbuffer_group);
-            backend.submit({pass.draw_calls.data(), pass.draw_calls.size()},
-                           pass.viewport);
-            backend.end_pass();
-            break;
-
-        case ::velk::PassKind::Raster: {
-            auto* rt = pass.target.target.get();
-            uint64_t pass_target_id = rt ? rt->get_gpu_handle(GpuResourceKey::Default) : 0;
-            backend.begin_pass(pass_target_id);
-            backend.submit({pass.draw_calls.data(), pass.draw_calls.size()},
-                           pass.viewport);
-            backend.end_pass();
-            break;
-        }
+        for (auto& op : gp.ops) {
+            std::visit([&](auto& o) {
+                using T = std::decay_t<decltype(o)>;
+                if constexpr (std::is_same_v<T, ::velk::ops::BeginPass>) {
+                    backend.begin_pass(o.target_id);
+                } else if constexpr (std::is_same_v<T, ::velk::ops::Submit>) {
+                    backend.submit({o.draw_calls.data(), o.draw_calls.size()},
+                                   o.viewport);
+                } else if constexpr (std::is_same_v<T, ::velk::ops::EndPass>) {
+                    backend.end_pass();
+                } else if constexpr (std::is_same_v<T, ::velk::ops::Dispatch>) {
+                    backend.dispatch({&o.call, 1});
+                } else if constexpr (std::is_same_v<T, ::velk::ops::BlitToSurface>) {
+                    backend.blit_to_surface(o.source, o.surface_id, o.dst_rect);
+                } else if constexpr (std::is_same_v<T,
+                                                    ::velk::ops::BlitGroupDepthToSurface>) {
+                    backend.blit_group_depth_to_surface(
+                        o.src_group, o.surface_id, o.dst_rect);
+                }
+            }, op);
         }
     }
 }

@@ -238,17 +238,20 @@ void RtPath::build_passes(ViewEntry& entry,
     pc.light_count = static_cast<uint32_t>(render_view.lights.size());
     pc.globals_addr = render_view.frame_globals_addr;
 
+    DispatchCall dc{};
+    dc.pipeline = pit->second;
+    dc.groups_x = (vp_w + 7) / 8;
+    dc.groups_y = (vp_h + 7) / 8;
+    dc.groups_z = 1;
+    dc.root_constants_size = sizeof(PushC);
+    std::memcpy(dc.root_constants, &pc, sizeof(PushC));
+
     GraphPass gp;
-    gp.body.kind = PassKind::ComputeBlit;
-    gp.body.compute.pipeline = pit->second;
-    gp.body.compute.groups_x = (vp_w + 7) / 8;
-    gp.body.compute.groups_y = (vp_h + 7) / 8;
-    gp.body.compute.groups_z = 1;
-    gp.body.compute.root_constants_size = sizeof(PushC);
-    std::memcpy(gp.body.compute.root_constants, &pc, sizeof(PushC));
-    gp.body.blit_source = vs.rt_output->get_gpu_handle(GpuResourceKey::Default);
-    gp.body.blit_surface_id = color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0;
-    gp.body.blit_dst_rect = render_view.viewport;
+    gp.ops.push_back(ops::Dispatch{dc});
+    gp.ops.push_back(ops::BlitToSurface{
+        static_cast<TextureId>(vs.rt_output->get_gpu_handle(GpuResourceKey::Default)),
+        color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0,
+        render_view.viewport});
     gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.rt_output));
     if (color_target) gp.writes.push_back(interface_pointer_cast<IGpuResource>(color_target));
     graph.add_pass(std::move(gp));
