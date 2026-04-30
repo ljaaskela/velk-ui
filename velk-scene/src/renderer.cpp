@@ -732,12 +732,12 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         // the view passes produced on the target surface.
         for (auto& ov : debug_overlays_) {
             if (!ov.surface || ov.texture_id == 0) continue;
-            RenderPass op;
-            op.kind = PassKind::Blit;
-            op.blit_source = ov.texture_id;
-            op.blit_surface_id = ov.surface->get_gpu_handle(GpuResourceKey::Default);
-            op.blit_dst_rect = ov.dst_rect;
-            slot.graph->add_pass(std::move(op));
+            GraphPass gp;
+            gp.ops.push_back(ops::BlitToSurface{
+                ov.texture_id,
+                ov.surface->get_gpu_handle(GpuResourceKey::Default),
+                ov.dst_rect});
+            slot.graph->add_pass(std::move(gp));
         }
 
         if (!frame_buffer_->overflowed()) {
@@ -818,10 +818,18 @@ void Renderer::present(Frame frame)
         }
 
         // Discard older unpresented frames that target overlapping
-        // surfaces. Walks Raster passes (the only kind whose
-        // body.target.target is set today) and drops those whose
-        // target matches any Raster target in the frame being
-        // presented. Tier 2 graph deps will subsume this.
+        // surfaces. Compares the writes lists: if any write Ptr in a
+        // pending slot's pass matches a write in the frame being
+        // presented, the slot's pass is dropped. Tier 2 graph deps will
+        // subsume this.
+        auto pass_writes_target = [](const GraphPass& pass) -> uint64_t {
+            for (auto& w : pass.writes) {
+                if (!w) continue;
+                uint64_t id = get_render_target_id(w);
+                if (id != 0) return id;
+            }
+            return 0;
+        };
         for (auto& s : frame_slots_) {
             if (!s.ready || s.id >= frame.id) {
                 continue;
@@ -831,11 +839,10 @@ void Renderer::present(Frame frame)
             auto& t_passes = target->graph->passes();
             for (auto it = s_passes.begin(); it != s_passes.end();) {
                 bool overlaps = false;
-                uint64_t it_id = get_render_target_id(it->body.target.target);
+                uint64_t it_id = pass_writes_target(*it);
                 if (it_id != 0) {
                     for (auto& tp : t_passes) {
-                        uint64_t tp_id = get_render_target_id(tp.body.target.target);
-                        if (tp_id != 0 && it_id == tp_id) {
+                        if (pass_writes_target(tp) == it_id) {
                             overlaps = true;
                             break;
                         }

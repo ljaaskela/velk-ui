@@ -155,13 +155,13 @@ void CameraPipeline::emit(::velk::ViewEntry& view,
 
     // Final blit from post-process output to the actual surface.
     ::velk::GraphPass blit;
-    blit.body.kind = ::velk::PassKind::Blit;
-    blit.body.blit_source = static_cast<::velk::TextureId>(
-        post_target->get_gpu_handle(::velk::GpuResourceKey::Default));
-    blit.body.blit_surface_id = color_target
-        ? color_target->get_gpu_handle(::velk::GpuResourceKey::Default)
-        : 0;
-    blit.body.blit_dst_rect = render_view.viewport;
+    blit.ops.push_back(::velk::ops::BlitToSurface{
+        static_cast<::velk::TextureId>(
+            post_target->get_gpu_handle(::velk::GpuResourceKey::Default)),
+        color_target
+            ? color_target->get_gpu_handle(::velk::GpuResourceKey::Default)
+            : 0,
+        render_view.viewport});
     blit.reads.push_back(interface_pointer_cast<::velk::IGpuResource>(post_target));
     if (color_target) {
         blit.writes.push_back(interface_pointer_cast<::velk::IGpuResource>(color_target));

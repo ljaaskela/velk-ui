@@ -68,13 +68,11 @@ void PostProcess::emit(::velk::ViewEntry& view,
     /// passthrough blit so the path output still reaches `output`.
     if (effects.empty()) {
         ::velk::GraphPass passthrough;
-        passthrough.body.kind = ::velk::PassKind::Blit;
-        passthrough.body.blit_source = static_cast<::velk::TextureId>(
-            input->get_gpu_handle(::velk::GpuResourceKey::Default));
-        passthrough.body.blit_surface_id =
-            output->get_gpu_handle(::velk::GpuResourceKey::Default);
-        passthrough.body.blit_dst_rect = {0, 0, static_cast<float>(w),
-                                          static_cast<float>(h)};
+        passthrough.ops.push_back(::velk::ops::BlitToSurface{
+            static_cast<::velk::TextureId>(
+                input->get_gpu_handle(::velk::GpuResourceKey::Default)),
+            output->get_gpu_handle(::velk::GpuResourceKey::Default),
+            {0, 0, static_cast<float>(w), static_cast<float>(h)}});
         passthrough.reads.push_back(
             interface_pointer_cast<::velk::IGpuResource>(input));
         passthrough.writes.push_back(

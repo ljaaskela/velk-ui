@@ -131,10 +131,16 @@ void ForwardPath::build_passes(ViewEntry& entry,
         }
     }
 
-    RenderPass pass;
-    pass.target.target = color_target;
-    pass.viewport = render_view.viewport;
-    pass.draw_calls = std::move(draw_calls);
+    GraphPass pass;
+    uint64_t target_id = color_target
+        ? color_target->get_gpu_handle(GpuResourceKey::Default)
+        : 0;
+    pass.ops.push_back(ops::BeginPass{target_id});
+    pass.ops.push_back(ops::Submit{render_view.viewport, std::move(draw_calls)});
+    pass.ops.push_back(ops::EndPass{});
+    if (color_target) {
+        pass.writes.push_back(interface_pointer_cast<IGpuResource>(color_target));
+    }
     graph.add_pass(std::move(pass));
 }
 

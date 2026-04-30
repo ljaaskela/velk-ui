@@ -114,14 +114,16 @@ void Tonemap::emit(::velk::ViewEntry& /*view*/,
     pc.width = dims.x;
     pc.height = dims.y;
 
+    ::velk::DispatchCall dc{};
+    dc.pipeline = pit->second;
+    dc.groups_x = (dims.x + 7) / 8;
+    dc.groups_y = (dims.y + 7) / 8;
+    dc.groups_z = 1;
+    dc.root_constants_size = sizeof(PushC);
+    std::memcpy(dc.root_constants, &pc, sizeof(PushC));
+
     ::velk::GraphPass gp;
-    gp.body.kind = ::velk::PassKind::Compute;
-    gp.body.compute.pipeline = pit->second;
-    gp.body.compute.groups_x = (dims.x + 7) / 8;
-    gp.body.compute.groups_y = (dims.y + 7) / 8;
-    gp.body.compute.groups_z = 1;
-    gp.body.compute.root_constants_size = sizeof(PushC);
-    std::memcpy(gp.body.compute.root_constants, &pc, sizeof(PushC));
+    gp.ops.push_back(::velk::ops::Dispatch{dc});
     gp.reads.push_back(interface_pointer_cast<::velk::IGpuResource>(input));
     gp.writes.push_back(interface_pointer_cast<::velk::IGpuResource>(output));
     graph.add_pass(std::move(gp));

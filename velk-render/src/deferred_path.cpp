@@ -231,11 +231,12 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
         render_view.has_frustum ? &render_view.frustum : nullptr);
 
     GraphPass gp;
-    gp.body.kind = PassKind::GBufferFill;
-    gp.body.gbuffer_group = group_id;
-    gp.body.viewport = {0, 0, static_cast<float>(vs.gbuffer_width),
-                        static_cast<float>(vs.gbuffer_height)};
-    gp.body.draw_calls = std::move(gbuffer_draw_calls);
+    rect viewport{0, 0,
+                  static_cast<float>(vs.gbuffer_width),
+                  static_cast<float>(vs.gbuffer_height)};
+    gp.ops.push_back(ops::BeginPass{group_id});
+    gp.ops.push_back(ops::Submit{viewport, std::move(gbuffer_draw_calls)});
+    gp.ops.push_back(ops::EndPass{});
     gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.gbuffer));
     graph.add_pass(std::move(gp));
 }
@@ -369,16 +370,19 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     pc.globals_addr = render_view.frame_globals_addr;
 
     GraphPass gp;
-    gp.body.kind = PassKind::ComputeBlit;
-    gp.body.compute.pipeline = pit->second;
-    gp.body.compute.groups_x = (w + 7) / 8;
-    gp.body.compute.groups_y = (h + 7) / 8;
-    gp.body.compute.groups_z = 1;
-    gp.body.compute.root_constants_size = sizeof(PushC);
-    std::memcpy(gp.body.compute.root_constants, &pc, sizeof(PushC));
-    gp.body.blit_source = vs.deferred_output->get_gpu_handle(GpuResourceKey::Default);
-    gp.body.blit_surface_id = color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0;
-    gp.body.blit_dst_rect = render_view.viewport;
+    DispatchCall dc{};
+    dc.pipeline = pit->second;
+    dc.groups_x = (w + 7) / 8;
+    dc.groups_y = (h + 7) / 8;
+    dc.groups_z = 1;
+    dc.root_constants_size = sizeof(PushC);
+    std::memcpy(dc.root_constants, &pc, sizeof(PushC));
+    gp.ops.push_back(ops::Dispatch{dc});
+    gp.ops.push_back(ops::BlitToSurface{
+        static_cast<TextureId>(vs.deferred_output->get_gpu_handle(GpuResourceKey::Default)),
+        color_target ? color_target->get_gpu_handle(GpuResourceKey::Default) : 0,
+        render_view.viewport});
+
     gp.reads.push_back(interface_pointer_cast<IGpuResource>(vs.gbuffer));
     gp.writes.push_back(interface_pointer_cast<IGpuResource>(vs.deferred_output));
     if (color_target) gp.writes.push_back(interface_pointer_cast<IGpuResource>(color_target));

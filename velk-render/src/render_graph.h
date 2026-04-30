@@ -13,10 +13,11 @@ namespace velk::impl {
 /**
  * @brief Tier 1 RenderGraph implementation.
  *
- * Insertion-ordered. Compile assigns pre-pass barriers using a
- * conservative state machine that mirrors the old
- * `Renderer::present()` `had_texture_pass` heuristic. Execute walks
- * compiled passes and dispatches per `PassKind` to the backend.
+ * Insertion-ordered. Compile assigns a pre-pass barrier per pass using
+ * a coarse per-resource state machine: any prior pass that wrote a
+ * tracked resource forces a barrier before the next consumer pass.
+ * Execute walks the op list of every pass and dispatches each op 1:1
+ * to a backend method via std::visit.
  */
 class RenderGraph final
     : public ::velk::ext::ObjectCore<RenderGraph, ::velk::IRenderGraph>
@@ -28,7 +29,6 @@ public:
     void clear() override;
     void import(const ::velk::IGpuResource::Ptr& resource) override;
     void add_pass(::velk::GraphPass&& pass) override;
-    void add_pass(::velk::RenderPass&& body) override;
     void compile() override;
     void execute(::velk::IRenderBackend& backend) override;
 
@@ -36,14 +36,24 @@ public:
     const ::velk::vector<::velk::GraphPass>& passes() const override { return passes_; }
 
 private:
+    /// Per-resource state classifying *what kind* of producer last
+    /// touched it. Determines which `src` pipeline stage to wait on
+    /// before the next consumer.
     enum class ResourceState : uint8_t
     {
         Undefined,
-        ColorWrite,
-        DepthWrite,
-        ShaderRead,
-        Storage,
-        Present,
+        ColorWrite,   ///< Written via raster (Submit) or transfer (BlitToSurface dst).
+        Storage,      ///< Written via compute (Dispatch).
+        ShaderRead,   ///< Already barriered into a sampleable state.
+    };
+
+    /// Per-pass logical class derived from its op stream. Drives the
+    /// barrier `dst` stage and the write-state new value.
+    enum class PassClass : uint8_t
+    {
+        Raster,    ///< Pass contains a Submit op (BeginPass + Submit + EndPass).
+        Compute,   ///< Pass contains a Dispatch but no surface blit (e.g. Tonemap).
+        Blit,      ///< Pass writes via BlitToSurface (with or without an upstream Dispatch).
     };
 
     struct Barrier
@@ -58,8 +68,12 @@ private:
     std::unordered_map<::velk::IGpuResource*, ResourceState> states_;
     std::unordered_map<::velk::IGpuResource*, bool> imported_;
 
-    void note_resource(const ::velk::IGpuResource::Ptr& resource);
-    static ResourceState write_state_for(const ::velk::RenderPass& body);
+    /// Classifies a pass by inspecting its ops. The order of checks
+    /// reflects the post-write resource state we want to record:
+    /// passes that end with a blit settle into ColorWrite (the
+    /// blit destination's final layout) regardless of any preceding
+    /// dispatch.
+    static PassClass classify(const ::velk::GraphPass& pass);
 };
 
 } // namespace velk::impl

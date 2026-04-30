@@ -14,27 +14,33 @@ namespace velk {
 /**
  * @brief A pass added to the render graph.
  *
- * Wraps a `RenderPass` body with explicit read / write resource
- * declarations. The graph uses these to track per-resource state and
- * insert pipeline barriers between passes. Bindless texture reads from
- * materials are NOT declared — they're invisible to the graph and stay
- * fence-synced at the descriptor-set level.
+ * Holds an ordered sequence of GPU ops + explicit read / write resource
+ * declarations. The executor walks ops 1:1 to backend methods; the
+ * graph's compile step inspects ops + reads/writes to classify the
+ * pass's stage (raster / compute / blit) and insert a pipeline barrier
+ * before consumers of prior writes.
  *
- * Tier 1 tracks resources at coarse granularity: gbuffer attachments
- * are tracked through the group resource (not per-attachment), and
- * non-Ptr handles (raw `TextureId`, `RenderTargetGroup`) are out of
- * scope.
+ * Bindless texture reads from materials are NOT declared — they're
+ * invisible to the graph and stay fence-synced at the descriptor-set
+ * level. Tier 1 tracks resources at coarse granularity: gbuffer
+ * attachments are tracked through the group resource (not per-
+ * attachment), and non-Ptr handles (raw `TextureId`,
+ * `RenderTargetGroup`) are out of scope.
  */
 struct GraphPass
 {
-    RenderPass body;
+    /// Ordered ops executed in sequence. Typical shapes:
+    ///   - Raster pass:        BeginPass, Submit, EndPass
+    ///   - GBuffer fill:       BeginPass, Submit, EndPass (target_id is the group handle)
+    ///   - Compute dispatch:   Dispatch
+    ///   - Compute + blit:     Dispatch, BlitToSurface[, BlitGroupDepthToSurface]
+    ///   - Pure blit:          BlitToSurface
+    vector<GraphOp> ops;
 
-    /// Resources read by this pass. Tier 1: typically empty unless a
-    /// pass samples a Ptr-tracked target written by an earlier pass.
+    /// Resources read by this pass.
     vector<IGpuResource::Ptr> reads;
 
-    /// Resources written by this pass. Auto-populated from `body.target`
-    /// for Raster passes when callers don't declare explicitly.
+    /// Resources written by this pass.
     vector<IGpuResource::Ptr> writes;
 };
 
@@ -79,14 +85,8 @@ public:
      */
     virtual void import(const IGpuResource::Ptr& resource) = 0;
 
-    /**
-     * @brief Appends a pass. Auto-derives writes from the pass body
-     *        when not explicitly declared.
-     */
+    /** @brief Appends a pass. */
     virtual void add_pass(GraphPass&& pass) = 0;
-
-    /** @brief Convenience overload; auto-derives reads/writes from the body. */
-    virtual void add_pass(RenderPass&& body) = 0;
 
     /**
      * @brief Tier 1 compile: assigns barriers based on per-resource
