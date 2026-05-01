@@ -115,35 +115,25 @@ PostProcess::ensure_intermediate(::velk::ViewEntry& view,
         return vs.intermediates[index];
     }
 
-    if (!ctx.backend) return {};
+    if (!ctx.resources) return {};
 
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
     td.format = ::velk::PixelFormat::RGBA8;
     td.usage = ::velk::TextureUsage::Storage;
-    auto tex_id = ctx.backend->create_texture(td);
-    if (tex_id == 0) return {};
-
-    auto target = ::velk::instance().create<::velk::IRenderTarget>(
-        ::velk::ClassId::RenderTexture);
+    auto target = ctx.resources->create_render_texture(td);
     if (!target) return {};
-    target->set_gpu_handle(::velk::GpuResourceKey::Default, tex_id);
-    target->set_size(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 
     vs.intermediates[index] = target;
     return target;
 }
 
-void PostProcess::release_view_state(ViewState& vs, ::velk::FrameContext& ctx)
+void PostProcess::release_view_state(ViewState& /*vs*/, ::velk::FrameContext& /*ctx*/)
 {
-    if (!ctx.resources) return;
-    for (auto& target : vs.intermediates) {
-        if (target) {
-            TextureId txid = TextureId(target->get_gpu_handle(::velk::GpuResourceKey::Default));
-            ctx.resources->defer_texture_destroy(txid, ctx.defer_marker);
-        }
-    }
+    // intermediates are managed: dropping the Ptrs (when the
+    // ViewState is erased / intermediates are cleared) auto-defers
+    // the backend handles via the resource manager observer chain.
 }
 
 void PostProcess::on_view_removed(::velk::ViewEntry& view,

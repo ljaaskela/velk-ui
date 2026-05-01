@@ -77,10 +77,9 @@ void RtPath::build_passes(ViewEntry& entry,
     auto& vs = view_states_[&entry];
 
     // (Re)create storage output texture sized to the viewport.
+    // Drop the Ptr; the resource manager auto-defers the backend
+    // handle via the dtor → observer chain.
     if (vs.rt_output && (vs.width != vp_w || vs.height != vp_h)) {
-        ctx.resources->defer_texture_destroy(
-            vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.defer_marker);
         vs.rt_output.reset();
     }
     if (!vs.rt_output) {
@@ -89,15 +88,7 @@ void RtPath::build_passes(ViewEntry& entry,
         td.height = vp_h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        auto tex_id = ctx.backend->create_texture(td);
-        if (tex_id != 0) {
-            vs.rt_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
-            if (vs.rt_output) {
-                vs.rt_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
-                vs.rt_output->set_size(static_cast<uint32_t>(vp_w),
-                                       static_cast<uint32_t>(vp_h));
-            }
-        }
+        vs.rt_output = ctx.resources->create_render_texture(td);
         vs.width = vp_w;
         vs.height = vp_h;
     }
@@ -257,29 +248,15 @@ void RtPath::build_passes(ViewEntry& entry,
     graph.add_pass(std::move(gp));
 }
 
-void RtPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
+void RtPath::on_view_removed(ViewEntry& entry, FrameContext& /*ctx*/)
 {
-    auto it = view_states_.find(&entry);
-    if (it == view_states_.end()) return;
-    if (it->second.rt_output && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            it->second.rt_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.defer_marker);
-    }
-    view_states_.erase(it);
+    // Erase the view state; vs.rt_output's Ptr drops, resource
+    // manager auto-defers the backend handle.
+    view_states_.erase(&entry);
 }
 
-void RtPath::shutdown(FrameContext& ctx)
+void RtPath::shutdown(FrameContext& /*ctx*/)
 {
-    if (ctx.resources) {
-        for (auto& [v, vs] : view_states_) {
-            if (vs.rt_output) {
-                ctx.resources->defer_texture_destroy(
-                    vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
-                    ctx.defer_marker);
-            }
-        }
-    }
     view_states_.clear();
 }
 

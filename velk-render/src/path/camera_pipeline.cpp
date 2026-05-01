@@ -53,39 +53,22 @@ CameraPipeline::ensure_storage_target(::velk::IRenderTarget::Ptr& slot,
                                       ::velk::FrameContext& ctx)
 {
     if (slot) return slot;
-    if (!ctx.backend) return {};
+    if (!ctx.resources) return {};
 
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
     td.format = format;
     td.usage = usage;
-    auto tex_id = ctx.backend->create_texture(td);
-    if (tex_id == 0) return {};
-
-    auto target = ::velk::instance().create<::velk::IRenderTarget>(
-        ::velk::ClassId::RenderTexture);
-    if (!target) return {};
-    target->set_gpu_handle(::velk::GpuResourceKey::Default, tex_id);
-    target->set_size(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
-
-    slot = target;
-    return target;
+    slot = ctx.resources->create_render_texture(td);
+    return slot;
 }
 
-void CameraPipeline::release_view_state(ViewState& vs, ::velk::FrameContext& ctx)
+void CameraPipeline::release_view_state(ViewState& /*vs*/, ::velk::FrameContext& /*ctx*/)
 {
-    if (!ctx.resources) return;
-    if (vs.path_output) {
-        ctx.resources->defer_texture_destroy(
-            vs.path_output->get_gpu_handle(::velk::GpuResourceKey::Default),
-            ctx.defer_marker);
-    }
-    if (vs.post_output) {
-        ctx.resources->defer_texture_destroy(
-            vs.post_output->get_gpu_handle(::velk::GpuResourceKey::Default),
-            ctx.defer_marker);
-    }
+    // path_output and post_output are managed: dropping the Ptrs (when
+    // the ViewState is erased) auto-defers the backend handles via the
+    // resource manager observer chain.
 }
 
 void CameraPipeline::emit(::velk::ViewEntry& view,
