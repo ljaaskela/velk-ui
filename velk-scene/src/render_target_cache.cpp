@@ -5,6 +5,7 @@
 #include <velk/api/state.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <velk-render/detail/intf_gpu_resource_manager_internal.h>
 #include <velk-render/frame/render_view.h>
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_render_backend.h>
@@ -56,8 +57,7 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
         PixelFormat fmt = rte.target->format();
         if (rte.texture_id != 0 &&
             (rte.width != w || rte.height != h || rte.format != fmt)) {
-            ctx.resources->defer_texture_destroy(
-                rte.texture_id, ctx.defer_marker);
+            defer_texture_destroy(ctx.resources, rte.texture_id, ctx.defer_marker);
             rte.texture_id = 0;
         }
         if (rte.texture_id == 0) {
@@ -149,8 +149,7 @@ void RenderTargetCache::on_element_removed(IElement* elem, FrameContext& ctx)
         return;
     }
     if (rit->second.texture_id != 0 && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            rit->second.texture_id, ctx.defer_marker);
+        defer_texture_destroy(ctx.resources, rit->second.texture_id, ctx.defer_marker);
     }
     entries_.erase(rit);
 }

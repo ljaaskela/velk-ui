@@ -140,7 +140,7 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // not on the interface (FrameDataManager) and for stable raw access.
     resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
     if (resources_) {
-        resources_->set_lifecycle(backend_.get(), this);
+        set_lifecycle(resources_.get(), backend_.get(), this);
     }
     snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
 
@@ -430,8 +430,9 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         auto* be = resources_->find_buffer(buf);
                         bool need_alloc = (be == nullptr);
                         if (!need_alloc && be->size != bsize) {
-                            resources_->defer_buffer_destroy(
-                                be->handle, backend_->pending_frame_completion_marker());
+                            defer_buffer_destroy(
+                                resources_.get(), be->handle,
+                                backend_->pending_frame_completion_marker());
                             resources_->unregister_buffer(buf);
                             be = nullptr;
                             need_alloc = true;
@@ -774,7 +775,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     last_prepare_gpu_wait_ns_ = 0;
 
     // Drain any GPU resources whose safe window has elapsed.
-    resources_->drain_deferred(*backend_);
+    drain_deferred(resources_.get(), *backend_);
 
     auto* slot = claim_frame_slot();
     active_slot_ = slot;
@@ -950,8 +951,9 @@ IGpuResource::Ptr Renderer::get_named_output(const IElement::Ptr& camera_element
 
 void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)
 {
-    resources_->on_resource_destroyed(
-        resource, backend_ ? backend_->pending_frame_completion_marker() : 0);
+    on_resource_destroyed(
+        resources_.get(), resource,
+        backend_ ? backend_->pending_frame_completion_marker() : 0);
 }
 
 void Renderer::shutdown()
@@ -974,7 +976,7 @@ void Renderer::shutdown()
         // Unregister from environment textures (not tracked via element cache).
         resources_->unregister_env_observers(this);
 
-        resources_->shutdown(*backend_);
+        ::velk::shutdown(resources_.get(), *backend_);
 
         // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
         {

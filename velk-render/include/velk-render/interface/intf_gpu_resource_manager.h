@@ -21,10 +21,12 @@ class ISurface;
 /**
  * @brief Tracks GPU resources for a renderer instance.
  *
- * Mediates between CPU-side IBuffer / ISurface objects and the backend's
- * opaque handles (GpuBuffer, TextureId, PipelineId). Owns deferred-destroy
- * queues so resources stay live until the GPU has consumed any in-flight
- * frames that referenced them.
+ * Pipeline-side surface only: factories that produce managed
+ * `IGpuResource::Ptr`s, plus the lookup tables consumed during data
+ * upload. Lifecycle bookkeeping (deferred-destroy queues, observer
+ * forwarding, drain, shutdown) lives behind the framework-internal
+ * `IGpuResourceManagerInternal` interface — pipelines never call those
+ * directly; the dtor of a managed Ptr drives them automatically.
  *
  * Also provides ISurface->TextureId resolution (sibling base
  * `ITextureResolver`) so materials can embed bindless texture ids in
@@ -43,13 +45,6 @@ public:
         GpuBuffer handle{};
         size_t size = 0;
     };
-
-    /// Set by the renderer at startup. The manager uses these to create
-    /// backend resources (factory methods below) and to subscribe the
-    /// renderer's observer so dropping the last Ptr to a managed resource
-    /// auto-defers its backend handle for destruction.
-    virtual void set_lifecycle(IRenderBackend* backend,
-                               IGpuResourceObserver* observer) = 0;
 
     /// Creates a backend texture, wraps it in a RenderTexture, registers
     /// it for lifecycle tracking, and returns the Ptr. When the last
@@ -85,27 +80,6 @@ public:
     // not tracked through the element cache so they need a sidecar list).
     virtual void add_env_observer(const IBuffer::WeakPtr& res) = 0;
     virtual void unregister_env_observers(IGpuResourceObserver* observer) = 0;
-
-    // Deferred destruction. The handle is enqueued and only destroyed
-    // once GPU work tagged with `completion_marker` has finished
-    // (queried via `IRenderBackend::is_frame_complete`). The right
-    // marker for resources still referenced by the in-flight frame is
-    // `IRenderBackend::pending_frame_completion_marker()`.
-    virtual void defer_texture_destroy(TextureId tid, uint64_t completion_marker) = 0;
-    virtual void defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker) = 0;
-    virtual void defer_pipeline_destroy(PipelineId pid, uint64_t completion_marker) = 0;
-
-    /// Drains entries whose completion marker has resolved.
-    virtual void drain_deferred(IRenderBackend& backend) = 0;
-
-    /// Hook called when a tracked GPU resource is destroyed CPU-side.
-    /// Enqueues backend handles for deferred destruction tagged with
-    /// @p completion_marker.
-    virtual void on_resource_destroyed(IGpuResource* resource,
-                                       uint64_t completion_marker) = 0;
-
-    /// Destroys all tracked resources during renderer shutdown.
-    virtual void shutdown(IRenderBackend& backend) = 0;
 };
 
 } // namespace velk

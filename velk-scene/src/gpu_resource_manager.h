@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <mutex>
 
+#include <velk-render/detail/intf_gpu_resource_manager_internal.h>
 #include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_surface.h>
@@ -21,7 +22,8 @@ namespace velk {
  * Owned by Renderer as `IGpuResourceManager::Ptr`; instantiated through
  * the velk type registry so the allocation participates in the hive.
  */
-class GpuResourceManager : public ext::ObjectCore<GpuResourceManager, IGpuResourceManager>
+class GpuResourceManager
+    : public ext::ObjectCore<GpuResourceManager, IGpuResourceManagerInternal>
 {
 public:
     VELK_CLASS_UID(ClassId::GpuResourceManager, "GpuResourceManager");
