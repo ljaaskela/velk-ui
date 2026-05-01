@@ -38,7 +38,7 @@
 
 namespace velk {
 
-class Renderer : public ::velk::ext::Object<Renderer, IRendererInternal, IRenderer, IGpuResourceObserver>
+class Renderer : public ::velk::ext::Object<Renderer, IRendererInternal, IRenderer>
 {
 public:
     VELK_CLASS_UID(::velk::ClassId::Renderer, "Renderer");
@@ -46,9 +46,6 @@ public:
     // IRendererInternal
     void set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx) override;
     uint64_t consume_last_prepare_gpu_wait_ns() override;
-
-    // IGpuResourceObserver
-    void on_gpu_resource_destroyed(IGpuResource* resource) override;
 
     // IRenderer
     void add_view(const IElement::Ptr& camera_element, const IWindowSurface::Ptr& surface,

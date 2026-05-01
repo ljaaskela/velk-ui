@@ -28,12 +28,12 @@ class IGpuResourceManagerInternal
     : public Interface<IGpuResourceManagerInternal, IGpuResourceManager>
 {
 public:
-    /// Set by the renderer at startup. The manager uses these to create
-    /// backend resources (factory methods on IGpuResourceManager) and
-    /// to subscribe the renderer's observer so dropping the last Ptr
-    /// to a managed resource auto-defers its backend handle.
-    virtual void set_lifecycle(IRenderBackend* backend,
-                               IGpuResourceObserver* observer) = 0;
+    /// Set by the renderer at startup. The manager uses the backend
+    /// to create resources via the factory methods on
+    /// IGpuResourceManager, and subscribes itself as the
+    /// IGpuResourceObserver on those resources so that dropping the
+    /// last Ptr auto-defers the backend handle for destruction.
+    virtual void set_lifecycle(IRenderBackend* backend) = 0;
 
     /// Deferred destruction. The handle is enqueued and only destroyed
     /// once GPU work tagged with `completion_marker` has finished
@@ -63,12 +63,10 @@ public:
 /// instead of holding an `IGpuResourceManagerInternal*` separately.
 /// No-op when the cast fails (defensive; should not happen since the
 /// concrete manager implements both interfaces).
-inline void set_lifecycle(IGpuResourceManager* mgr,
-                          IRenderBackend* backend,
-                          IGpuResourceObserver* observer)
+inline void set_lifecycle(IGpuResourceManager* mgr, IRenderBackend* backend)
 {
     if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->set_lifecycle(backend, observer);
+        in->set_lifecycle(backend);
     }
 }
 

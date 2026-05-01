@@ -140,7 +140,7 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // not on the interface (FrameDataManager) and for stable raw access.
     resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
     if (resources_) {
-        set_lifecycle(resources_.get(), backend_.get(), this);
+        set_lifecycle(resources_.get(), backend_.get());
     }
     snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
 
@@ -249,7 +249,7 @@ FrameContext Renderer::make_frame_context()
     ctx.snippets = snippets_.get();
     ctx.material_cache = &material_cache_;
     ctx.pipeline_map = pipeline_map_;
-    ctx.observer = this;
+    ctx.observer = interface_cast<IGpuResourceObserver>(resources_.get());
     ctx.defer_marker = backend_ ? backend_->pending_frame_completion_marker() : 0;
     ctx.present_counter = present_counter_;
     // ctx.target_format is set per-camera by IViewPipeline::emit before
@@ -386,8 +386,9 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
         // Rebuild draw commands for changed elements. Pipelines are
         // not pre-compiled here; build_draw_calls / build_gbuffer_draw_calls
         // compile lazily on cache miss against the path's target_format.
+        auto* obs = interface_cast<IGpuResourceObserver>(resources_.get());
         for (auto* element : state.redraw_list) {
-            batch_builder_.rebuild_commands(element, this, render_ctx_);
+            batch_builder_.rebuild_commands(element, obs, render_ctx_);
         }
 
         // Upload dirty GPU resources
@@ -949,12 +950,6 @@ IGpuResource::Ptr Renderer::get_named_output(const IElement::Ptr& camera_element
     return {};
 }
 
-void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)
-{
-    on_resource_destroyed(
-        resources_.get(), resource,
-        backend_ ? backend_->pending_frame_completion_marker() : 0);
-}
 
 void Renderer::shutdown()
 {
@@ -963,18 +958,21 @@ void Renderer::shutdown()
         // backend->destroy_* calls assume nothing is still in use.
         backend_->wait_idle();
 
-        // Detach from any GPU resources we are still observing so their
-        // dtors (which may run later, on any thread) cannot reach a dead
-        // renderer.
-        for (auto& [elem, cache] : batch_builder_.element_cache()) {
-            for (auto& weak : cache.gpu_resources) {
-                if (auto res = weak.lock()) {
-                    res->remove_gpu_resource_observer(this);
+        // Detach the resource manager from every GPU resource still
+        // observing it so their dtors (which may run later, on any
+        // thread) cannot reach a manager whose backend is gone.
+        auto* obs = interface_cast<IGpuResourceObserver>(resources_.get());
+        if (obs) {
+            for (auto& [elem, cache] : batch_builder_.element_cache()) {
+                for (auto& weak : cache.gpu_resources) {
+                    if (auto res = weak.lock()) {
+                        res->remove_gpu_resource_observer(obs);
+                    }
                 }
             }
         }
         // Unregister from environment textures (not tracked via element cache).
-        resources_->unregister_env_observers(this);
+        resources_->unregister_env_observers();
 
         ::velk::shutdown(resources_.get(), *backend_);
 

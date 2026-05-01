@@ -23,7 +23,9 @@ namespace velk {
  * the velk type registry so the allocation participates in the hive.
  */
 class GpuResourceManager
-    : public ext::ObjectCore<GpuResourceManager, IGpuResourceManagerInternal>
+    : public ext::ObjectCore<GpuResourceManager,
+                             IGpuResourceManagerInternal,
+                             IGpuResourceObserver>
 {
 public:
     VELK_CLASS_UID(ClassId::GpuResourceManager, "GpuResourceManager");
@@ -41,10 +43,13 @@ public:
     }
 
     // IGpuResourceManager
-    void set_lifecycle(IRenderBackend* backend, IGpuResourceObserver* observer) override;
+    void set_lifecycle(IRenderBackend* backend) override;
     IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) override;
     IRenderTextureGroup::Ptr create_render_texture_group(
         const TextureGroupDesc& desc) override;
+
+    // IGpuResourceObserver
+    void on_gpu_resource_destroyed(IGpuResource* resource) override;
 
     TextureId find_texture(ISurface* surf) const override;
     void register_texture(ISurface* surf, TextureId tid) override;
@@ -56,7 +61,7 @@ public:
     bool register_pipeline(IProgram* prog, PipelineId pid) override;
 
     void add_env_observer(const IBuffer::WeakPtr& res) override;
-    void unregister_env_observers(IGpuResourceObserver* observer) override;
+    void unregister_env_observers() override;
 
     void defer_texture_destroy(TextureId tid, uint64_t completion_marker) override;
     void defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker) override;
@@ -92,7 +97,6 @@ private:
     };
 
     IRenderBackend* backend_ = nullptr;
-    IGpuResourceObserver* observer_ = nullptr;
 
     std::unordered_map<ISurface*, TextureId> texture_map_;
     std::unordered_map<ISurface*, RenderTargetGroup> group_map_;

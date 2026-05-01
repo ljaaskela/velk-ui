@@ -79,7 +79,10 @@ public:
     // Environment resource bookkeeping (textures referenced by env material;
     // not tracked through the element cache so they need a sidecar list).
     virtual void add_env_observer(const IBuffer::WeakPtr& res) = 0;
-    virtual void unregister_env_observers(IGpuResourceObserver* observer) = 0;
+    /// Unsubscribes the manager from every tracked env resource. Called
+    /// at renderer shutdown so subsequent CPU-side dtors don't reach
+    /// into a dead manager.
+    virtual void unregister_env_observers() = 0;
 };
 
 } // namespace velk
