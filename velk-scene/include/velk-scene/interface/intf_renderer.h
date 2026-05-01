@@ -140,10 +140,12 @@ public:
      *
      * Generic introspection hook for debug overlays / external readback.
      * Names are path-specific. Conventional names today (Deferred path):
-     *   - "gbuffer"      — the G-buffer (cast to IRenderTextureGroup;
-     *                      caller indexes attachments via
-     *                      `attachment(uint32_t)`).
-     *   - "shadow.debug" — RT-shadow diagnostic RGBA32F texture
+     *   - "gbuffer"          — the G-buffer (cast to IRenderTextureGroup;
+     *                           iterate via `attachment_count()` /
+     *                           `attachment(i)`).
+     *   - "gbuffer.worldpos" — IRenderTarget alias of the worldpos
+     *                          attachment (debug readback / overlay).
+     *   - "shadow.debug"     — RT-shadow diagnostic RGBA32F texture
      *                      (IRenderTarget); each pixel carries
      *                      (buffer_addr_lo, buffer_addr_hi, ibo_offset,
      *                      triangle_count) of the BLAS instance the

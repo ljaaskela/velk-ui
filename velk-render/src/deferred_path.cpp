@@ -6,7 +6,7 @@
 #include <velk-render/frame/compute_shaders.h>
 #include <velk-render/frame/draw_call_emit.h>
 #include <velk-render/frame/raster_shaders.h>
-#include <velk-render/gbuffer.h>
+#include "deferred_gbuffer.h"
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_shader_source.h>
@@ -112,12 +112,19 @@ uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
 
     const auto& intersect_ids = ctx.snippets->frame_intersects();
     const auto& intersect_info_by_id = ctx.snippets->intersect_info_by_id();
+    const auto& shadow_tech_ids = ctx.snippets->frame_shadow_techs();
+    const auto& shadow_tech_info = ctx.snippets->shadow_tech_info_by_id();
 
     constexpr uint64_t kFnvBasis = 0xcbf29ce484222325ULL;
     constexpr uint64_t kFnvPrime = 0x100000001b3ULL;
     constexpr uint64_t kDeferredTag = 0x44665232'44666572ULL;
+    constexpr uint64_t kShadowTag = 0x53686477'54656368ULL;
     uint64_t key = kFnvBasis ^ kDeferredTag;
     for (auto id : intersect_ids) {
+        key = (key ^ static_cast<uint64_t>(id)) * kFnvPrime;
+    }
+    key = (key ^ kShadowTag) * kFnvPrime;
+    for (auto id : shadow_tech_ids) {
         key = (key ^ static_cast<uint64_t>(id)) * kFnvPrime;
     }
     key |= 0x4000000000000000ULL;
@@ -158,6 +165,30 @@ uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
     append_literal("    }\n");
     append_literal("}\n");
 
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        src += string_view("#include \"", 10);
+        src += ti.include_name;
+        src += string_view("\"\n", 2);
+    }
+
+    append_literal("float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal) {\n");
+    append_literal("    switch (tech_id) {\n");
+    for (auto id : shadow_tech_ids) {
+        if (id == 0 || id > shadow_tech_info.size()) continue;
+        const auto& ti = shadow_tech_info[id - 1];
+        int n = std::snprintf(buf, sizeof(buf), "        case %uu: return ", id);
+        if (n > 0) {
+            src += string_view(static_cast<const char*>(buf), static_cast<size_t>(n));
+        }
+        src += ti.fn_name;
+        append_literal("(light_idx, world_pos, world_normal);\n");
+    }
+    append_literal("        default: return 1.0;\n");
+    append_literal("    }\n");
+    append_literal("}\n");
+
     uint64_t compiled = ctx.render_ctx->compile_compute_pipeline(string_view(src), key);
     if (compiled == 0) return 0;
     compiled_pipelines_[key] = true;
@@ -195,6 +226,18 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
     }
     vs.gbuffer_width = width;
     vs.gbuffer_height = height;
+
+    if (!vs.worldpos_alias) {
+        vs.worldpos_alias = instance().create<IRenderTarget>(ClassId::RenderTexture);
+    }
+    if (vs.worldpos_alias) {
+        auto wp_id = vs.gbuffer->attachment(
+            static_cast<uint32_t>(GBufferAttachment::WorldPos));
+        vs.worldpos_alias->set_gpu_handle(
+            GpuResourceKey::Default, static_cast<uint64_t>(wp_id));
+        vs.worldpos_alias->set_size(static_cast<uint32_t>(width),
+                                    static_cast<uint32_t>(height));
+    }
     return group;
 }
 
@@ -338,9 +381,9 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
 
     // Lights and env come pre-resolved from RenderView. ViewPreparer
     // registered shadow techniques against the snippet registry and
-    // stamped flags[1] with the registered id. The deferred compute
-    // shader currently hardcodes id=1=rt_shadow; this matches as long
-    // as RtShadow is the first registered tech (which it is in samples).
+    // stamped flags[1] with the registered id; the deferred compute's
+    // velk_eval_shadow switch is composed from the same registry, so
+    // any tech ordering works.
     uint64_t lights_addr = 0;
     if (!render_view.lights.empty() && ctx.frame_buffer) {
         lights_addr = ctx.frame_buffer->write(
@@ -449,6 +492,9 @@ IGpuResource::Ptr DeferredPath::find_named_output(string_view name, ViewEntry* v
     auto& vs = it->second;
     if (name == "gbuffer") {
         return interface_pointer_cast<IGpuResource>(vs.gbuffer);
+    }
+    if (name == "gbuffer.worldpos") {
+        return interface_pointer_cast<IGpuResource>(vs.worldpos_alias);
     }
     if (name == "shadow.debug") {
         return interface_pointer_cast<IGpuResource>(vs.shadow_debug);

@@ -61,8 +61,9 @@ public:
     void shutdown(FrameContext& ctx) override;
 
     /// Exposes per-view "gbuffer" (the IRenderTextureGroup),
-    /// "shadow.debug", and "output" outputs for debug overlays /
-    /// readback. See `IRenderPath::find_named_output`.
+    /// "gbuffer.worldpos" (a RenderTexture aliasing the worldpos
+    /// attachment), "shadow.debug", and "output" outputs for debug
+    /// overlays / readback. See `IRenderPath::find_named_output`.
     IGpuResource::Ptr find_named_output(string_view name,
                                         ViewEntry* view) const override;
 
@@ -80,6 +81,11 @@ public:
         IRenderTarget::Ptr shadow_debug;
         int shadow_debug_width = 0;
         int shadow_debug_height = 0;
+
+        /// RenderTexture alias for the gbuffer worldpos attachment.
+        /// Does not own the GPU texture (the group does); exposed via
+        /// find_named_output("gbuffer.worldpos") for debug readback.
+        IRenderTarget::Ptr worldpos_alias;
     };
 
 private:

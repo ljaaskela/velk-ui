@@ -80,9 +80,9 @@ struct RenderView
     /// ignore this. Default-constructed (empty material) when no env.
     Batch env_batch;
 
-    /// Scene lights for this view. Caller must shadow-tech-resolve
-    /// before consumption (RT path composes; deferred path matches
-    /// `velk_shadow_rt`). `flags[1]` carries the shadow-tech id.
+    /// Scene lights for this view. `flags[1]` carries the registered
+    /// shadow-tech id (or 0 for no shadow); both RT and deferred paths
+    /// compose `velk_eval_shadow` from the snippet registry to match.
     vector<GpuLight> lights;
 
     /// Raster batch cache for this view. Owned by the preparer; the

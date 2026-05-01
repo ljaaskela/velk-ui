@@ -93,11 +93,13 @@ public:
      *
      * Generic introspection hook for debug overlays / external readback.
      * Names are path-specific; conventional names today:
-     *   - "gbuffer"       — the deferred G-buffer (IRenderTextureGroup;
-     *                       caller indexes attachments via
-     *                       `attachment(uint32_t)`).
-     *   - "shadow.debug"  — RT-shadow debug storage texture
-     *                       (IRenderTarget).
+     *   - "gbuffer"           — the deferred G-buffer
+     *                           (IRenderTextureGroup; iterate via
+     *                           `attachment_count()` / `attachment(i)`).
+     *   - "gbuffer.worldpos"  — IRenderTarget alias of the worldpos
+     *                           attachment (debug readback / overlay).
+     *   - "shadow.debug"      — RT-shadow debug storage texture
+     *                           (IRenderTarget).
      *
      * Returns null when the path doesn't produce that output for the
      * given view. Non-introspecting paths can leave the empty default

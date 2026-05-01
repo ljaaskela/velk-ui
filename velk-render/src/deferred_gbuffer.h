@@ -1,5 +1,5 @@
-#ifndef VELK_RENDER_GBUFFER_H
-#define VELK_RENDER_GBUFFER_H
+#ifndef VELK_RENDER_DEFERRED_GBUFFER_H
+#define VELK_RENDER_DEFERRED_GBUFFER_H
 
 #include <cstdint>
 
@@ -8,14 +8,12 @@
 namespace velk {
 
 /**
- * @brief Canonical G-buffer attachment layout for the deferred pipeline.
+ * @brief Deferred path's G-buffer attachment layout.
  *
- * Every raster material that participates in deferred shading writes to
- * these four color targets in order. The compute lighting pass samples
- * them to reconstruct shading.
- *
- * Keep this layout stable: all material shaders, the render pass, and
- * the lighting pass are compiled against these indices + formats.
+ * Internal to the deferred path. The lighting compute shader, the
+ * raster gbuffer-fill shader template, and DeferredPath all share this
+ * layout positionally; changing it requires coordinated edits across
+ * those three sites. Not a public extension point.
  */
 enum class GBufferAttachment : uint32_t
 {
@@ -31,7 +29,7 @@ enum class GBufferAttachment : uint32_t
     Count          = 4
 };
 
-/** @brief Canonical G-buffer attachment formats in declaration order. */
+/** @brief G-buffer attachment formats in declaration order. */
 inline constexpr PixelFormat kGBufferFormats[static_cast<uint32_t>(GBufferAttachment::Count)] = {
     PixelFormat::RGBA8,    // Albedo
     PixelFormat::RGBA16F,  // Normal
@@ -54,4 +52,4 @@ enum class LightingMode : uint8_t
 
 } // namespace velk
 
-#endif // VELK_RENDER_GBUFFER_H
+#endif // VELK_RENDER_DEFERRED_GBUFFER_H
