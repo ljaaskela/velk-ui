@@ -334,11 +334,6 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
 
     if (vs.shadow_debug &&
         (vs.shadow_debug_width != w || vs.shadow_debug_height != h)) {
-        if (ctx.resources) {
-            ctx.resources->defer_texture_destroy(
-                vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
-                ctx.defer_marker);
-        }
         vs.shadow_debug.reset();
     }
     if (!vs.shadow_debug) {
@@ -347,15 +342,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         td.height = h;
         td.format = PixelFormat::RGBA32F;
         td.usage = TextureUsage::Storage;
-        auto tex_id = ctx.backend->create_texture(td);
-        if (tex_id != 0) {
-            vs.shadow_debug = instance().create<IRenderTarget>(ClassId::RenderTexture);
-            if (vs.shadow_debug) {
-                vs.shadow_debug->set_gpu_handle(GpuResourceKey::Default, tex_id);
-                vs.shadow_debug->set_size(static_cast<uint32_t>(w),
-                                          static_cast<uint32_t>(h));
-            }
-        }
+        vs.shadow_debug = ctx.resources->create_render_texture(td);
         vs.shadow_debug_width = w;
         vs.shadow_debug_height = h;
     }
@@ -447,14 +434,9 @@ void release_deferred_view_state(ViewState& vs, FrameContext& ctx)
     if (vs.gbuffer && ctx.backend) {
         ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
     }
-    // deferred_output is managed: dropping the Ptr on view-state
-    // teardown auto-defers the backend handle. shadow_debug is still
-    // hand-allocated for now (migrated in a later slice).
-    if (vs.shadow_debug && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
-            ctx.defer_marker);
-    }
+    // deferred_output and shadow_debug are managed: dropping the Ptrs
+    // (via vs going out of scope) auto-defers the backend handles
+    // through the resource manager observer chain.
 }
 } // namespace
 
