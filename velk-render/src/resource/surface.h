@@ -22,7 +22,7 @@ public:
     }
 
     PixelFormat format() const override { return format_; }
-    void set_format(PixelFormat fmt) { format_ = fmt; }
+    void set_format(PixelFormat fmt) override { format_ = fmt; }
 
     DepthFormat get_depth_format() const override { return depth_format_; }
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }

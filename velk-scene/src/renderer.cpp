@@ -139,6 +139,9 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // typed pointers cache the concrete cast for slot/management methods
     // not on the interface (FrameDataManager) and for stable raw access.
     resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
+    if (resources_) {
+        resources_->set_lifecycle(backend_.get(), this);
+    }
     snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
 
     frame_buffer_ = instance().create<IFrameDataManager>(ClassId::FrameDataManager);

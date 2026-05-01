@@ -41,6 +41,14 @@ public:
      * Surfaces that get their size from system events typically no-op.
      */
     virtual void set_size(uint32_t width, uint32_t height) = 0;
+
+    /**
+     * @brief Sets the cached pixel format reported by `format()`.
+     *
+     * Called during target creation. Surfaces that source their format
+     * from the swapchain (window surface) typically no-op.
+     */
+    virtual void set_format(PixelFormat fmt) = 0;
 };
 
 /**

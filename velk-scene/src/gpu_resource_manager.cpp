@@ -1,8 +1,43 @@
 #include "gpu_resource_manager.h"
 
 #include <velk/api/velk.h>
+#include <velk-render/plugin.h>
 
 namespace velk {
+
+void GpuResourceManager::set_lifecycle(IRenderBackend* backend,
+                                       IGpuResourceObserver* observer)
+{
+    backend_ = backend;
+    observer_ = observer;
+}
+
+IRenderTarget::Ptr GpuResourceManager::create_render_texture(const TextureDesc& desc)
+{
+    if (!backend_) return {};
+    TextureId tid = backend_->create_texture(desc);
+    if (tid == 0) return {};
+
+    auto rt = instance().create<IRenderTarget>(ClassId::RenderTexture);
+    if (!rt) {
+        backend_->destroy_texture(tid);
+        return {};
+    }
+    rt->set_size(desc.width, desc.height);
+    rt->set_format(desc.format);
+
+    // Registers the texture in texture_map_ keyed by ISurface* (the rt
+    // itself) AND stamps `gpu_handle(Default) = tid` on the resource.
+    register_texture(rt.get(), tid);
+
+    // Subscribe the renderer's observer so the rt's dtor triggers
+    // on_resource_destroyed, which auto-defers `tid` for destroy with
+    // the current pending_frame_completion_marker().
+    if (observer_) {
+        rt->add_gpu_resource_observer(observer_);
+    }
+    return rt;
+}
 
 TextureId GpuResourceManager::find_texture(ISurface* surf) const
 {

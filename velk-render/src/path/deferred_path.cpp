@@ -310,14 +310,11 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
                                       int w, int h,
                                       IRenderGraph& graph)
 {
-    // Allocate / resize the output storage image.
+    // Allocate / resize the output storage image. Drop the existing
+    // Ptr on resize; the resource manager auto-defers the backend
+    // handle for destroy via the dtor → observer chain.
     if (vs.deferred_output &&
         (vs.deferred_width != w || vs.deferred_height != h)) {
-        if (ctx.resources) {
-            ctx.resources->defer_texture_destroy(
-                vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
-                ctx.defer_marker);
-        }
         vs.deferred_output.reset();
     }
     if (!vs.deferred_output) {
@@ -329,15 +326,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         // separate post-process effect attached to the camera pipeline.
         td.format = PixelFormat::RGBA16F;
         td.usage = TextureUsage::Storage;
-        auto tex_id = ctx.backend->create_texture(td);
-        if (tex_id != 0) {
-            vs.deferred_output = instance().create<IRenderTarget>(ClassId::RenderTexture);
-            if (vs.deferred_output) {
-                vs.deferred_output->set_gpu_handle(GpuResourceKey::Default, tex_id);
-                vs.deferred_output->set_size(static_cast<uint32_t>(w),
-                                             static_cast<uint32_t>(h));
-            }
-        }
+        vs.deferred_output = ctx.resources->create_render_texture(td);
         vs.deferred_width = w;
         vs.deferred_height = h;
     }
@@ -458,11 +447,9 @@ void release_deferred_view_state(ViewState& vs, FrameContext& ctx)
     if (vs.gbuffer && ctx.backend) {
         ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
     }
-    if (vs.deferred_output && ctx.resources) {
-        ctx.resources->defer_texture_destroy(
-            vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.defer_marker);
-    }
+    // deferred_output is managed: dropping the Ptr on view-state
+    // teardown auto-defers the backend handle. shadow_debug is still
+    // hand-allocated for now (migrated in a later slice).
     if (vs.shadow_debug && ctx.resources) {
         ctx.resources->defer_texture_destroy(
             vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),

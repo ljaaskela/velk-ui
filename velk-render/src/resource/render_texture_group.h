@@ -60,7 +60,7 @@ public:
     void set_depth_format(DepthFormat df) override { depth_format_ = df; }
 
     void set_size(uint32_t w, uint32_t h) override { size_ = {w, h}; }
-    void set_format(PixelFormat fmt) { format_ = fmt; }
+    void set_format(PixelFormat fmt) override { format_ = fmt; }
 
     // IRenderTextureGroup
     size_t attachment_count() const override { return attachments_.size(); }
