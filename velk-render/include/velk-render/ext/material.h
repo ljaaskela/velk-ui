@@ -10,6 +10,7 @@
 #include <velk-render/ext/gpu_resource.h>
 #include <velk-render/interface/intf_buffer.h>
 #include <velk-render/interface/intf_draw_data.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/material/intf_material_internal.h>
 #include <velk-render/interface/material/intf_material_options.h>
 #include <velk-render/interface/intf_program_data_buffer.h>
@@ -26,9 +27,10 @@ namespace velk::ext {
  * storage, lazy compilation via ensure_pipeline() (for the full-fragment
  * path), and `IMaterialOptions` subscription so option writes invalidate
  * the cached pipeline. Derived classes override IDrawData's
- * get_draw_data_size() / write_draw_data(), and IMaterial's get_eval_src()
- * / get_eval_fn_name() (and optionally get_vertex_src()). The framework
- * composes forward / deferred / RT drivers from the eval body.
+ * get_draw_data_size() / write_draw_data(), and IShaderSource's
+ * get_source / get_fn_name to return their eval body and (optionally)
+ * a custom vertex shader. The framework composes forward / deferred /
+ * RT drivers from the eval body.
  *
  * For dynamic materials where inputs are discovered from the shader,
  * use ShaderMaterial instead.
@@ -40,14 +42,21 @@ namespace velk::ext {
  *       size_t       get_draw_data_size() const override { return sizeof(MyParams); }
  *       ReturnValue  write_draw_data(void* out, size_t size,
  *                                    ITextureResolver*) const override { ... }
- *       string_view  get_eval_src() const override     { return my_eval_glsl; }
- *       string_view  get_eval_fn_name() const override { return "velk_eval_my"; }
+ *       string_view  get_source(string_view role) const override {
+ *           if (role == shader_role::kEval) return my_eval_glsl;
+ *           return Base::get_source(role);
+ *       }
+ *       string_view  get_fn_name(string_view role) const override {
+ *           return role == shader_role::kEval ? "velk_eval_my" : string_view{};
+ *       }
  *   };
  */
 template <class T, class... Extra>
-class Material : public GpuResource<T, IMaterialInternal, IDrawData, Extra...>
+class Material : public GpuResource<T, IMaterialInternal, IDrawData,
+                                    ::velk::IShaderSource, Extra...>
 {
-    using Base = GpuResource<T, IMaterialInternal, IDrawData, Extra...>;
+    using Base = GpuResource<T, IMaterialInternal, IDrawData,
+                             ::velk::IShaderSource, Extra...>;
 
 public:
     // Pipeline handle is stored as the resource's primary handle (key
@@ -87,15 +96,19 @@ public:
         return rv;
     }
 
-    // IMaterial defaults. Concrete materials override to provide real
-    // eval + vertex sources; unimplemented materials return empty and
-    // the composers fall back to the visual's IShaderSource.
-    string_view get_eval_src() const override { return {}; }
-    string_view get_eval_fn_name() const override { return {}; }
-    /// Default: the shared element vertex shader. Materials that need
-    /// a different vertex path (e.g. fullscreen env) override.
-    string_view get_vertex_src() const override { return ext::element_vertex_src; }
-    void register_eval_includes(IRenderContext&) const override {}
+    // IShaderSource defaults. Concrete materials override get_source /
+    // get_fn_name to return their eval / vertex / fragment bodies; the
+    // shared element_vertex_src is the default for the kVertex role so
+    // simple materials don't repeat the boilerplate.
+    string_view get_source(string_view role) const override
+    {
+        if (role == ::velk::shader_role::kVertex) return ext::element_vertex_src;
+        return {};
+    }
+    string_view get_fn_name(string_view) const override { return {}; }
+    uint64_t get_pipeline_key() const override { return 0; }
+    void register_includes(IRenderContext&) const override {}
+
     /// Framework-level discard thresholds derived from the attached
     /// IMaterialOptions (if any). Mask mode → opts.alpha_cutoff; Blend
     /// mode → 0 (no discard, blending handles alpha); Opaque → a tiny

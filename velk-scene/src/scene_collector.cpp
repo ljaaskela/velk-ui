@@ -221,8 +221,11 @@ void emit_shapes_for_element(IElement* element, IRenderContext* ctx,
         }
 
         float radius = 0.f;
-        if (analytic && !analytic->get_shape_intersect_source().empty()) {
-            radius = std::min(std::min(ew, eh) * 0.5f, 12.f);
+        if (analytic) {
+            auto* analytic_src = interface_cast<IShaderSource>(analytic);
+            if (analytic_src && !analytic_src->get_source(shader_role::kIntersect).empty()) {
+                radius = std::min(std::min(ew, eh) * 0.5f, 12.f);
+            }
         }
 
         if (!ctx) continue;

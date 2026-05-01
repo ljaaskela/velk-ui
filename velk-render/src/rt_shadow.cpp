@@ -46,14 +46,16 @@ float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
 )";
 } // namespace
 
-string_view RtShadow::get_snippet_fn_name() const
+string_view RtShadow::get_source(string_view role) const
 {
-    return "velk_shadow_rt";
+    if (role == ::velk::shader_role::kShadow) return rt_shadow_snippet;
+    return {};
 }
 
-string_view RtShadow::get_snippet_source() const
+string_view RtShadow::get_fn_name(string_view role) const
 {
-    return rt_shadow_snippet;
+    if (role == ::velk::shader_role::kShadow) return "velk_shadow_rt";
+    return {};
 }
 
 } // namespace velk::impl

@@ -54,25 +54,28 @@ PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
     string composed_fsrc;
 
     if (batch.material) {
-        if (auto* mat = interface_cast<IMaterial>(batch.material.get());
-            mat && !mat->get_eval_src().empty()
-            && !mat->get_vertex_src().empty()
-            && !mat->get_eval_fn_name().empty()) {
-            mat->register_eval_includes(ctx);
-            composed_fsrc = compose_eval_fragment(
-                deferred_fragment_driver_template,
-                mat->get_eval_src(),
-                mat->get_eval_fn_name(),
-                mat->get_deferred_discard_threshold());
-            vsrc = mat->get_vertex_src();
-            base_fsrc = string_view(composed_fsrc);
+        auto* mat = interface_cast<IMaterial>(batch.material.get());
+        auto* src = interface_cast<IShaderSource>(batch.material.get());
+        if (mat && src) {
+            auto eval_src = src->get_source(shader_role::kEval);
+            auto vertex_src = src->get_source(shader_role::kVertex);
+            auto eval_fn = src->get_fn_name(shader_role::kEval);
+            if (!eval_src.empty() && !vertex_src.empty() && !eval_fn.empty()) {
+                src->register_includes(ctx);
+                composed_fsrc = compose_eval_fragment(
+                    deferred_fragment_driver_template,
+                    eval_src, eval_fn,
+                    mat->get_deferred_discard_threshold());
+                vsrc = vertex_src;
+                base_fsrc = string_view(composed_fsrc);
+            }
         }
     }
     if (base_fsrc.empty()) {
         base_fsrc = default_gbuffer_fragment_src;
     }
     if (vsrc.empty() && batch.shader_source) {
-        auto v = batch.shader_source->get_source(IShaderSource::Role::Vertex);
+        auto v = batch.shader_source->get_source(shader_role::kVertex);
         if (!v.empty()) vsrc = v;
     }
     if (vsrc.empty()) {
@@ -84,7 +87,7 @@ PipelineId resolve_or_compile_gbuffer(IRenderContext& ctx,
     composed.append(string_view("\n", 1));
     string_view discard_def =
         batch.shader_source
-            ? batch.shader_source->get_source(IShaderSource::Role::Discard)
+            ? batch.shader_source->get_source(shader_role::kDiscard)
             : string_view{};
     if (!discard_def.empty()) {
         // Role::Discard returns the full `void velk_visual_discard()`

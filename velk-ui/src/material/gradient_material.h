@@ -23,9 +23,12 @@ public:
     size_t get_draw_data_size() const override;
     ReturnValue write_draw_data(void* out, size_t size, ITextureResolver* resolver = nullptr) const override;
 
-    // IMaterial — eval-driver overrides.
-    string_view get_eval_src() const override;
-    string_view get_eval_fn_name() const override;
+    // IShaderSource — eval-driver overrides.
+    string_view get_source(string_view role) const override;
+    string_view get_fn_name(string_view role) const override;
+
+private:
+    using Base = ::velk::ext::Material<GradientMaterial, IGradient>;
 };
 
 } // namespace velk::ui

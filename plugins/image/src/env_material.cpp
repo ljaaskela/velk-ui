@@ -111,19 +111,17 @@ ReturnValue EnvMaterial::write_draw_data(void* out, size_t size, ITextureResolve
     });
 }
 
-string_view EnvMaterial::get_eval_src() const
+string_view EnvMaterial::get_source(string_view role) const
 {
-    return env_eval_src;
+    if (role == ::velk::shader_role::kEval)   return env_eval_src;
+    if (role == ::velk::shader_role::kVertex) return env_vertex_src;
+    return {};
 }
 
-string_view EnvMaterial::get_eval_fn_name() const
+string_view EnvMaterial::get_fn_name(string_view role) const
 {
-    return "velk_eval_env";
-}
-
-string_view EnvMaterial::get_vertex_src() const
-{
-    return env_vertex_src;
+    if (role == ::velk::shader_role::kEval) return "velk_eval_env";
+    return {};
 }
 
 } // namespace velk::ui::impl

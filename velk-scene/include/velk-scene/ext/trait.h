@@ -53,12 +53,10 @@ class VisualBase : public Trait<T, Variant, ::velk::IShaderSource, Extra...>
 public:
     TraitPhase get_phase() const override { return TraitPhase::Visual; }
 
-    ::velk::string_view get_source(::velk::IShaderSource::Role) const override
-    {
-        return {};
-    }
-
+    ::velk::string_view get_source(::velk::string_view) const override { return {}; }
+    ::velk::string_view get_fn_name(::velk::string_view) const override { return {}; }
     uint64_t get_pipeline_key() const override { return PipelineKey::Default; }
+    void register_includes(::velk::IRenderContext&) const override {}
 
     aabb get_local_bounds(const ::velk::size& bounds) const override
     {

@@ -34,11 +34,14 @@ public:
     ReturnValue setup_inputs(const vector<ShaderParam>& params) override;
     void set_sources(string_view vertex_source, string_view fragment_source) override;
 
-    // IMaterial: ShaderMaterial supplies a full vertex + fragment
-    // shader and opts out of the eval-driver path. get_eval_src /
-    // get_eval_fn_name stay empty (inherited default from ext::Material).
-    string_view get_vertex_src() const override { return vertex_source_; }
-    string_view get_fragment_src() const override { return fragment_source_; }
+    // IShaderSource: ShaderMaterial supplies full vertex + fragment
+    // shaders and opts out of the eval-driver composition.
+    string_view get_source(string_view role) const override
+    {
+        if (role == ::velk::shader_role::kVertex)   return vertex_source_;
+        if (role == ::velk::shader_role::kFragment) return fragment_source_;
+        return {};
+    }
 
 private:
     string vertex_source_;

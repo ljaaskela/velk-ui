@@ -61,14 +61,16 @@ ReturnValue GradientMaterial::write_draw_data(void* out, size_t size, ITextureRe
     return ReturnValue::Fail;
 }
 
-string_view GradientMaterial::get_eval_src() const
+string_view GradientMaterial::get_source(string_view role) const
 {
-    return gradient_eval_src;
+    if (role == ::velk::shader_role::kEval) return gradient_eval_src;
+    return Base::get_source(role);
 }
 
-string_view GradientMaterial::get_eval_fn_name() const
+string_view GradientMaterial::get_fn_name(string_view role) const
 {
-    return "velk_eval_gradient";
+    if (role == ::velk::shader_role::kEval) return "velk_eval_gradient";
+    return {};
 }
 
 

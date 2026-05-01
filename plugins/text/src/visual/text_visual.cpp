@@ -222,17 +222,19 @@ bool velk_intersect_text_glyph(Ray ray, RtShape shape, out RayHit hit)
 
 } // namespace
 
-string_view TextVisual::get_shape_intersect_source() const
+string_view TextVisual::get_source(::velk::string_view role) const
 {
-    return text_intersect_src;
+    if (role == ::velk::shader_role::kIntersect) return text_intersect_src;
+    return {};
 }
 
-string_view TextVisual::get_shape_intersect_fn_name() const
+string_view TextVisual::get_fn_name(::velk::string_view role) const
 {
-    return "velk_intersect_text_glyph";
+    if (role == ::velk::shader_role::kIntersect) return "velk_intersect_text_glyph";
+    return {};
 }
 
-void TextVisual::register_shape_intersect_includes(::velk::IRenderContext& ctx) const
+void TextVisual::register_includes(::velk::IRenderContext& ctx) const
 {
     ctx.register_shader_include("velk_text.glsl", embedded::velk_text_glsl);
 }

@@ -74,7 +74,6 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_program_data_buffer.h
     include/velk-render/interface/intf_draw_data.h
     include/velk-render/interface/intf_shader_source.h
-    include/velk-render/interface/intf_shader_snippet.h
     include/velk-render/interface/intf_render_technique.h
     include/velk-render/interface/intf_shadow_technique.h
     include/velk-render/api/render_technique.h

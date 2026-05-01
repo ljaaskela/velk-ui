@@ -15,9 +15,9 @@ namespace velk::ext {
  * and deferred fragment drivers consume.
  *
  * Every visual with a paint-material routes through this by default
- * (via `ext::Material::get_vertex_src()`). Materials that need a
- * different vertex path (e.g. env material's clip-space fullscreen
- * pass) override `get_vertex_src()` with their own source.
+ * (via `ext::Material`'s default `get_source(kVertex)`). Materials
+ * that need a different vertex path (e.g. env material's clip-space
+ * fullscreen pass) override `get_source(kVertex)` to return their own.
  *
  * The unit quad (4-vertex TriangleStrip, z=0, normal +Z) + 3D meshes
  * (cube, sphere, glTF) all use this one shader. 2D visuals carry

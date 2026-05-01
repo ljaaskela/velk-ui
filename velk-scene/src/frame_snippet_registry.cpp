@@ -10,7 +10,7 @@
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_context.h>
-#include <velk-render/interface/intf_shader_snippet.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_shadow_technique.h>
 
 #include <cstdlib>
@@ -27,105 +27,81 @@ void FrameSnippetRegistry::begin_frame()
     frame_data_buffers_.clear();
 }
 
-uint32_t FrameSnippetRegistry::register_material(IProgram* prog, IRenderContext& ctx)
+namespace {
+
+/// Looks up an IShaderSource on @p src_carrier, queries (fn, body) for
+/// @p role, and registers them as `<fn>.glsl` plus calls
+/// register_includes(). Returns the resolved (id, include_name)
+/// (creating a new entry on first sight per class uid). Returns
+/// id == 0 when the source has no body for @p role.
+template <class InfoT>
+uint32_t resolve_snippet_id(IInterface* src_carrier, string_view role,
+                            IRenderContext& ctx,
+                            vector<InfoT>& info_by_id,
+                            std::unordered_map<uint64_t, uint32_t>& id_by_class,
+                            uint32_t first_id)
 {
-    if (!prog) return 0;
-
-    auto* mat = interface_cast<IMaterial>(prog);
-    if (!mat) return 0;
-    auto fn = mat->get_eval_fn_name();
-    auto src = mat->get_eval_src();
-    if (fn.empty() || src.empty()) return 0;
-
-    auto* obj = interface_cast<IObject>(prog);
+    if (!src_carrier) return 0;
+    auto* src = interface_cast<IShaderSource>(src_carrier);
+    if (!src) return 0;
+    auto fn = src->get_fn_name(role);
+    auto body = src->get_source(role);
+    if (fn.empty() || body.empty()) return 0;
+    auto* obj = interface_cast<IObject>(src_carrier);
     if (!obj) return 0;
     Uid uid = obj->get_class_uid();
     uint64_t key = uid.hi ^ uid.lo;
 
-    auto it = material_id_by_class_.find(key);
-    if (it != material_id_by_class_.end()) {
+    auto it = id_by_class.find(key);
+    if (it != id_by_class.end()) {
         return it->second;
     }
 
     string include_name;
     include_name.append(fn);
     include_name.append(string_view(".glsl", 5));
-    ctx.register_shader_include(include_name, src);
-    mat->register_eval_includes(ctx);
+    ctx.register_shader_include(include_name, body);
+    src->register_includes(ctx);
 
-    uint32_t id = static_cast<uint32_t>(material_info_by_id_.size()) + 1;
-    material_info_by_id_.push_back({fn, std::move(include_name)});
-    material_id_by_class_[key] = id;
+    uint32_t id = static_cast<uint32_t>(info_by_id.size()) + first_id;
+    info_by_id.push_back({fn, std::move(include_name)});
+    id_by_class[key] = id;
     return id;
+}
+
+void mark_frame_active(vector<uint32_t>& frame_ids, uint32_t id)
+{
+    for (auto fs : frame_ids) {
+        if (fs == id) return;
+    }
+    frame_ids.push_back(id);
+}
+
+} // namespace
+
+uint32_t FrameSnippetRegistry::register_material(IProgram* prog, IRenderContext& ctx)
+{
+    return resolve_snippet_id(prog, shader_role::kEval, ctx,
+                              material_info_by_id_, material_id_by_class_,
+                              /*first_id=*/1);
 }
 
 uint32_t FrameSnippetRegistry::register_shadow_tech(IShadowTechnique* tech, IRenderContext& ctx)
 {
-    if (!tech) return 0;
-    auto fn = tech->get_snippet_fn_name();
-    auto src = tech->get_snippet_source();
-    if (fn.empty() || src.empty()) return 0;
-    auto* obj = interface_cast<IObject>(tech);
-    if (!obj) return 0;
-    Uid uid = obj->get_class_uid();
-    uint64_t key = uid.hi ^ uid.lo;
-
-    auto it = shadow_tech_id_by_class_.find(key);
-    uint32_t id;
-    if (it != shadow_tech_id_by_class_.end()) {
-        id = it->second;
-    } else {
-        string include_name;
-        include_name.append(fn);
-        include_name.append(string_view(".glsl", 5));
-        ctx.register_shader_include(include_name, src);
-        tech->register_snippet_includes(ctx);
-        id = static_cast<uint32_t>(shadow_tech_info_by_id_.size()) + 1;
-        shadow_tech_info_by_id_.push_back({fn, std::move(include_name)});
-        shadow_tech_id_by_class_[key] = id;
-    }
-
-    // Mark active for this frame's pipeline composition.
-    bool seen = false;
-    for (auto fs : frame_shadow_techs_) {
-        if (fs == id) { seen = true; break; }
-    }
-    if (!seen) frame_shadow_techs_.push_back(id);
+    uint32_t id = resolve_snippet_id(tech, shader_role::kShadow, ctx,
+                                     shadow_tech_info_by_id_, shadow_tech_id_by_class_,
+                                     /*first_id=*/1);
+    if (id != 0) mark_frame_active(frame_shadow_techs_, id);
     return id;
 }
 
 uint32_t FrameSnippetRegistry::register_intersect(IAnalyticShape* shape, IRenderContext& ctx)
 {
-    if (!shape) return 0;
-    auto fn = shape->get_shape_intersect_fn_name();
-    auto src = shape->get_shape_intersect_source();
-    if (fn.empty() || src.empty()) return 0;
-    auto* obj = interface_cast<IObject>(shape);
-    if (!obj) return 0;
-    Uid uid = obj->get_class_uid();
-    uint64_t key = uid.hi ^ uid.lo;
-
-    auto it = intersect_id_by_class_.find(key);
-    uint32_t id;
-    if (it != intersect_id_by_class_.end()) {
-        id = it->second;
-    } else {
-        string include_name;
-        include_name.append(fn);
-        include_name.append(string_view(".glsl", 5));
-        ctx.register_shader_include(include_name, src);
-        shape->register_shape_intersect_includes(ctx);
-        // First visual-contributed kind = 3 (rect/cube/sphere hold 0/1/2).
-        id = static_cast<uint32_t>(intersect_info_by_id_.size()) + 3;
-        intersect_info_by_id_.push_back({fn, std::move(include_name)});
-        intersect_id_by_class_[key] = id;
-    }
-
-    bool seen = false;
-    for (auto fi : frame_intersects_) {
-        if (fi == id) { seen = true; break; }
-    }
-    if (!seen) frame_intersects_.push_back(id);
+    // First visual-contributed kind = 3 (rect/cube/sphere hold 0/1/2).
+    uint32_t id = resolve_snippet_id(shape, shader_role::kIntersect, ctx,
+                                     intersect_info_by_id_, intersect_id_by_class_,
+                                     /*first_id=*/3);
+    if (id != 0) mark_frame_active(frame_intersects_, id);
     return id;
 }
 

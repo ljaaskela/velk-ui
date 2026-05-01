@@ -49,19 +49,17 @@ ReturnValue TextureMaterial::write_draw_data(void* out, size_t size, ITextureRes
     return ReturnValue::Fail;
 }
 
-string_view TextureMaterial::get_eval_src() const
+string_view TextureMaterial::get_source(string_view role) const
 {
-    return texture_eval_src;
+    if (role == ::velk::shader_role::kEval)   return texture_eval_src;
+    if (role == ::velk::shader_role::kVertex) return rect_material_vertex_src;
+    return {};
 }
 
-string_view TextureMaterial::get_eval_fn_name() const
+string_view TextureMaterial::get_fn_name(string_view role) const
 {
-    return "velk_eval_texture";
-}
-
-string_view TextureMaterial::get_vertex_src() const
-{
-    return rect_material_vertex_src;
+    if (role == ::velk::shader_role::kEval) return "velk_eval_texture";
+    return {};
 }
 
 } // namespace velk::ui::impl

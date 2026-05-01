@@ -32,7 +32,7 @@ public:
                                        const ::velk::size& bounds) override;
 
     // IShaderSource
-    ::velk::string_view get_source(::velk::IShaderSource::Role role) const override;
+    ::velk::string_view get_source(::velk::string_view role) const override;
     uint64_t get_pipeline_key() const override;
 
     // IAnalyticShape

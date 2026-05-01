@@ -81,18 +81,19 @@ ReturnValue TextMaterial::write_draw_data(void* out, size_t size, ITextureResolv
     return ReturnValue::Fail;
 }
 
-string_view TextMaterial::get_eval_src() const
+string_view TextMaterial::get_source(string_view role) const
 {
-    return text_eval_src;
+    if (role == ::velk::shader_role::kEval) return text_eval_src;
+    return Base::get_source(role);
 }
 
-string_view TextMaterial::get_eval_fn_name() const
+string_view TextMaterial::get_fn_name(string_view role) const
 {
-    return "velk_eval_text";
+    if (role == ::velk::shader_role::kEval) return "velk_eval_text";
+    return {};
 }
 
-
-void TextMaterial::register_eval_includes(IRenderContext& ctx) const
+void TextMaterial::register_includes(IRenderContext& ctx) const
 {
     ctx.register_shader_include("velk_text.glsl", embedded::velk_text_glsl);
 }

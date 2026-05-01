@@ -25,16 +25,16 @@ public:
 
     // IShaderSource: custom fragment for SDF corners (vertex stays
     // default), plus a `velk_visual_discard()` body so the deferred
-    // gbuffer composer clips rounded corners in the deferred pass too.
-    ::velk::string_view get_source(::velk::IShaderSource::Role role) const override;
+    // gbuffer composer clips rounded corners in the deferred pass too,
+    // plus an `intersect` snippet for the RT path.
+    ::velk::string_view get_source(::velk::string_view role) const override;
+    ::velk::string_view get_fn_name(::velk::string_view role) const override;
     uint64_t get_pipeline_key() const override;
 
-    // IAnalyticShape: reports shape_kind 0 (a rect) with a non-empty
-    // intersect source, so scene_collector knows to enable the corner
-    // radius on emitted shadow/RT shapes.
+    // IAnalyticShape: reports shape_kind 0 (a rect); the registered
+    // intersect snippet (under shader_role::kIntersect) enables corner
+    // radius on emitted shadow / RT shapes.
     uint32_t get_shape_kind() const override { return 0; }
-    string_view get_shape_intersect_source() const override;
-    string_view get_shape_intersect_fn_name() const override;
 };
 
 } // namespace velk::ui
