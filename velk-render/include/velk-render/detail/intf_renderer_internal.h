@@ -19,6 +19,12 @@ class IRendererInternal : public Interface<IRendererInternal>
 public:
     virtual void set_backend(const IRenderBackend::Ptr& backend,
                              IRenderContext* ctx) = 0;
+
+    /// Returns and clears the duration (in nanoseconds) the most
+    /// recent `prepare()` spent blocked on GPU completion before it
+    /// could claim a frame slot. Lets the perf overlay charge that
+    /// time as "GPU wait" rather than CPU work.
+    virtual uint64_t consume_last_prepare_gpu_wait_ns() = 0;
 };
 
 } // namespace velk

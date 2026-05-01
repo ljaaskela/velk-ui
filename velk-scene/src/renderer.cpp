@@ -11,6 +11,7 @@
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -114,6 +115,13 @@ MaterialEval velk_default_material_eval() {
     return e;
 }
 )";
+
+uint64_t Renderer::consume_last_prepare_gpu_wait_ns()
+{
+    uint64_t v = last_prepare_gpu_wait_ns_;
+    last_prepare_gpu_wait_ns_ = 0;
+    return v;
+}
 
 void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx)
 {
@@ -273,7 +281,7 @@ bool Renderer::view_matches(const ViewSlot& slot, const FrameDesc& desc) const
 Renderer::FrameSlot* Renderer::claim_frame_slot()
 {
     auto is_slot_free = [&](const FrameSlot& s) {
-        return !s.ready && (s.presented_at == 0 || present_counter_ - s.presented_at >= kGpuLatencyFrames);
+        return !s.ready;
     };
 
     FrameSlot* slot = nullptr;
@@ -293,6 +301,20 @@ Renderer::FrameSlot* Renderer::claim_frame_slot()
                 break;
             }
         }
+    }
+
+    // Block until the GPU has actually finished this slot's previous
+    // use. Replaces the prior CPU-counter heuristic that broke at
+    // unlimited frame rates (CPU outran GPU and trampled live buffers).
+    // The wait can be substantial under vsync; time it so the perf
+    // overlay can charge it as GPU wait, not CPU work.
+    if (backend_ && slot->gpu_completion_marker != 0) {
+        auto wait_start = std::chrono::steady_clock::now();
+        backend_->wait_for_frame_completion(slot->gpu_completion_marker);
+        auto wait_end = std::chrono::steady_clock::now();
+        last_prepare_gpu_wait_ns_ += static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                wait_end - wait_start).count());
     }
 
     slot->id = next_frame_id_++;
@@ -745,6 +767,8 @@ Frame Renderer::prepare(const FrameDesc& desc)
     VELK_PERF_EVENT(Render);
     VELK_PERF_SCOPE("renderer.prepare");
 
+    last_prepare_gpu_wait_ns_ = 0;
+
     // Drain any GPU resources whose safe window has elapsed.
     resources_->drain_deferred(*backend_, present_counter_);
 
@@ -864,6 +888,7 @@ void Renderer::present(Frame frame)
         present_counter_++;
         target->ready = false;
         target->presented_at = present_counter_;
+        target->gpu_completion_marker = backend_->frame_completion_marker();
         target->graph->clear();
 
         slot_cv_.notify_one();

@@ -45,6 +45,7 @@ public:
 
     // IRendererInternal
     void set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx) override;
+    uint64_t consume_last_prepare_gpu_wait_ns() override;
 
     // IGpuResourceObserver
     void on_gpu_resource_destroyed(IGpuResource* resource) override;
@@ -74,6 +75,12 @@ private:
         IRenderGraph::Ptr graph;
         bool ready = false;
         uint64_t presented_at = 0;
+        /// Backend-issued GPU completion marker (e.g. timeline value)
+        /// stamped right after the slot's last end_frame submit. The
+        /// claim path waits on this before reusing the slot, so the
+        /// CPU can never trample buffers the GPU still reads. 0 means
+        /// the slot has never been submitted.
+        uint64_t gpu_completion_marker = 0;
         IFrameDataManager::Slot buffer;
     };
 
@@ -142,6 +149,11 @@ private:
     // (instance_index, buffer_addr, ibo_offset, triangle_count) so the
     // log can be compared against the F12-dumped shadow_debug image.
     bool log_bvh_next_ = false;
+
+    /// Duration the most recent claim_frame_slot() spent blocked on
+    /// `wait_for_frame_completion`. Read-and-cleared by the perf
+    /// overlay through `consume_last_prepare_gpu_wait_ns`.
+    uint64_t last_prepare_gpu_wait_ns_ = 0;
 
     // Shared visual-command / gpu-resource cache. Both the dirty-resource
     // upload in consume_scenes and the raster paths read from it, so it

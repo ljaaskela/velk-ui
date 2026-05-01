@@ -201,6 +201,31 @@ public:
     /** @brief Shuts down the backend and releases all GPU resources. */
     virtual void shutdown() = 0;
 
+    /** @brief Blocks until all submitted GPU work has completed.
+     *
+     * Heavy-handed (`vkDeviceWaitIdle`-style); intended for shutdown
+     * paths and as a debug fallback when proper per-submit fencing is
+     * not yet wired up. Production frame-pacing should not call this.
+     */
+    virtual void wait_idle() = 0;
+
+    /** @brief Returns a monotonically increasing marker tagging the GPU
+     *         work submitted by the most recent `end_frame()` call.
+     *
+     * Stamp the returned value on whatever per-frame state needs to
+     * outlive the frame's GPU work (frame slot, deferred-destroy queue
+     * entries) and pass it back to `wait_for_frame_completion` before
+     * touching that state again. Returns 0 if no frame has been
+     * submitted yet.
+     */
+    virtual uint64_t frame_completion_marker() const = 0;
+
+    /** @brief Blocks until the GPU work tagged with @p marker has
+     *         completed. @p marker == 0 is a no-op. Markers from prior
+     *         frames remain valid forever (they only resolve in the past).
+     */
+    virtual void wait_for_frame_completion(uint64_t marker) = 0;
+
     /// @}
     /// @name Surfaces
     /// @{
