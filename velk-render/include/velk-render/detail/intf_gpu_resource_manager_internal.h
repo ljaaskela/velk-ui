@@ -35,6 +35,21 @@ public:
     /// last Ptr auto-defers the backend handle for destruction.
     virtual void init(IRenderBackend* backend) = 0;
 
+    /// Switches the manager into transient-pool mode. In this mode,
+    /// resources created via `create_render_texture[_group]` are
+    /// recycled through an internal free-list keyed by description:
+    /// dropping the wrapper Ptr parks the backend handle on the pool
+    /// instead of immediately enqueueing it for deferred destroy. A
+    /// subsequent matching `create_*` reuses the parked handle once
+    /// `is_frame_complete(marker)` resolves.
+    ///
+    /// LRU eviction: pool entries idle for `kMaxIdleFrames` consecutive
+    /// `drain_deferred` ticks fall through to the deferred-destroy
+    /// queue. Owned per `IRenderGraph` (one transient manager per
+    /// FrameSlot); the renderer's persistent manager stays in the
+    /// default mode.
+    virtual void enable_transient_pool() = 0;
+
     /// Deferred destruction. The handle is enqueued and only destroyed
     /// once GPU work tagged with `completion_marker` has finished
     /// (queried via `IRenderBackend::is_frame_complete`). The right

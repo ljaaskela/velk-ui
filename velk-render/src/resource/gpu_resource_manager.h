@@ -46,6 +46,7 @@ public:
 
     // IGpuResourceManager
     void init(IRenderBackend* backend) override;
+    void enable_transient_pool() override;
     IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) override;
     IRenderTextureGroup::Ptr create_render_texture_group(
         const TextureGroupDesc& desc) override;
@@ -100,6 +101,48 @@ private:
         uint64_t completion_marker;
     };
 
+    /// Number of consecutive `drain_deferred` ticks an idle transient
+    /// pool entry may survive before falling through to deferred
+    /// destroy. Active only when `transient_mode_` is set.
+    static constexpr uint32_t kMaxIdleFrames = 8;
+
+    /// Stored copy of `TextureGroupDesc` for the transient pool.
+    /// The original `TextureGroupDesc::formats` is a non-owning view.
+    struct StoredGroupDesc
+    {
+        int width;
+        int height;
+        DepthFormat depth;
+        vector<PixelFormat> formats;
+    };
+
+    struct PooledTexture
+    {
+        TextureDesc desc;
+        TextureId handle;
+        uint64_t completion_marker;
+        uint32_t idle_frames;
+    };
+
+    struct PooledGroup
+    {
+        StoredGroupDesc desc;
+        RenderTargetGroup handle;
+        uint64_t completion_marker;
+        uint32_t idle_frames;
+    };
+
+    static bool transient_desc_matches(const TextureDesc& a, const TextureDesc& b);
+    static bool transient_group_matches(const StoredGroupDesc& a, const TextureGroupDesc& b);
+    static StoredGroupDesc store_group_desc(const TextureGroupDesc& d);
+
+    /// Wraps an already-allocated `TextureId` in a fresh `IRenderTarget`
+    /// shell, registers it for tracking, and subscribes the observer.
+    /// Mirrors the tail of `create_render_texture` past backend allocation.
+    IRenderTarget::Ptr wrap_pooled_texture(TextureId tid, const TextureDesc& desc);
+    IRenderTextureGroup::Ptr wrap_pooled_group(RenderTargetGroup group,
+                                               const StoredGroupDesc& desc);
+
     IRenderBackend* backend_ = nullptr;
 
     std::unordered_map<ISurface*, TextureId> texture_map_;
@@ -112,6 +155,14 @@ private:
     vector<DeferredPipelineDestroy> deferred_pipelines_;
     std::mutex deferred_mutex_;
     vector<IBuffer::WeakPtr> observed_env_resources_;
+
+    /// Transient-pool state. Empty / inactive when `transient_mode_`
+    /// is false (the default for the renderer's persistent manager).
+    bool transient_mode_ = false;
+    std::unordered_map<IGpuResource*, TextureDesc> transient_texture_descs_;
+    std::unordered_map<IGpuResource*, StoredGroupDesc> transient_group_descs_;
+    vector<PooledTexture> transient_pool_textures_;
+    vector<PooledGroup>   transient_pool_groups_;
 };
 
 } // namespace velk
