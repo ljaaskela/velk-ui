@@ -71,6 +71,16 @@ public:
     virtual void register_buffer(IBuffer* buf, const BufferEntry& entry) = 0;
     virtual void unregister_buffer(IBuffer* buf) = 0;
 
+    /// Ensures @p buf has backend storage matching @p desc.size. Reuses
+    /// the existing entry when sizes match; reallocates (deferring the
+    /// prior handle for destroy at the current pending frame marker)
+    /// when they differ; allocates fresh when none exists. Stamps the
+    /// buffer's GPU virtual address into `set_gpu_handle(Default, ...)`.
+    /// Returns the resolved BufferEntry* (matching @p desc.size), or
+    /// nullptr on backend allocation failure.
+    virtual BufferEntry* ensure_buffer_storage(IBuffer* buf,
+                                               const GpuBufferDesc& desc) = 0;
+
     /// Idempotent. Returns true if the program was newly registered (the
     /// caller should subscribe as observer in that case), false if it was
     /// already tracked.
@@ -78,11 +88,9 @@ public:
 
     // Environment resource bookkeeping (textures referenced by env material;
     // not tracked through the element cache so they need a sidecar list).
+    // Unsubscription happens automatically inside `shutdown()` on the
+    // internal interface.
     virtual void add_env_observer(const IBuffer::WeakPtr& res) = 0;
-    /// Unsubscribes the manager from every tracked env resource. Called
-    /// at renderer shutdown so subsequent CPU-side dtors don't reach
-    /// into a dead manager.
-    virtual void unregister_env_observers() = 0;
 };
 
 } // namespace velk

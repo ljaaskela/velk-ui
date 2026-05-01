@@ -43,7 +43,7 @@ public:
     }
 
     // IGpuResourceManager
-    void set_lifecycle(IRenderBackend* backend) override;
+    void init(IRenderBackend* backend) override;
     IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) override;
     IRenderTextureGroup::Ptr create_render_texture_group(
         const TextureGroupDesc& desc) override;
@@ -57,11 +57,11 @@ public:
     BufferEntry* find_buffer(IBuffer* buf) override;
     void register_buffer(IBuffer* buf, const BufferEntry& entry) override;
     void unregister_buffer(IBuffer* buf) override;
+    BufferEntry* ensure_buffer_storage(IBuffer* buf, const GpuBufferDesc& desc) override;
 
     bool register_pipeline(IProgram* prog, PipelineId pid) override;
 
     void add_env_observer(const IBuffer::WeakPtr& res) override;
-    void unregister_env_observers() override;
 
     void defer_texture_destroy(TextureId tid, uint64_t completion_marker) override;
     void defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker) override;
@@ -72,7 +72,7 @@ public:
     void on_resource_destroyed(IGpuResource* resource,
                                uint64_t completion_marker) override;
 
-    void shutdown(IRenderBackend& backend) override;
+    void shutdown() override;
 
 private:
     struct DeferredTextureDestroy

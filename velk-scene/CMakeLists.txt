@@ -36,12 +36,6 @@ add_library(velk_scene SHARED
     src/batch_builder.h
     src/batch_builder.cpp
     src/pipeline_options_helpers.h
-    src/frame_data_manager.h
-    src/frame_data_manager.cpp
-    src/frame_snippet_registry.h
-    src/frame_snippet_registry.cpp
-    src/gpu_resource_manager.h
-    src/gpu_resource_manager.cpp
     src/env_helper.h
     src/env_helper.cpp
 
