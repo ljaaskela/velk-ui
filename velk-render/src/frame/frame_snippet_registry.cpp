@@ -119,25 +119,11 @@ void ensure_data_buffer_uploaded(IBuffer* buf, const FrameResolveContext& ctx)
     size_t bsize = buf->get_data_size();
     if (bsize == 0) return;
 
-    auto* be = ctx.resources->find_buffer(buf);
-    bool need_alloc = (be == nullptr);
-    if (!need_alloc && be->size != bsize) {
-        defer_buffer_destroy(ctx.resources, be->handle, ctx.completion_marker);
-        ctx.resources->unregister_buffer(buf);
-        be = nullptr;
-        need_alloc = true;
-    }
-    if (need_alloc) {
-        GpuBufferDesc bdesc{};
-        bdesc.size = bsize;
-        bdesc.cpu_writable = true;
-        IGpuResourceManager::BufferEntry bentry{};
-        bentry.handle = backend->create_buffer(bdesc);
-        bentry.size = bsize;
-        ctx.resources->register_buffer(buf, bentry);
-        be = ctx.resources->find_buffer(buf);
-        buf->set_gpu_handle(GpuResourceKey::Default, backend->gpu_address(bentry.handle));
-    }
+    GpuBufferDesc bdesc{};
+    bdesc.size = bsize;
+    bdesc.cpu_writable = true;
+    auto* be = ctx.resources->ensure_buffer_storage(buf, bdesc);
+    if (!be) return;
     if (buf->is_dirty()) {
         const uint8_t* bytes = buf->get_data();
         if (bytes && be) {

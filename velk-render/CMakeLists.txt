@@ -42,6 +42,8 @@ add_library(velk_render SHARED
     src/resource/render_texture_group.h
     src/resource/program_data_buffer.h
     src/resource/program_data_buffer.cpp
+    src/resource/gpu_resource_manager.h
+    src/resource/gpu_resource_manager.cpp
     src/resource/surface.h
 
     # Shadow / reflection / etc. techniques
@@ -105,6 +107,10 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_render_texture_group.h
     src/frame/render_graph.h
     src/frame/render_graph.cpp
+    src/frame/frame_data_manager.h
+    src/frame/frame_data_manager.cpp
+    src/frame/frame_snippet_registry.h
+    src/frame/frame_snippet_registry.cpp
     include/velk-render/frame/render_pass.h
     include/velk-render/frame/batch.h
     include/velk-render/frame/draw_call_emit.h

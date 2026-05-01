@@ -5,7 +5,7 @@
 
 namespace velk {
 
-void GpuResourceManager::set_lifecycle(IRenderBackend* backend)
+void GpuResourceManager::init(IRenderBackend* backend)
 {
     backend_ = backend;
 }
@@ -107,6 +107,31 @@ void GpuResourceManager::unregister_buffer(IBuffer* buf)
     buffer_map_.erase(buf);
 }
 
+IGpuResourceManager::BufferEntry*
+GpuResourceManager::ensure_buffer_storage(IBuffer* buf, const GpuBufferDesc& desc)
+{
+    if (!buf || !backend_) return nullptr;
+    auto* be = find_buffer(buf);
+    if (be && be->size != desc.size) {
+        defer_buffer_destroy(be->handle, backend_->pending_frame_completion_marker());
+        unregister_buffer(buf);
+        be = nullptr;
+    }
+    if (!be) {
+        BufferEntry entry{};
+        entry.handle = backend_->create_buffer(desc);
+        if (!entry.handle) return nullptr;
+        entry.size = desc.size;
+        register_buffer(buf, entry);
+        be = find_buffer(buf);
+        if (be) {
+            buf->set_gpu_handle(GpuResourceKey::Default,
+                                backend_->gpu_address(entry.handle));
+        }
+    }
+    return be;
+}
+
 bool GpuResourceManager::register_pipeline(IProgram* prog, PipelineId pid)
 {
     if (!prog || !pid) {
@@ -121,15 +146,6 @@ void GpuResourceManager::add_env_observer(const IBuffer::WeakPtr& res)
     observed_env_resources_.push_back(res);
 }
 
-void GpuResourceManager::unregister_env_observers()
-{
-    for (auto& weak : observed_env_resources_) {
-        if (auto res = weak.lock()) {
-            res->remove_gpu_resource_observer(this);
-        }
-    }
-    observed_env_resources_.clear();
-}
 
 void GpuResourceManager::defer_texture_destroy(TextureId tid, uint64_t completion_marker)
 {
@@ -228,45 +244,56 @@ void GpuResourceManager::on_resource_destroyed(IGpuResource* resource,
     }
 }
 
-void GpuResourceManager::shutdown(IRenderBackend& backend)
+void GpuResourceManager::shutdown()
 {
+    if (!backend_) return;
+
+    // Detach from any env resources we still observe so their CPU
+    // dtors (which may run later) don't reach a dead manager.
+    for (auto& weak : observed_env_resources_) {
+        if (auto res = weak.lock()) {
+            res->remove_gpu_resource_observer(this);
+        }
+    }
+    observed_env_resources_.clear();
+
     {
         std::lock_guard<std::mutex> lock(deferred_mutex_);
         for (auto& d : deferred_textures_) {
-            backend.destroy_texture(d.tid);
+            backend_->destroy_texture(d.tid);
         }
         deferred_textures_.clear();
         for (auto& d : deferred_groups_) {
-            backend.destroy_render_target_group(d.handle);
+            backend_->destroy_render_target_group(d.handle);
         }
         deferred_groups_.clear();
         for (auto& d : deferred_buffers_) {
-            backend.destroy_buffer(d.handle);
+            backend_->destroy_buffer(d.handle);
         }
         deferred_buffers_.clear();
         for (auto& d : deferred_pipelines_) {
-            backend.destroy_pipeline(d.pid);
+            backend_->destroy_pipeline(d.pid);
         }
         deferred_pipelines_.clear();
     }
 
     for (auto& [key, tid] : texture_map_) {
-        backend.destroy_texture(tid);
+        backend_->destroy_texture(tid);
     }
     texture_map_.clear();
 
     for (auto& [key, group] : group_map_) {
-        backend.destroy_render_target_group(group);
+        backend_->destroy_render_target_group(group);
     }
     group_map_.clear();
 
     for (auto& [key, entry] : buffer_map_) {
-        backend.destroy_buffer(entry.handle);
+        backend_->destroy_buffer(entry.handle);
     }
     buffer_map_.clear();
 
     for (auto& [key, pid] : pipeline_map_) {
-        backend.destroy_pipeline(pid);
+        backend_->destroy_pipeline(pid);
     }
     pipeline_map_.clear();
 }

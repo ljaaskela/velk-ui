@@ -28,12 +28,12 @@ class IGpuResourceManagerInternal
     : public Interface<IGpuResourceManagerInternal, IGpuResourceManager>
 {
 public:
-    /// Set by the renderer at startup. The manager uses the backend
-    /// to create resources via the factory methods on
-    /// IGpuResourceManager, and subscribes itself as the
+    /// Wires the manager to the backend at renderer startup. The
+    /// manager uses the backend to create resources via the factory
+    /// methods on IGpuResourceManager, and subscribes itself as the
     /// IGpuResourceObserver on those resources so that dropping the
     /// last Ptr auto-defers the backend handle for destruction.
-    virtual void set_lifecycle(IRenderBackend* backend) = 0;
+    virtual void init(IRenderBackend* backend) = 0;
 
     /// Deferred destruction. The handle is enqueued and only destroyed
     /// once GPU work tagged with `completion_marker` has finished
@@ -53,8 +53,11 @@ public:
     virtual void on_resource_destroyed(IGpuResource* resource,
                                        uint64_t completion_marker) = 0;
 
-    /// Destroys all tracked resources during renderer shutdown.
-    virtual void shutdown(IRenderBackend& backend) = 0;
+    /// Tears down at renderer shutdown: unsubscribes from any
+    /// observed env resources, drains the deferred-destroy queues,
+    /// and destroys all still-tracked backend handles. Uses the
+    /// backend stored at `init()`.
+    virtual void shutdown() = 0;
 };
 
 /// One-liner helpers that interface_cast a public-facing
@@ -63,10 +66,10 @@ public:
 /// instead of holding an `IGpuResourceManagerInternal*` separately.
 /// No-op when the cast fails (defensive; should not happen since the
 /// concrete manager implements both interfaces).
-inline void set_lifecycle(IGpuResourceManager* mgr, IRenderBackend* backend)
+inline void init(IGpuResourceManager* mgr, IRenderBackend* backend)
 {
     if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->set_lifecycle(backend);
+        in->init(backend);
     }
 }
 
@@ -109,10 +112,10 @@ inline void on_resource_destroyed(IGpuResourceManager* mgr,
     }
 }
 
-inline void shutdown(IGpuResourceManager* mgr, IRenderBackend& backend)
+inline void shutdown(IGpuResourceManager* mgr)
 {
     if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->shutdown(backend);
+        in->shutdown();
     }
 }
 

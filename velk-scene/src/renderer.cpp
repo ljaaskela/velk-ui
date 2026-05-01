@@ -140,7 +140,7 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // not on the interface (FrameDataManager) and for stable raw access.
     resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
     if (resources_) {
-        set_lifecycle(resources_.get(), backend_.get());
+        init(resources_.get(), backend_.get());
     }
     snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
 
@@ -175,13 +175,9 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
         GpuBufferDesc bdesc{};
         bdesc.size = bsize;
         bdesc.cpu_writable = true;
-        IGpuResourceManager::BufferEntry bentry{};
-        bentry.handle = backend_->create_buffer(bdesc);
-        bentry.size = bsize;
-        if (!bentry.handle) return;
-        resources_->register_buffer(buf, bentry);
-        buf->set_gpu_handle(GpuResourceKey::Default, backend_->gpu_address(bentry.handle));
-        if (auto* dst = backend_->map(bentry.handle)) {
+        auto* be = resources_->ensure_buffer_storage(buf, bdesc);
+        if (!be) return;
+        if (auto* dst = backend_->map(be->handle)) {
             std::memcpy(dst, bytes, bsize);
         }
         buf->clear_dirty();
@@ -428,33 +424,17 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         if (!bytes || bsize == 0) {
                             continue;
                         }
-                        auto* be = resources_->find_buffer(buf);
-                        bool need_alloc = (be == nullptr);
-                        if (!need_alloc && be->size != bsize) {
-                            defer_buffer_destroy(
-                                resources_.get(), be->handle,
-                                backend_->pending_frame_completion_marker());
-                            resources_->unregister_buffer(buf);
-                            be = nullptr;
-                            need_alloc = true;
+                        GpuBufferDesc bdesc{};
+                        bdesc.size = bsize;
+                        bdesc.cpu_writable = true;
+                        // IMeshBuffer carries an IBO half that needs
+                        // INDEX_BUFFER usage so it can be bound for
+                        // indexed draws.
+                        if (auto* mb = interface_cast<IMeshBuffer>(buf)) {
+                            bdesc.index_buffer = mb->get_ibo_size() > 0;
                         }
-                        if (need_alloc) {
-                            GpuBufferDesc bdesc{};
-                            bdesc.size = bsize;
-                            bdesc.cpu_writable = true;
-                            // IMeshBuffer carries an IBO half that needs
-                            // INDEX_BUFFER usage so it can be bound for
-                            // indexed draws.
-                            if (auto* mb = interface_cast<IMeshBuffer>(buf)) {
-                                bdesc.index_buffer = mb->get_ibo_size() > 0;
-                            }
-                            IGpuResourceManager::BufferEntry bentry{};
-                            bentry.handle = backend_->create_buffer(bdesc);
-                            bentry.size = bsize;
-                            resources_->register_buffer(buf, bentry);
-                            be = resources_->find_buffer(buf);
-                            buf->set_gpu_handle(GpuResourceKey::Default, backend_->gpu_address(bentry.handle));
-                        }
+                        auto* be = resources_->ensure_buffer_storage(buf, bdesc);
+                        if (!be) continue;
                         if (auto* dst = backend_->map(be->handle)) {
                             std::memcpy(dst, bytes, bsize);
                         }
@@ -961,6 +941,9 @@ void Renderer::shutdown()
         // Detach the resource manager from every GPU resource still
         // observing it so their dtors (which may run later, on any
         // thread) cannot reach a manager whose backend is gone.
+        // Env resources are unregistered inside the manager's own
+        // shutdown(); element-cache resources are unregistered here
+        // since the manager doesn't track that set itself.
         auto* obs = interface_cast<IGpuResourceObserver>(resources_.get());
         if (obs) {
             for (auto& [elem, cache] : batch_builder_.element_cache()) {
@@ -971,10 +954,8 @@ void Renderer::shutdown()
                 }
             }
         }
-        // Unregister from environment textures (not tracked via element cache).
-        resources_->unregister_env_observers();
 
-        ::velk::shutdown(resources_.get(), *backend_);
+        ::velk::shutdown(resources_.get());
 
         // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
         {

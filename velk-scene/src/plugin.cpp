@@ -2,9 +2,6 @@
 
 #include "camera.h"
 #include "element.h"
-#include "frame_data_manager.h"
-#include "frame_snippet_registry.h"
-#include "gpu_resource_manager.h"
 #include "renderer.h"
 #include "scene.h"
 #include "trait/light.h"
@@ -28,9 +25,6 @@ namespace velk {
     ::velk::TypeOptions alloc;
     alloc.policy = ::velk::CreationPolicy::Alloc;
     rv &= register_type<::velk::Renderer>(velk, alloc);
-    rv &= register_type<::velk::GpuResourceManager>(velk, alloc);
-    rv &= register_type<::velk::FrameDataManager>(velk, alloc);
-    rv &= register_type<::velk::FrameSnippetRegistry>(velk, alloc);
 
     rv &= register_type<Trs>(velk);
     rv &= register_type<Matrix>(velk);

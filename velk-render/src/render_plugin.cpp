@@ -11,6 +11,9 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_buffer.h"
 #include "mesh/mesh_builder.h"
+#include "frame/frame_data_manager.h"
+#include "frame/frame_snippet_registry.h"
+#include "resource/gpu_resource_manager.h"
 #include "resource/program_data_buffer.h"
 #include "render_context.h"
 #include "resource/render_texture.h"
@@ -30,6 +33,9 @@ ReturnValue RenderPlugin::initialize(IVelk& velk, PluginConfig& config)
     ::velk::TypeOptions alloc;
     alloc.policy = ::velk::CreationPolicy::Alloc;
     auto rv = register_type<RenderContextImpl>(velk, alloc);
+    rv &= register_type<GpuResourceManager>(velk, alloc);
+    rv &= register_type<FrameDataManager>(velk, alloc);
+    rv &= register_type<FrameSnippetRegistry>(velk, alloc);
     rv &= register_type<Shader>(velk);
     rv &= register_type<WindowSurface>(velk);
     rv &= register_type<RenderTexture>(velk);
