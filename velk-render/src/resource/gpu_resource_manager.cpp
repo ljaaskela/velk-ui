@@ -5,6 +5,11 @@
 
 namespace velk {
 
+GpuResourceManager::~GpuResourceManager()
+{
+    GpuResourceManager::shutdown();
+}
+
 void GpuResourceManager::init(IRenderBackend* backend)
 {
     backend_ = backend;
@@ -81,10 +86,12 @@ TextureId GpuResourceManager::find_texture(ISurface* surf) const
 
 void GpuResourceManager::register_texture(ISurface* surf, TextureId tid)
 {
+    if (!surf) return;
     texture_map_[surf] = tid;
-    if (surf) {
-        surf->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(tid));
-    }
+    surf->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(tid));
+    // Subscribe so dropping the wrapper auto-defers `tid` for destroy.
+    // Idempotent: re-registration on resize doesn't double-subscribe.
+    surf->add_gpu_resource_observer(this);
 }
 
 void GpuResourceManager::unregister_texture(ISurface* surf)
@@ -112,11 +119,14 @@ IGpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
 
 void GpuResourceManager::register_buffer(IBuffer* buf, const BufferEntry& entry)
 {
+    if (!buf) return;
     // Note: doesn't populate `buf->set_gpu_handle(Default, ...)`. For
     // BDA-style buffers the renderer follows up with
     // `set_gpu_handle(Default, backend->gpu_address(entry.handle))`
     // — the GPU virtual address, not the backend handle.
     buffer_map_[buf] = entry;
+    // Subscribe so dropping the wrapper auto-defers the handle.
+    buf->add_gpu_resource_observer(this);
 }
 
 void GpuResourceManager::unregister_buffer(IBuffer* buf)
@@ -155,6 +165,11 @@ bool GpuResourceManager::register_pipeline(IProgram* prog, PipelineId pid)
         return false;
     }
     auto [it, inserted] = pipeline_map_.emplace(prog, pid);
+    if (inserted) {
+        // First registration: subscribe so dropping the program
+        // auto-defers the pipeline for destroy.
+        prog->add_gpu_resource_observer(this);
+    }
     return inserted;
 }
 
@@ -265,11 +280,17 @@ void GpuResourceManager::shutdown()
 {
     if (!backend_) return;
 
+    auto unregister = [](IGpuResource* res, IGpuResourceObserver* obs) {
+        if (res) {
+            res->remove_gpu_resource_observer(obs);
+        }
+    };
+
     // Detach from any env resources we still observe so their CPU
     // dtors (which may run later) don't reach a dead manager.
     for (auto& weak : observed_env_resources_) {
-        if (auto res = weak.lock()) {
-            res->remove_gpu_resource_observer(this);
+        if (auto key = weak.lock()) {
+            unregister(key.get(), this);
         }
     }
     observed_env_resources_.clear();
@@ -277,7 +298,7 @@ void GpuResourceManager::shutdown()
     {
         std::lock_guard<std::mutex> lock(deferred_mutex_);
         for (auto& d : deferred_textures_) {
-            backend_->destroy_texture(d.tid);
+            backend_->destroy_texture(d.tid);            
         }
         deferred_textures_.clear();
         for (auto& d : deferred_groups_) {
@@ -296,21 +317,25 @@ void GpuResourceManager::shutdown()
 
     for (auto& [key, tid] : texture_map_) {
         backend_->destroy_texture(tid);
+        unregister(key, this);
     }
     texture_map_.clear();
 
     for (auto& [key, group] : group_map_) {
         backend_->destroy_render_target_group(group);
+        unregister(key, this);
     }
     group_map_.clear();
 
     for (auto& [key, entry] : buffer_map_) {
         backend_->destroy_buffer(entry.handle);
+        unregister(key, this);
     }
     buffer_map_.clear();
 
     for (auto& [key, pid] : pipeline_map_) {
         backend_->destroy_pipeline(pid);
+        unregister(key, this);
     }
     pipeline_map_.clear();
 }

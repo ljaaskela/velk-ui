@@ -86,12 +86,9 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
             TextureId tid = ctx.resources->ensure_texture_storage(target.get(), tdesc);
             if (tid == 0) continue;
             target->set_size(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-            // Subscribe the manager observer so dropping the user's
-            // last reference to the wrapper auto-defers the backend
-            // handle for destroy.
-            if (ctx.observer) {
-                target->add_gpu_resource_observer(ctx.observer);
-            }
+            // Observer subscription is handled inside register_texture
+            // (called by ensure_texture_storage); when the user's last
+            // reference drops, the manager auto-defers the backend handle.
             rte.target = target;
             rte.width = w;
             rte.height = h;

@@ -30,6 +30,8 @@ class GpuResourceManager
 public:
     VELK_CLASS_UID(ClassId::GpuResourceManager, "GpuResourceManager");
 
+    ~GpuResourceManager() override;
+
     // ITextureResolver
     TextureId resolve(ISurface* surf) const override
     {

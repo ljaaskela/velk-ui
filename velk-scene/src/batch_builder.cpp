@@ -33,8 +33,7 @@ uint64_t make_batch_key(uint64_t pipeline, uint64_t mesh, uint64_t texture)
 
 namespace velk {
 
-void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* observer,
-                                    IRenderContext* render_ctx)
+void BatchBuilder::rebuild_commands(IElement* element, IRenderContext* render_ctx)
 {
     VELK_PERF_SCOPE("renderer.rebuild_commands");
     auto& cache = element_cache_[element];
@@ -134,12 +133,12 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
                         // Multi-texture materials (e.g. StandardMaterial)
                         // attach their textures to the material. Surface
                         // the ones that carry uploadable pixel data so
-                        // renderer's upload pass registers them.
+                        // renderer's upload pass registers them. The
+                        // manager observer subscribes itself inside
+                        // register_*; we only need to track the buffer
+                        // so the upload pass sees it.
                         for (auto* tex : mat->get_textures()) {
                             if (auto buf = ::velk::get_self<IBuffer>(tex)) {
-                                if (observer) {
-                                    buf->add_gpu_resource_observer(observer);
-                                }
                                 cache.gpu_resources.push_back(buf);
                             }
                         }
@@ -151,9 +150,6 @@ void BatchBuilder::rebuild_commands(IElement* element, IGpuResourceObserver* obs
 
         for (auto& res : (render_ctx ? visual->get_gpu_resources(*render_ctx) : vector<IBuffer::Ptr>{})) {
             if (res) {
-                if (observer) {
-                    res->add_gpu_resource_observer(observer);
-                }
                 cache.gpu_resources.push_back(res);
             }
         }

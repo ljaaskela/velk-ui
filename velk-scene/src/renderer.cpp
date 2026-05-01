@@ -116,6 +116,11 @@ MaterialEval velk_default_material_eval() {
 }
 )";
 
+Renderer::~Renderer()
+{
+    Renderer::shutdown();
+}
+
 uint64_t Renderer::consume_last_prepare_gpu_wait_ns()
 {
     uint64_t v = last_prepare_gpu_wait_ns_;
@@ -139,8 +144,8 @@ void Renderer::set_backend(const IRenderBackend::Ptr& backend, IRenderContext* c
     // typed pointers cache the concrete cast for slot/management methods
     // not on the interface (FrameDataManager) and for stable raw access.
     resources_ = instance().create<IGpuResourceManager>(ClassId::GpuResourceManager);
-    if (resources_) {
-        init(resources_.get(), backend_.get());
+    if (auto internal = interface_cast<IGpuResourceManagerInternal>(resources_)) {
+        internal->init(backend_.get());
     }
     snippets_ = instance().create<IFrameSnippetRegistry>(ClassId::FrameSnippetRegistry);
 
@@ -245,7 +250,6 @@ FrameContext Renderer::make_frame_context()
     ctx.snippets = snippets_.get();
     ctx.material_cache = &material_cache_;
     ctx.pipeline_map = pipeline_map_;
-    ctx.observer = interface_cast<IGpuResourceObserver>(resources_.get());
     ctx.defer_marker = backend_ ? backend_->pending_frame_completion_marker() : 0;
     ctx.present_counter = present_counter_;
     // ctx.target_format is set per-camera by IViewPipeline::emit before
@@ -382,9 +386,8 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
         // Rebuild draw commands for changed elements. Pipelines are
         // not pre-compiled here; build_draw_calls / build_gbuffer_draw_calls
         // compile lazily on cache miss against the path's target_format.
-        auto* obs = interface_cast<IGpuResourceObserver>(resources_.get());
         for (auto* element : state.redraw_list) {
-            batch_builder_.rebuild_commands(element, obs, render_ctx_);
+            batch_builder_.rebuild_commands(element, render_ctx_);
         }
 
         // Upload dirty GPU resources
@@ -953,7 +956,8 @@ void Renderer::shutdown()
             }
         }
 
-        ::velk::shutdown(resources_.get());
+        // Cleanup the resource manager (destroys backing GPU resources, unsubscribes IGpuResource objects)
+        resources_.reset();
 
         // Per-sub-renderer cleanup (RTT textures, RT storage textures, etc.).
         {

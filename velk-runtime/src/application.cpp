@@ -21,6 +21,16 @@
 
 namespace velk::impl {
 
+Application::~Application()
+{
+    overlays_.clear();
+    scene_links_.clear();
+    windows_.clear();
+    renderer_.reset();
+    platform_plugin_.reset();
+    render_ctx_.reset();
+}
+
 bool Application::init(const ApplicationConfig& config)
 {
     config_ = config;
