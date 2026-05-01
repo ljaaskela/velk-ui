@@ -6,7 +6,6 @@
 
 #include <velk/ext/object.h>
 
-#include <unordered_map>
 #include <velk-render/interface/intf_render_context.h>
 #include <velk-render/plugin.h>
 

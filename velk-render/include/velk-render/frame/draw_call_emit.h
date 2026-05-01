@@ -114,7 +114,6 @@ inline void emit_draw_calls(
     IFrameDataManager& frame_data,
     IGpuResourceManager& resources,
     uint64_t globals_gpu_addr,
-    IGpuResourceObserver* observer,
     MaterialAddrCache& material_cache,
     IBuffer* default_uv1,
     ResolvePipelineFn resolve_pipeline,
@@ -196,13 +195,10 @@ inline void emit_draw_calls(
         std::memcpy(dst, &header, sizeof(header));
         std::memcpy(dst + sizeof(DrawDataHeader), &material_addr, kMaterialPtrSize);
 
-        // Lazy-register the program's pipeline for deferred destruction
-        // on program destruction. Idempotent; subscribes the observer
-        // only once per program.
+        // Lazy-register the program's pipeline for deferred destruction.
+        // The manager subscribes itself as observer internally.
         if (batch.material) {
-            if (resources.register_pipeline(batch.material.get(), pipeline) && observer) {
-                batch.material->add_gpu_resource_observer(observer);
-            }
+            resources.register_pipeline(batch.material.get(), pipeline);
         }
 
         DrawCall call{};

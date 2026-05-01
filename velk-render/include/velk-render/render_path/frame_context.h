@@ -36,7 +36,6 @@ struct FrameContext
     /// passed to `IRenderContext::build_draw_calls` etc.
     MaterialAddrCache* material_cache = nullptr;
     const PipelineCacheMap* pipeline_map = nullptr;
-    IGpuResourceObserver* observer = nullptr;
 
     /// Color attachment format the active path is writing into.
     /// Pipeline lookups in `pipeline_map` reconstruct their cache key

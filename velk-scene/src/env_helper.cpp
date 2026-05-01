@@ -62,8 +62,10 @@ EnvResolved ensure_env_ready(ICamera& camera, FrameContext& ctx)
             desc.mip_levels = compute_mip_levels(tw, th);
             TextureId tid = ctx.resources->ensure_texture_storage(surf, desc);
             if (tid != 0) {
-                if (first_time && ctx.observer) {
-                    surf->add_gpu_resource_observer(ctx.observer);
+                if (first_time) {
+                    // Track for shutdown unsubscribe. The observer
+                    // subscription itself is handled inside
+                    // register_texture (called by ensure_texture_storage).
                     auto buf_ptr = interface_pointer_cast<IBuffer>(env_ptr);
                     if (buf_ptr) {
                         ctx.resources->add_env_observer(buf_ptr);

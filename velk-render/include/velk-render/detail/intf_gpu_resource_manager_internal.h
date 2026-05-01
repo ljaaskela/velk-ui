@@ -66,13 +66,6 @@ public:
 /// instead of holding an `IGpuResourceManagerInternal*` separately.
 /// No-op when the cast fails (defensive; should not happen since the
 /// concrete manager implements both interfaces).
-inline void init(IGpuResourceManager* mgr, IRenderBackend* backend)
-{
-    if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->init(backend);
-    }
-}
-
 inline void defer_texture_destroy(IGpuResourceManager* mgr,
                                   TextureId tid, uint64_t marker)
 {
@@ -101,21 +94,6 @@ inline void drain_deferred(IGpuResourceManager* mgr, IRenderBackend& backend)
 {
     if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
         in->drain_deferred(backend);
-    }
-}
-
-inline void on_resource_destroyed(IGpuResourceManager* mgr,
-                                  IGpuResource* resource, uint64_t marker)
-{
-    if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->on_resource_destroyed(resource, marker);
-    }
-}
-
-inline void shutdown(IGpuResourceManager* mgr)
-{
-    if (auto* in = interface_cast<IGpuResourceManagerInternal>(mgr)) {
-        in->shutdown();
     }
 }
 

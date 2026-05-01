@@ -115,7 +115,7 @@ void ForwardPath::build_passes(ViewEntry& entry,
         emit_draw_calls(
             draw_calls,
             env_batches, *ctx.frame_buffer, *ctx.resources,
-            render_view.frame_globals_addr, ctx.observer, mcache,
+            render_view.frame_globals_addr, mcache,
             default_uv1, resolve, /*frustum=*/nullptr);
     }
 
@@ -124,7 +124,7 @@ void ForwardPath::build_passes(ViewEntry& entry,
         emit_draw_calls(
             draw_calls,
             *render_view.batches, *ctx.frame_buffer, *ctx.resources,
-            render_view.frame_globals_addr, ctx.observer, mcache,
+            render_view.frame_globals_addr, mcache,
             default_uv1, resolve, frustum_ptr);
     }
 

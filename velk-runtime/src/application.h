@@ -25,6 +25,7 @@ class Application : public ext::Object<Application, IApplication>
 public:
     VELK_CLASS_UID(ClassId::Application, "Application");
 
+    ~Application() override;
     bool init(const ApplicationConfig& config) override;
     IWindow::Ptr create_window(const WindowConfig& config) override;
     IWindow::Ptr wrap_native_surface(void* native_handle) override;

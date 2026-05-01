@@ -44,6 +44,8 @@ class Renderer : public ::velk::ext::Object<Renderer, IRendererInternal, IRender
 public:
     VELK_CLASS_UID(::velk::ClassId::Renderer, "Renderer");
 
+    ~Renderer() override;
+
     // IRendererInternal
     void set_backend(const IRenderBackend::Ptr& backend, IRenderContext* ctx) override;
     uint64_t consume_last_prepare_gpu_wait_ns() override;
