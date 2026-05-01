@@ -17,6 +17,11 @@ void RenderGraph::init(::velk::IRenderBackend* backend)
     if (auto* internal = interface_cast<
             ::velk::IGpuResourceManagerInternal>(resources_.get())) {
         internal->init(backend);
+        // Per-graph transient pool: routes destroyed shells onto the
+        // pool free-list, with LRU eviction folding back into the
+        // deferred-destroy queue. The renderer's persistent manager
+        // never enables this mode.
+        internal->enable_transient_pool();
     }
 }
 
