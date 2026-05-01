@@ -49,14 +49,16 @@ ReturnValue ImageMaterial::write_draw_data(void* out, size_t size, ITextureResol
     return ReturnValue::Fail;
 }
 
-string_view ImageMaterial::get_eval_src() const
+string_view ImageMaterial::get_source(string_view role) const
 {
-    return image_eval_src;
+    if (role == ::velk::shader_role::kEval) return image_eval_src;
+    return Base::get_source(role);
 }
 
-string_view ImageMaterial::get_eval_fn_name() const
+string_view ImageMaterial::get_fn_name(string_view role) const
 {
-    return "velk_eval_image";
+    if (role == ::velk::shader_role::kEval) return "velk_eval_image";
+    return {};
 }
 
 } // namespace velk::ui::impl

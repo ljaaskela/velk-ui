@@ -37,12 +37,13 @@ PipelineId resolve_or_compile_forward(IRenderContext& ctx,
     uint64_t compiled_key = 0;
     if (use_material) {
         if (auto* mat = interface_cast<IMaterial>(batch.material.get())) {
-            auto eval_src = mat->get_eval_src();
-            auto vertex_src = mat->get_vertex_src();
-            auto eval_fn = mat->get_eval_fn_name();
-            auto frag_src = mat->get_fragment_src();
+            auto* src = interface_cast<IShaderSource>(batch.material.get());
+            auto eval_src = src ? src->get_source(shader_role::kEval) : string_view{};
+            auto vertex_src = src ? src->get_source(shader_role::kVertex) : string_view{};
+            auto eval_fn = src ? src->get_fn_name(shader_role::kEval) : string_view{};
+            auto frag_src = src ? src->get_source(shader_role::kFragment) : string_view{};
             if (!eval_src.empty() && !vertex_src.empty() && !eval_fn.empty()) {
-                mat->register_eval_includes(ctx);
+                src->register_includes(ctx);
                 string frag = compose_eval_fragment(
                     forward_fragment_driver_template, eval_src, eval_fn,
                     mat->get_forward_discard_threshold());
@@ -61,8 +62,8 @@ PipelineId resolve_or_compile_forward(IRenderContext& ctx,
             }
         }
     } else if (batch.shader_source && user_key != 0) {
-        auto vsrc = batch.shader_source->get_source(IShaderSource::Role::Vertex);
-        auto fsrc = batch.shader_source->get_source(IShaderSource::Role::Fragment);
+        auto vsrc = batch.shader_source->get_source(shader_role::kVertex);
+        auto fsrc = batch.shader_source->get_source(shader_role::kFragment);
         compiled_key = ctx.compile_pipeline(
             fsrc, vsrc,
             user_key, target_format, 0,

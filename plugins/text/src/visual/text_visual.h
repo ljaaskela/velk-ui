@@ -44,12 +44,15 @@ public:
     // driver's discard threshold drops sub-threshold fragments.
 
     // IAnalyticShape: glyph-shaped shape intersect. Rect-based (kind 0)
-    // with a custom intersect that does rect test + slug coverage, so
-    // shadow rays hit the glyph silhouette instead of the quad.
+    // with a custom intersect (registered via IShaderSource under
+    // shader_role::kIntersect) that does rect test + slug coverage,
+    // so shadow rays hit the glyph silhouette instead of the quad.
     uint32_t get_shape_kind() const override { return 0; }
-    string_view get_shape_intersect_source() const override;
-    string_view get_shape_intersect_fn_name() const override;
-    void register_shape_intersect_includes(::velk::IRenderContext& ctx) const override;
+
+    // IShaderSource: contributes the kIntersect snippet.
+    string_view get_source(::velk::string_view role) const override;
+    string_view get_fn_name(::velk::string_view role) const override;
+    void register_includes(::velk::IRenderContext& ctx) const override;
 
 protected:
     void on_state_changed(string_view name, IMetadata& owner, Uid interfaceId) override;

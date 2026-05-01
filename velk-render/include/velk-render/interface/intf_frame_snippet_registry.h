@@ -38,12 +38,14 @@ struct FrameResolveContext
 /**
  * @brief Scene-wide registry of composed shader snippets.
  *
- * Tracks stable small-integer ids for each material (IProgram +
- * IShaderSnippet) and shadow technique the renderer has seen, plus
- * which of those ids are "active" in the current frame. Composer-based
- * pipelines (RT compute, deferred lighting) hash the active sets to
- * pick a pipeline variant and splice the corresponding snippets into
- * the generated shader.
+ * Tracks stable small-integer ids for each material, shadow
+ * technique, and analytic-shape intersect snippet the renderer has
+ * seen, plus which of those ids are "active" in the current frame.
+ * Each contributor implements `IShaderSource` and supplies its body
+ * under a known role (`kEval`, `kShadow`, `kIntersect`); the registry
+ * looks the source up at registration time. Composer-based pipelines
+ * (RT compute, deferred lighting) hash the active sets to pick a
+ * pipeline variant and splice the corresponding snippets in.
  *
  * The registry also caches per-frame material GPU-data blocks so a
  * material shared by N shapes only pays one upload.
@@ -80,8 +82,9 @@ public:
     /// @brief Clears per-frame state; persistent maps stay.
     virtual void begin_frame() = 0;
 
-    /// @brief Registers a material's snippet on first sight; returns
-    ///        its stable id. Non-IShaderSnippet programs return 0.
+    /// @brief Registers a material's eval snippet on first sight;
+    ///        returns its stable id. Programs that don't implement
+    ///        `IShaderSource` (or whose `kEval` role is empty) return 0.
     virtual uint32_t register_material(IProgram* prog, IRenderContext& ctx) = 0;
 
     /// @brief Registers a shadow technique's snippet on first sight.

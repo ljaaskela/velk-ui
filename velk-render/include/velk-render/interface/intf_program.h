@@ -17,8 +17,8 @@ class IRenderContext;
  * Narrow marker for shader-program objects participating in the
  * pipeline cache and frame-deferred destruction (via IGpuResource).
  * Per-draw GPU data lives on `IDrawData`; shader sources on
- * `IShaderSource` / `IShaderSnippet`. A concrete material implements
- * whichever of those roles it contributes.
+ * `IShaderSource`. A concrete material implements whichever of those
+ * roles it contributes.
  *
  * Chain: IInterface -> IGpuResource -> IProgram
  */

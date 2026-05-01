@@ -64,13 +64,10 @@ vector<DrawEntry> CubeVisual::get_draw_entries(::velk::IRenderContext& ctx,
     return { entry };
 }
 
-::velk::string_view CubeVisual::get_source(::velk::IShaderSource::Role role) const
+::velk::string_view CubeVisual::get_source(::velk::string_view role) const
 {
-    switch (role) {
-    case ::velk::IShaderSource::Role::Vertex:   return primitive3d_vertex_src;
-    case ::velk::IShaderSource::Role::Fragment: return primitive3d_fragment_src;
-    case ::velk::IShaderSource::Role::Discard:  return {};
-    }
+    if (role == ::velk::shader_role::kVertex)   return primitive3d_vertex_src;
+    if (role == ::velk::shader_role::kFragment) return primitive3d_fragment_src;
     return {};
 }
 

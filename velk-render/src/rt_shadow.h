@@ -3,6 +3,7 @@
 
 #include <velk/ext/object.h>
 
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_shadow_technique.h>
 #include <velk-render/plugin.h>
 
@@ -12,26 +13,24 @@ namespace velk::impl {
  * @brief Ray-traced shadow technique: traces one occlusion ray against
  *        the shared scene shape buffer.
  *
- * First-slice stub: prepare() is a no-op and the snippet returns 1.0
- * (unshadowed). Wired into the lighting pass in a later milestone
- * once the shared shape buffer and light buffer are exposed to the
- * shadow compositor — at that point the snippet becomes
- *
- *   float velk_shadow_rt(uint light_idx, vec3 world_pos) {
- *       Ray r = build_ray_to_light(light_idx, world_pos);
- *       return trace_closest_hit(r, t_max) ? 0.0 : 1.0;
- *   }
- *
- * reusing the RT path's `trace_closest_hit` + shape buffer.
+ * Multi-implements `IShadowTechnique` (the technique tag) and
+ * `IShaderSource` (the GLSL snippet under role `shader_role::kShadow`).
  */
-class RtShadow : public ::velk::ext::Object<RtShadow, IShadowTechnique>
+class RtShadow : public ::velk::ext::Object<RtShadow, IShadowTechnique, IShaderSource>
 {
 public:
     VELK_CLASS_UID(ClassId::RtShadow, "RtShadow");
 
-    string_view get_snippet_fn_name() const override;
-    string_view get_snippet_source() const override;
+    // IRenderTechnique
+    string_view get_technique_name() const override { return "rt_shadow"; }
 
+    // IShaderSource
+    string_view get_source(string_view role) const override;
+    string_view get_fn_name(string_view role) const override;
+    uint64_t get_pipeline_key() const override { return 0; }
+    void register_includes(IRenderContext&) const override {}
+
+    // IShadowTechnique
     void prepare(ShadowContext& /*ctx*/) override {}
 };
 

@@ -118,27 +118,22 @@ void velk_visual_discard()
 
 } // namespace
 
-string_view RoundedRectVisual::get_shape_intersect_source() const
-{
-    return kIntersectSrc;
-}
-
-string_view RoundedRectVisual::get_shape_intersect_fn_name() const
-{
-    return "velk_intersect_rounded_rect";
-}
-
-::velk::string_view RoundedRectVisual::get_source(::velk::IShaderSource::Role role) const
+::velk::string_view RoundedRectVisual::get_source(::velk::string_view role) const
 {
     // Forward: custom SDF fragment (vertex stays default).
     // Deferred: a `velk_visual_discard()` body so the deferred gbuffer
-    // composer clips rounded corners in the deferred pass too — no
-    // need to ship a full deferred fragment.
-    switch (role) {
-    case ::velk::IShaderSource::Role::Vertex:   return {};
-    case ::velk::IShaderSource::Role::Fragment: return kFragmentSrc;
-    case ::velk::IShaderSource::Role::Discard:  return kDiscardSrc;
-    }
+    // composer clips rounded corners in the deferred pass too.
+    // RT: a custom `velk_intersect_rounded_rect` for the analytic
+    // shape registry.
+    if (role == ::velk::shader_role::kFragment)  return kFragmentSrc;
+    if (role == ::velk::shader_role::kDiscard)   return kDiscardSrc;
+    if (role == ::velk::shader_role::kIntersect) return kIntersectSrc;
+    return {};
+}
+
+::velk::string_view RoundedRectVisual::get_fn_name(::velk::string_view role) const
+{
+    if (role == ::velk::shader_role::kIntersect) return "velk_intersect_rounded_rect";
     return {};
 }
 

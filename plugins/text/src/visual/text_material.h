@@ -44,11 +44,13 @@ public:
     size_t get_draw_data_size() const override;
     ReturnValue write_draw_data(void* out, size_t size, ITextureResolver* resolver = nullptr) const override;
 
-    string_view get_eval_src() const override;
-    string_view get_eval_fn_name() const override;
-    void register_eval_includes(IRenderContext& ctx) const override;
+    string_view get_source(string_view role) const override;
+    string_view get_fn_name(string_view role) const override;
+    void register_includes(IRenderContext& ctx) const override;
 
 private:
+    using Base = ::velk::ext::Material<TextMaterial, ITextMaterialInternal>;
+
     IBuffer::Ptr curves_;
     IBuffer::Ptr bands_;
     IBuffer::Ptr glyphs_;

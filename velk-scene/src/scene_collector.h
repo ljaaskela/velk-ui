@@ -10,6 +10,7 @@
 #include <velk-render/interface/intf_light.h>
 #include <velk-render/interface/intf_mesh.h>
 #include <velk-render/interface/intf_program.h>
+#include <velk-render/interface/intf_shader_source.h>
 #include <velk-render/interface/intf_shadow_technique.h>
 #include <velk-render/render_types.h>
 #include <velk-scene/interface/intf_scene.h>
