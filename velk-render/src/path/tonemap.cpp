@@ -1,4 +1,4 @@
-#include "tonemap.h"
+#include "path/tonemap.h"
 
 #include <velk/string.h>
 

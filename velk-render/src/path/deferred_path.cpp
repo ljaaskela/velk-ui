@@ -1,4 +1,4 @@
-#include "deferred_path.h"
+#include "path/deferred_path.h"
 
 #include <velk/api/perf.h>
 #include <velk/string.h>
@@ -6,7 +6,7 @@
 #include <velk-render/frame/compute_shaders.h>
 #include <velk-render/frame/draw_call_emit.h>
 #include <velk-render/frame/raster_shaders.h>
-#include "deferred_gbuffer.h"
+#include "path/deferred_gbuffer.h"
 #include <velk-render/gpu_data.h>
 #include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_shader_source.h>

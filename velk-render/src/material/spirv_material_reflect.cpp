@@ -1,4 +1,4 @@
-#include "spirv_material_reflect.h"
+#include "material/spirv_material_reflect.h"
 
 #include <velk/api/math_types.h>
 #include <velk/common.h>

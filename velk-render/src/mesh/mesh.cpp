@@ -1,4 +1,4 @@
-#include "mesh.h"
+#include "mesh/mesh.h"
 
 #include <velk/api/velk.h>
 #include <velk-render/gpu_data.h>

@@ -1,4 +1,4 @@
-#include "shader_material.h"
+#include "material/shader_material.h"
 
 #include <velk/api/object.h>
 #include <velk/api/state.h>

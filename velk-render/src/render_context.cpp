@@ -1,9 +1,9 @@
 #include "render_context.h"
 
-#include "shader.h"
-#include "shader_compiler.h"
-#include "spirv_material_reflect.h"
-#include "surface.h"
+#include "shader/shader.h"
+#include "shader/shader_compiler.h"
+#include "material/spirv_material_reflect.h"
+#include "resource/surface.h"
 
 #include <velk/api/perf.h>
 #include <velk/api/state.h>

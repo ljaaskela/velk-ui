@@ -1,4 +1,4 @@
-#include "mesh_builder.h"
+#include "mesh/mesh_builder.h"
 
 #include <velk/api/velk.h>
 #include <velk/vector.h>

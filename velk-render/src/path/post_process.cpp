@@ -1,4 +1,4 @@
-#include "post_process.h"
+#include "path/post_process.h"
 
 #include <velk/api/state.h>
 #include <velk/api/velk.h>
@@ -140,9 +140,8 @@ void PostProcess::release_view_state(ViewState& vs, ::velk::FrameContext& ctx)
     if (!ctx.resources) return;
     for (auto& target : vs.intermediates) {
         if (target) {
-            ctx.resources->defer_texture_destroy(
-                target->get_gpu_handle(::velk::GpuResourceKey::Default),
-                ctx.defer_marker);
+            TextureId txid = TextureId(target->get_gpu_handle(::velk::GpuResourceKey::Default));
+            ctx.resources->defer_texture_destroy(txid, ctx.defer_marker);
         }
     }
 }

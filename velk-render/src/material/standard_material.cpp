@@ -1,4 +1,4 @@
-#include "standard_material.h"
+#include "material/standard_material.h"
 
 #include <velk/api/state.h>
 #include <velk-render/gpu_data.h>

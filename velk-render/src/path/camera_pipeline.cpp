@@ -1,6 +1,6 @@
-#include "camera_pipeline.h"
+#include "path/camera_pipeline.h"
 
-#include "forward_path.h"
+#include "path/forward_path.h"
 
 #include <velk/api/velk.h>
 #include <velk/interface/intf_object_storage.h>

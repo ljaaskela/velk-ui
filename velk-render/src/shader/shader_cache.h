@@ -1,7 +1,7 @@
 #ifndef VELK_RENDER_SHADER_CACHE_H
 #define VELK_RENDER_SHADER_CACHE_H
 
-#include "shader_compiler.h"
+#include "shader/shader_compiler.h"
 
 #include <velk/string.h>
 #include <velk/vector.h>

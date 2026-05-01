@@ -1,6 +1,6 @@
-#include "mesh_builder.h"
+#include "mesh/mesh_builder.h"
 
-#include "mesh.h"
+#include "mesh/mesh.h"
 
 #include <velk/api/velk.h>
 

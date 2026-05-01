@@ -1,7 +1,7 @@
 #ifndef VELK_RENDER_SHADER_MATERIAL_IMPL_H
 #define VELK_RENDER_SHADER_MATERIAL_IMPL_H
 
-#include "spirv_material_reflect.h"
+#include "material/spirv_material_reflect.h"
 
 #include <velk/string.h>
 #include <velk-render/ext/material.h>

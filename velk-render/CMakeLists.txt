@@ -11,39 +11,53 @@ add_library(velk_render SHARED
     src/render_context.cpp
     src/render_plugin.h
     src/render_plugin.cpp
-    src/shader.h
-    src/shader_cache.h
-    src/shader_cache.cpp
-    src/shader_compiler.h
-    src/shader_compiler.cpp
-    src/shader_material.h
-    src/shader_material.cpp
-    src/standard_material.h
-    src/standard_material.cpp
-    src/program_data_buffer.h
-    src/program_data_buffer.cpp
-    src/mesh.h
-    src/mesh.cpp
-    src/mesh_buffer.h
-    src/mesh_buffer.cpp
-    src/mesh_builder.h
-    src/mesh_builder.cpp
-    src/primitive_meshes.cpp
+
+    # Shader compile + cache
+    src/shader/shader.h
+    src/shader/shader_cache.h
+    src/shader/shader_cache.cpp
+    src/shader/shader_compiler.h
+    src/shader/shader_compiler.cpp
+
+    # Material implementations
+    src/material/shader_material.h
+    src/material/shader_material.cpp
+    src/material/standard_material.h
+    src/material/standard_material.cpp
+    src/material/material_property.h
+    src/material/spirv_material_reflect.h
+    src/material/spirv_material_reflect.cpp
+
+    # Mesh primitives
+    src/mesh/mesh.h
+    src/mesh/mesh.cpp
+    src/mesh/mesh_buffer.h
+    src/mesh/mesh_buffer.cpp
+    src/mesh/mesh_builder.h
+    src/mesh/mesh_builder.cpp
+    src/mesh/primitive_meshes.cpp
+
+    # Concrete IGpuResource implementations
+    src/resource/render_texture.h
+    src/resource/render_texture_group.h
+    src/resource/program_data_buffer.h
+    src/resource/program_data_buffer.cpp
+    src/resource/surface.h
+
+    # Shadow / reflection / etc. techniques
+    src/technique/rt_shadow.h
+    src/technique/rt_shadow.cpp
+
+    # Public headers
     include/velk-render/debug/render_target_dump.h
     include/velk-render/blas.h
     include/velk-render/frustum.h
     include/velk-render/interface/intf_mesh.h
     include/velk-render/interface/intf_primitive_shape.h
-    src/rt_shadow.h
-    src/rt_shadow.cpp
-    src/spirv_material_reflect.h
-    src/spirv_material_reflect.cpp
-    src/surface.h
     include/velk-render/plugin.h
     include/velk-render/platform.h
     include/velk-render/render_types.h
     include/velk-render/gpu_data.h
-    src/deferred_gbuffer.h
     include/velk-render/interface/intf_buffer.h
     include/velk-render/interface/intf_render_backend.h
     include/velk-render/interface/intf_render_context.h
@@ -59,7 +73,6 @@ add_library(velk_render SHARED
     include/velk-render/api/material/standard_material.h
     include/velk-render/api/material/material_options.h
     include/velk-render/api/material/material_property.h
-    src/material_property.h
     include/velk-render/interface/intf_window_surface.h
     include/velk-render/ext/material.h
     include/velk-render/ext/gpu_resource.h
@@ -80,7 +93,7 @@ add_library(velk_render SHARED
     include/velk-render/api/shadow_technique.h
 
     # Per-frame runtime interfaces (interfaces under interface/, shared
-    # types stay in frame/)
+    # types stay in frame/, render-graph impl in src/frame/)
     include/velk-render/interface/intf_gpu_resource_manager.h
     include/velk-render/interface/intf_frame_data_manager.h
     include/velk-render/interface/intf_frame_snippet_registry.h
@@ -89,8 +102,8 @@ add_library(velk_render SHARED
     include/velk-render/interface/intf_post_process.h
     include/velk-render/interface/intf_effect.h
     include/velk-render/interface/intf_render_texture_group.h
-    src/render_graph.h
-    src/render_graph.cpp
+    src/frame/render_graph.h
+    src/frame/render_graph.cpp
     include/velk-render/frame/render_pass.h
     include/velk-render/frame/batch.h
     include/velk-render/frame/draw_call_emit.h
@@ -99,7 +112,7 @@ add_library(velk_render SHARED
     include/velk-render/frame/render_view.h
 
     # Render-path interfaces (under interface/) + shared types
-    # (render_path/) + ext:: CRTP helpers (ext/); concrete impls in src/
+    # (render_path/) + ext:: CRTP helpers (ext/); concrete impls in src/path/
     include/velk-render/interface/intf_render_path.h
     include/velk-render/interface/intf_view_pipeline.h
     include/velk-render/render_path/view_entry.h
@@ -108,17 +121,17 @@ add_library(velk_render SHARED
     include/velk-render/ext/view_pipeline.h
     include/velk-render/ext/post_process.h
     include/velk-render/ext/effect.h
-    src/forward_path.h
-    src/forward_path.cpp
-    src/deferred_path.h
-    src/deferred_path.cpp
-    src/render_texture_group.h
-    src/post_process.h
-    src/post_process.cpp
-    src/tonemap.h
-    src/tonemap.cpp
-    src/camera_pipeline.h
-    src/camera_pipeline.cpp
+    src/path/forward_path.h
+    src/path/forward_path.cpp
+    src/path/deferred_path.h
+    src/path/deferred_path.cpp
+    src/path/deferred_gbuffer.h
+    src/path/post_process.h
+    src/path/post_process.cpp
+    src/path/tonemap.h
+    src/path/tonemap.cpp
+    src/path/camera_pipeline.h
+    src/path/camera_pipeline.cpp
 )
 
 target_link_libraries(velk_render PRIVATE velk ${SHADERC_LIB})
