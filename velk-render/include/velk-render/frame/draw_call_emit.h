@@ -100,9 +100,16 @@ inline uint64_t write_material_once(IProgram* prog,
  *
  * Template parameter inlines the resolver call per call site so
  * captureful lambdas don't pay a virtual-dispatch tax in the hot loop.
+ *
+ * Draw calls are appended to @p out_calls — callers pass one vector
+ * per pass and move it into the resulting `Submit` op. Reusing a
+ * caller-owned vector across multiple `emit_draw_calls` invocations
+ * (e.g. ForwardPath's env + main batches in one pass) saves the
+ * per-call allocation.
  */
 template <typename ResolvePipelineFn>
-inline vector<DrawCall> emit_draw_calls(
+inline void emit_draw_calls(
+    vector<DrawCall>& out_calls,
     const vector<Batch>& batches,
     IFrameDataManager& frame_data,
     IGpuResourceManager& resources,
@@ -114,8 +121,6 @@ inline vector<DrawCall> emit_draw_calls(
     const ::velk::render::Frustum* frustum = nullptr)
 {
     VELK_PERF_SCOPE("renderer.emit_draw_calls");
-
-    vector<DrawCall> out_calls;
 
     for (auto& batch : batches) {
         if (frustum && !::velk::render::aabb_in_frustum(*frustum, batch.world_aabb)) {
@@ -215,8 +220,6 @@ inline vector<DrawCall> emit_draw_calls(
 
         out_calls.push_back(call);
     }
-
-    return out_calls;
 }
 
 } // namespace velk

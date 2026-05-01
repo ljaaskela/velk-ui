@@ -233,7 +233,9 @@ void DeferredPath::emit_gbuffer_pass(ViewEntry& /*entry*/, ViewState& vs,
     auto resolve = [&](const Batch& b) {
         return resolve_or_compile_gbuffer(*ctx.render_ctx, b, group_id);
     };
-    auto gbuffer_draw_calls = emit_draw_calls(
+    vector<DrawCall> gbuffer_draw_calls;
+    emit_draw_calls(
+        gbuffer_draw_calls,
         *render_view.batches,
         *ctx.frame_buffer,
         *ctx.resources,

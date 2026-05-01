@@ -603,22 +603,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         // graphs. Phase 1 prepares each view (rebuild_batches accumulates
         // RTT subtrees into render_target_passes_); Phase 2 emits view
         // pipelines into the graph after RTT passes are already in.
-        struct PreparedView
-        {
-            ViewSlot* slot;
-            RenderView render_view;
-            IInterface::Ptr camera_trait;
-            vector<IViewPipeline::Ptr> pipelines;
-            // BVH state captured at prepare time so emit doesn't need to
-            // re-resolve scene -> BVH.
-            uint64_t bvh_nodes_addr = 0;
-            uint64_t bvh_shapes_addr = 0;
-            uint32_t bvh_root = 0;
-            uint32_t bvh_node_count = 0;
-            uint32_t bvh_shape_count = 0;
-        };
-        vector<PreparedView> prepared;
-        prepared.reserve(views_.size());
+        prepared_views_.clear();
 
         // Phase 1: prepare each matching view.
         for (auto& view_slot : views_) {
@@ -638,17 +623,17 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
 
             // Discover view pipelines attached to the camera trait.
             auto camera_trait = ::velk::find_attachment<ICamera>(view_slot.camera_element);
-            vector<IViewPipeline::Ptr> pipelines;
+            pipelines_scratch_.clear();
             if (auto* storage = interface_cast<IObjectStorage>(camera_trait.get())) {
                 AttachmentQuery q;
                 q.interfaceUid = IViewPipeline::UID;
                 for (auto& a : storage->find_attachments(q)) {
                     if (auto p = interface_pointer_cast<IViewPipeline>(a)) {
-                        pipelines.emplace_back(std::move(p));
+                        pipelines_scratch_.emplace_back(std::move(p));
                     }
                 }
             }
-            if (pipelines.empty()) {
+            if (pipelines_scratch_.empty()) {
                 continue;
             }
 
@@ -673,17 +658,18 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
             ctx.view_camera_trait = camera_trait.get();
 
             IRenderPath::Needs needs;
-            for (auto& p : pipelines) {
+            for (auto& p : pipelines_scratch_) {
                 auto n = p->needs(ctx);
                 needs.batches |= n.batches;
                 needs.shapes  |= n.shapes;
                 needs.lights  |= n.lights;
             }
 
-            PreparedView pv;
+            prepared_views_.emplace_back();
+            auto& pv = prepared_views_.back();
             pv.slot = &view_slot;
             pv.camera_trait = camera_trait;
-            pv.pipelines = std::move(pipelines);
+            pv.pipelines = std::move(pipelines_scratch_);
             pv.bvh_nodes_addr = ctx.bvh_nodes_addr;
             pv.bvh_shapes_addr = ctx.bvh_shapes_addr;
             pv.bvh_root = ctx.bvh_root;
@@ -694,7 +680,6 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
                                                     sit->second, ctx,
                                                     batch_builder_,
                                                     needs);
-            prepared.push_back(std::move(pv));
 
             ctx.view_camera_trait = nullptr;
         }
@@ -711,7 +696,7 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         render_target_cache_.emit_passes(ctx, batch_builder_, *slot.graph);
 
         // Phase 2: emit each prepared view's pipelines into slot.graph.
-        for (auto& pv : prepared) {
+        for (auto& pv : prepared_views_) {
             ctx.bvh_nodes_addr = pv.bvh_nodes_addr;
             ctx.bvh_shapes_addr = pv.bvh_shapes_addr;
             ctx.bvh_root = pv.bvh_root;
