@@ -65,6 +65,16 @@ public:
     // Texture mapping
     virtual TextureId find_texture(ISurface* surf) const = 0;
     virtual void register_texture(ISurface* surf, TextureId tid) = 0;
+    virtual void unregister_texture(ISurface* surf) = 0;
+
+    /// Ensures @p surf has a backend texture allocated and registered.
+    /// Returns the existing TextureId on cache hit; allocates fresh +
+    /// registers + stamps `set_gpu_handle(Default, ...)` on first sight;
+    /// returns 0 on backend allocation failure. The pixel upload itself
+    /// remains the caller's responsibility (this only resolves the
+    /// backend handle; CPU bytes -> GPU is a separate step).
+    virtual TextureId ensure_texture_storage(ISurface* surf,
+                                             const TextureDesc& desc) = 0;
 
     // Buffer mapping
     virtual BufferEntry* find_buffer(IBuffer* buf) = 0;

@@ -49,29 +49,26 @@ EnvResolved ensure_env_ready(ICamera& camera, FrameContext& ctx)
         int tw = static_cast<int>(sz.x);
         int th = static_cast<int>(sz.y);
         if (pixels && tw > 0 && th > 0) {
-            TextureId tid = ctx.resources->find_texture(surf);
-            if (tid == 0) {
-                TextureDesc desc{};
-                desc.width = tw;
-                desc.height = th;
-                desc.format = surf->format();
-                desc.sampler = surf->get_sampler_desc();
-                // Mip chain approximates roughness prefilter: sampling
-                // higher LODs blurs the reflection for rough surfaces.
-                // Backend bilinear-downsamples at upload time; a proper
-                // GGX prefilter is a future upgrade.
-                desc.mip_levels = compute_mip_levels(tw, th);
-                tid = ctx.backend->create_texture(desc);
-                ctx.resources->register_texture(surf, tid);
-                if (ctx.observer) {
+            const bool first_time = ctx.resources->find_texture(surf) == 0;
+            TextureDesc desc{};
+            desc.width = tw;
+            desc.height = th;
+            desc.format = surf->format();
+            desc.sampler = surf->get_sampler_desc();
+            // Mip chain approximates roughness prefilter: sampling
+            // higher LODs blurs the reflection for rough surfaces.
+            // Backend bilinear-downsamples at upload time; a proper
+            // GGX prefilter is a future upgrade.
+            desc.mip_levels = compute_mip_levels(tw, th);
+            TextureId tid = ctx.resources->ensure_texture_storage(surf, desc);
+            if (tid != 0) {
+                if (first_time && ctx.observer) {
                     surf->add_gpu_resource_observer(ctx.observer);
                     auto buf_ptr = interface_pointer_cast<IBuffer>(env_ptr);
                     if (buf_ptr) {
                         ctx.resources->add_env_observer(buf_ptr);
                     }
                 }
-            }
-            if (tid != 0) {
                 ctx.backend->upload_texture(tid, pixels, tw, th);
             }
             buf->clear_dirty();

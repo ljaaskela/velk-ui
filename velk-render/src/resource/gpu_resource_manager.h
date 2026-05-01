@@ -53,6 +53,8 @@ public:
 
     TextureId find_texture(ISurface* surf) const override;
     void register_texture(ISurface* surf, TextureId tid) override;
+    void unregister_texture(ISurface* surf) override;
+    TextureId ensure_texture_storage(ISurface* surf, const TextureDesc& desc) override;
 
     BufferEntry* find_buffer(IBuffer* buf) override;
     void register_buffer(IBuffer* buf, const BufferEntry& entry) override;

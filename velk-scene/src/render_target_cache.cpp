@@ -39,40 +39,63 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
         return;
     }
     for (auto& rtp : batch_builder.render_target_passes()) {
-        auto& rte = entries_[rtp.element];
-        if (!rte.target) {
-            if (auto rtt = ::velk::find_attachment<IRenderToTexture>(rtp.element)) {
-                if (auto rtt_state = read_state<IRenderToTexture>(rtt)) {
-                    rte.target = rtt_state->render_target.get<IRenderTarget>();
-                }
-            }
-        }
-        if (!rte.target) continue;
+        auto rtt = ::velk::find_attachment<IRenderToTexture>(rtp.element);
+        if (!rtt) continue;
+
+        // The user supplies the RenderTexture wrapper via the trait
+        // state. It's a named identity wired declaratively (e.g. JSON
+        // ties producer + consumer to the same instance); the cache
+        // resolves its backend handle lazily.
+        auto state = read_state<IRenderToTexture>(rtt);
+        if (!state) continue;
+        auto target = state->render_target.get<IRenderTarget>();
+        if (!target) continue;
 
         int w{1}, h{1};
         if (auto es = read_state<IElement>(rtp.element)) {
             w = std::max(static_cast<int>(es->size.width), 1);
             h = std::max(static_cast<int>(es->size.height), 1);
         }
-        PixelFormat fmt = rte.target->format();
-        if (rte.texture_id != 0 &&
-            (rte.width != w || rte.height != h || rte.format != fmt)) {
-            defer_texture_destroy(ctx.resources, rte.texture_id, ctx.defer_marker);
-            rte.texture_id = 0;
+        if (state->texture_size.x > 0 && state->texture_size.y > 0) {
+            w = static_cast<int>(state->texture_size.x);
+            h = static_cast<int>(state->texture_size.y);
         }
-        if (rte.texture_id == 0) {
+        PixelFormat fmt = target->format();
+
+        auto& rte = entries_[rtp.element];
+        TextureId existing = static_cast<TextureId>(
+            target->get_gpu_handle(GpuResourceKey::Default));
+
+        // Resize / format-change: defer-destroy the old handle and
+        // realloc into the same wrapper. The wrapper's lifetime stays
+        // owned by the user; only the backend handle cycles.
+        if (existing != 0 &&
+            (rte.width != w || rte.height != h || rte.format != fmt)) {
+            defer_texture_destroy(ctx.resources, existing, ctx.defer_marker);
+            target->set_gpu_handle(GpuResourceKey::Default, 0);
+            ctx.resources->unregister_texture(target.get());
+            existing = 0;
+        }
+
+        if (existing == 0) {
             TextureDesc tdesc{};
             tdesc.width = w;
             tdesc.height = h;
             tdesc.format = fmt;
             tdesc.usage = TextureUsage::RenderTarget;
-            rte.texture_id = ctx.backend->create_texture(tdesc);
+            TextureId tid = ctx.resources->ensure_texture_storage(target.get(), tdesc);
+            if (tid == 0) continue;
+            target->set_size(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            // Subscribe the manager observer so dropping the user's
+            // last reference to the wrapper auto-defers the backend
+            // handle for destroy.
+            if (ctx.observer) {
+                target->add_gpu_resource_observer(ctx.observer);
+            }
+            rte.target = target;
             rte.width = w;
             rte.height = h;
             rte.format = fmt;
-            if (rte.texture_id != 0) {
-                rte.target->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(rte.texture_id));
-            }
         }
     }
 }
@@ -99,7 +122,8 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         auto it = entries_.find(rtp.element);
         if (it == entries_.end()) continue;
         auto& rte = it->second;
-        if (!rte.target || rte.texture_id == 0) continue;
+        auto target = rte.target.lock();
+        if (!target) continue;
 
         ctx.target_format = rte.format;
 
@@ -135,32 +159,22 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         entry.cached_width = rte.width;
         entry.cached_height = rte.height;
 
-        forward_path_->build_passes(entry, rt_view, rte.target, ctx, graph);
+        forward_path_->build_passes(entry, rt_view, target, ctx, graph);
         rte.dirty = false;
     }
 
     ctx.target_format = saved_format;
 }
 
-void RenderTargetCache::on_element_removed(IElement* elem, FrameContext& ctx)
+void RenderTargetCache::on_element_removed(IElement* elem, FrameContext& /*ctx*/)
 {
-    auto rit = entries_.find(elem);
-    if (rit == entries_.end()) {
-        return;
-    }
-    if (rit->second.texture_id != 0 && ctx.resources) {
-        defer_texture_destroy(ctx.resources, rit->second.texture_id, ctx.defer_marker);
-    }
-    entries_.erase(rit);
+    // Erase the entry; the cached Ptr drops, resource manager
+    // auto-defers the backend handle.
+    entries_.erase(elem);
 }
 
-void RenderTargetCache::shutdown(FrameContext& ctx)
+void RenderTargetCache::shutdown(FrameContext& /*ctx*/)
 {
-    for (auto& [key, rte] : entries_) {
-        if (rte.texture_id != 0 && ctx.backend) {
-            ctx.backend->destroy_texture(rte.texture_id);
-        }
-    }
     entries_.clear();
 }
 
