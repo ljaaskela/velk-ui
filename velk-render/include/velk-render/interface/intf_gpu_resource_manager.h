@@ -62,19 +62,22 @@ public:
     virtual void unregister_env_observers(IGpuResourceObserver* observer) = 0;
 
     // Deferred destruction. The handle is enqueued and only destroyed
-    // once present_counter has advanced past safe_after_frame.
-    virtual void defer_texture_destroy(TextureId tid, uint64_t safe_after) = 0;
-    virtual void defer_buffer_destroy(GpuBuffer handle, uint64_t safe_after) = 0;
-    virtual void defer_pipeline_destroy(PipelineId pid, uint64_t safe_after) = 0;
+    // once GPU work tagged with `completion_marker` has finished
+    // (queried via `IRenderBackend::is_frame_complete`). The right
+    // marker for resources still referenced by the in-flight frame is
+    // `IRenderBackend::pending_frame_completion_marker()`.
+    virtual void defer_texture_destroy(TextureId tid, uint64_t completion_marker) = 0;
+    virtual void defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker) = 0;
+    virtual void defer_pipeline_destroy(PipelineId pid, uint64_t completion_marker) = 0;
 
-    /// Drains entries whose safe-after frame has been reached.
-    virtual void drain_deferred(IRenderBackend& backend, uint64_t present_counter) = 0;
+    /// Drains entries whose completion marker has resolved.
+    virtual void drain_deferred(IRenderBackend& backend) = 0;
 
     /// Hook called when a tracked GPU resource is destroyed CPU-side.
-    /// Enqueues backend handles for deferred destruction.
+    /// Enqueues backend handles for deferred destruction tagged with
+    /// @p completion_marker.
     virtual void on_resource_destroyed(IGpuResource* resource,
-                                       uint64_t present_counter,
-                                       uint64_t latency_frames) = 0;
+                                       uint64_t completion_marker) = 0;
 
     /// Destroys all tracked resources during renderer shutdown.
     virtual void shutdown(IRenderBackend& backend) = 0;

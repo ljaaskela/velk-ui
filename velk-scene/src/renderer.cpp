@@ -247,8 +247,8 @@ FrameContext Renderer::make_frame_context()
     ctx.material_cache = &material_cache_;
     ctx.pipeline_map = pipeline_map_;
     ctx.observer = this;
+    ctx.defer_marker = backend_ ? backend_->pending_frame_completion_marker() : 0;
     ctx.present_counter = present_counter_;
-    ctx.latency_frames = kGpuLatencyFrames;
     // ctx.target_format is set per-camera by IViewPipeline::emit before
     // the path runs; the renderer-level FrameContext leaves it at the
     // FrameContext default (Surface). Pre-emit consumers (snippet
@@ -427,7 +427,8 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         auto* be = resources_->find_buffer(buf);
                         bool need_alloc = (be == nullptr);
                         if (!need_alloc && be->size != bsize) {
-                            resources_->defer_buffer_destroy(be->handle, present_counter_ + kGpuLatencyFrames);
+                            resources_->defer_buffer_destroy(
+                                be->handle, backend_->pending_frame_completion_marker());
                             resources_->unregister_buffer(buf);
                             be = nullptr;
                             need_alloc = true;
@@ -770,7 +771,7 @@ Frame Renderer::prepare(const FrameDesc& desc)
     last_prepare_gpu_wait_ns_ = 0;
 
     // Drain any GPU resources whose safe window has elapsed.
-    resources_->drain_deferred(*backend_, present_counter_);
+    resources_->drain_deferred(*backend_);
 
     auto* slot = claim_frame_slot();
     active_slot_ = slot;
@@ -946,12 +947,17 @@ IGpuResource::Ptr Renderer::get_named_output(const IElement::Ptr& camera_element
 
 void Renderer::on_gpu_resource_destroyed(IGpuResource* resource)
 {
-    resources_->on_resource_destroyed(resource, present_counter_, kGpuLatencyFrames);
+    resources_->on_resource_destroyed(
+        resource, backend_ ? backend_->pending_frame_completion_marker() : 0);
 }
 
 void Renderer::shutdown()
 {
     if (backend_) {
+        // Drain the GPU before destroying anything: subsequent
+        // backend->destroy_* calls assume nothing is still in use.
+        backend_->wait_idle();
+
         // Detach from any GPU resources we are still observing so their
         // dtors (which may run later, on any thread) cannot reach a dead
         // renderer.

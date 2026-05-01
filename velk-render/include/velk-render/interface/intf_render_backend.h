@@ -226,6 +226,20 @@ public:
      */
     virtual void wait_for_frame_completion(uint64_t marker) = 0;
 
+    /** @brief Marker the next `end_frame()` submit will signal.
+     *
+     * Use this to tag deferred-destroy entries for resources still
+     * referenced by the in-flight frame: once the returned marker
+     * resolves, that frame's GPU work has finished and the resource
+     * is safe to destroy.
+     */
+    virtual uint64_t pending_frame_completion_marker() const = 0;
+
+    /** @brief Non-blocking query: has GPU work tagged with @p marker
+     *         finished? @p marker == 0 returns true.
+     */
+    virtual bool is_frame_complete(uint64_t marker) const = 0;
+
     /// @}
     /// @name Surfaces
     /// @{

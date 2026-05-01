@@ -142,7 +142,7 @@ void PostProcess::release_view_state(ViewState& vs, ::velk::FrameContext& ctx)
         if (target) {
             ctx.resources->defer_texture_destroy(
                 target->get_gpu_handle(::velk::GpuResourceKey::Default),
-                ctx.present_counter + ctx.latency_frames);
+                ctx.defer_marker);
         }
     }
 }

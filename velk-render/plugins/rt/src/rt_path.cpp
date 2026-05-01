@@ -80,7 +80,7 @@ void RtPath::build_passes(ViewEntry& entry,
     if (vs.rt_output && (vs.width != vp_w || vs.height != vp_h)) {
         ctx.resources->defer_texture_destroy(
             vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
         vs.rt_output.reset();
     }
     if (!vs.rt_output) {
@@ -264,7 +264,7 @@ void RtPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
     if (it->second.rt_output && ctx.resources) {
         ctx.resources->defer_texture_destroy(
             it->second.rt_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
     }
     view_states_.erase(it);
 }
@@ -276,7 +276,7 @@ void RtPath::shutdown(FrameContext& ctx)
             if (vs.rt_output) {
                 ctx.resources->defer_texture_destroy(
                     vs.rt_output->get_gpu_handle(GpuResourceKey::Default),
-                    ctx.present_counter + ctx.latency_frames);
+                    ctx.defer_marker);
             }
         }
     }

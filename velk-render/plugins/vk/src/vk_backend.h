@@ -25,6 +25,8 @@ public:
     void wait_idle() override;
     uint64_t frame_completion_marker() const override;
     void wait_for_frame_completion(uint64_t marker) override;
+    uint64_t pending_frame_completion_marker() const override;
+    bool is_frame_complete(uint64_t marker) const override;
 
     uint64_t create_surface(const SurfaceDesc& desc) override;
     void destroy_surface(uint64_t surface_id) override;

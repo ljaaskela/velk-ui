@@ -121,7 +121,7 @@ void ensure_data_buffer_uploaded(IBuffer* buf, const FrameResolveContext& ctx)
     auto* be = ctx.resources->find_buffer(buf);
     bool need_alloc = (be == nullptr);
     if (!need_alloc && be->size != bsize) {
-        ctx.resources->defer_buffer_destroy(be->handle, ctx.safe_after_frame);
+        ctx.resources->defer_buffer_destroy(be->handle, ctx.completion_marker);
         ctx.resources->unregister_buffer(buf);
         be = nullptr;
         need_alloc = true;

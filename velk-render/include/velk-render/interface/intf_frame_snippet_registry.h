@@ -24,15 +24,17 @@ class IGpuResourceManager;
  *        needs to register snippets, upload material data buffers, and
  *        defer-destroy stale GPU handles.
  *
- * @c safe_after_frame is the present counter past which deferred-destroy
- * handles can be released (typically `present_counter + latency_frames`).
+ * @c completion_marker is the GPU completion marker associated with the
+ * in-flight frame; deferred-destroy entries tagged with it will be freed
+ * once that frame's GPU work has finished. Obtain via
+ * `IRenderBackend::pending_frame_completion_marker()`.
  */
 struct FrameResolveContext
 {
-    IRenderContext*       render_ctx       = nullptr;
-    IGpuResourceManager*  resources        = nullptr;
-    IFrameDataManager*    frame_buffer     = nullptr;
-    uint64_t              safe_after_frame = 0;
+    IRenderContext*       render_ctx        = nullptr;
+    IGpuResourceManager*  resources         = nullptr;
+    IFrameDataManager*    frame_buffer      = nullptr;
+    uint64_t              completion_marker = 0;
 };
 
 /**

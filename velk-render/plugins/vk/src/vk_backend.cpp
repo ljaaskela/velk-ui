@@ -2659,6 +2659,21 @@ void VkBackend::wait_for_frame_completion(uint64_t marker)
     vkWaitSemaphores(device_, &wait_info, UINT64_MAX);
 }
 
+uint64_t VkBackend::pending_frame_completion_marker() const
+{
+    return next_frame_value_;
+}
+
+bool VkBackend::is_frame_complete(uint64_t marker) const
+{
+    if (marker == 0 || !device_ || !frame_timeline_) return true;
+    uint64_t value = 0;
+    if (vkGetSemaphoreCounterValue(device_, frame_timeline_, &value) != VK_SUCCESS) {
+        return false;
+    }
+    return value >= marker;
+}
+
 // ============================================================================
 // Utility
 // ============================================================================

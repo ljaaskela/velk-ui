@@ -62,30 +62,30 @@ void GpuResourceManager::unregister_env_observers(IGpuResourceObserver* observer
     observed_env_resources_.clear();
 }
 
-void GpuResourceManager::defer_texture_destroy(TextureId tid, uint64_t safe_after)
+void GpuResourceManager::defer_texture_destroy(TextureId tid, uint64_t completion_marker)
 {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
-    deferred_textures_.push_back({tid, safe_after});
+    deferred_textures_.push_back({tid, completion_marker});
 }
 
-void GpuResourceManager::defer_buffer_destroy(GpuBuffer handle, uint64_t safe_after)
+void GpuResourceManager::defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker)
 {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
-    deferred_buffers_.push_back({handle, safe_after});
+    deferred_buffers_.push_back({handle, completion_marker});
 }
 
-void GpuResourceManager::defer_pipeline_destroy(PipelineId pid, uint64_t safe_after)
+void GpuResourceManager::defer_pipeline_destroy(PipelineId pid, uint64_t completion_marker)
 {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
-    deferred_pipelines_.push_back({pid, safe_after});
+    deferred_pipelines_.push_back({pid, completion_marker});
 }
 
-void GpuResourceManager::drain_deferred(IRenderBackend& backend, uint64_t present_counter)
+void GpuResourceManager::drain_deferred(IRenderBackend& backend)
 {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
 
     for (auto it = deferred_textures_.begin(); it != deferred_textures_.end();) {
-        if (present_counter > it->safe_after_frame) {
+        if (backend.is_frame_complete(it->completion_marker)) {
             backend.destroy_texture(it->tid);
             it = deferred_textures_.erase(it);
         } else {
@@ -94,7 +94,7 @@ void GpuResourceManager::drain_deferred(IRenderBackend& backend, uint64_t presen
     }
 
     for (auto it = deferred_buffers_.begin(); it != deferred_buffers_.end();) {
-        if (present_counter > it->safe_after_frame) {
+        if (backend.is_frame_complete(it->completion_marker)) {
             backend.destroy_buffer(it->handle);
             it = deferred_buffers_.erase(it);
         } else {
@@ -103,7 +103,7 @@ void GpuResourceManager::drain_deferred(IRenderBackend& backend, uint64_t presen
     }
 
     for (auto it = deferred_pipelines_.begin(); it != deferred_pipelines_.end();) {
-        if (present_counter > it->safe_after_frame) {
+        if (backend.is_frame_complete(it->completion_marker)) {
             backend.destroy_pipeline(it->pid);
             it = deferred_pipelines_.erase(it);
         } else {
@@ -112,16 +112,15 @@ void GpuResourceManager::drain_deferred(IRenderBackend& backend, uint64_t presen
     }
 }
 
-void GpuResourceManager::on_resource_destroyed(IGpuResource* resource, uint64_t present_counter,
-                                            uint64_t latency_frames)
+void GpuResourceManager::on_resource_destroyed(IGpuResource* resource,
+                                               uint64_t completion_marker)
 {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
-    uint64_t safe_after = present_counter + latency_frames;
 
     if (auto* surf = interface_cast<ISurface>(resource)) {
         auto it = texture_map_.find(surf);
         if (it != texture_map_.end()) {
-            deferred_textures_.push_back({it->second, safe_after});
+            deferred_textures_.push_back({it->second, completion_marker});
             texture_map_.erase(it);
             return;
         }
@@ -130,7 +129,7 @@ void GpuResourceManager::on_resource_destroyed(IGpuResource* resource, uint64_t 
     if (auto* buf = interface_cast<IBuffer>(resource)) {
         auto it = buffer_map_.find(buf);
         if (it != buffer_map_.end()) {
-            deferred_buffers_.push_back({it->second.handle, safe_after});
+            deferred_buffers_.push_back({it->second.handle, completion_marker});
             buffer_map_.erase(it);
         }
     }
@@ -138,7 +137,7 @@ void GpuResourceManager::on_resource_destroyed(IGpuResource* resource, uint64_t 
     if (auto* prog = interface_cast<IProgram>(resource)) {
         auto it = pipeline_map_.find(prog);
         if (it != pipeline_map_.end()) {
-            deferred_pipelines_.push_back({it->second, safe_after});
+            deferred_pipelines_.push_back({it->second, completion_marker});
             pipeline_map_.erase(it);
         }
     }

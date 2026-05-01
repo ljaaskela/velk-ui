@@ -57,7 +57,7 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
         if (rte.texture_id != 0 &&
             (rte.width != w || rte.height != h || rte.format != fmt)) {
             ctx.resources->defer_texture_destroy(
-                rte.texture_id, ctx.present_counter + ctx.latency_frames);
+                rte.texture_id, ctx.defer_marker);
             rte.texture_id = 0;
         }
         if (rte.texture_id == 0) {
@@ -150,7 +150,7 @@ void RenderTargetCache::on_element_removed(IElement* elem, FrameContext& ctx)
     }
     if (rit->second.texture_id != 0 && ctx.resources) {
         ctx.resources->defer_texture_destroy(
-            rit->second.texture_id, ctx.present_counter + ctx.latency_frames);
+            rit->second.texture_id, ctx.defer_marker);
     }
     entries_.erase(rit);
 }

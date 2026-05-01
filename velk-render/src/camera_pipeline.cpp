@@ -79,12 +79,12 @@ void CameraPipeline::release_view_state(ViewState& vs, ::velk::FrameContext& ctx
     if (vs.path_output) {
         ctx.resources->defer_texture_destroy(
             vs.path_output->get_gpu_handle(::velk::GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
     }
     if (vs.post_output) {
         ctx.resources->defer_texture_destroy(
             vs.post_output->get_gpu_handle(::velk::GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
     }
 }
 

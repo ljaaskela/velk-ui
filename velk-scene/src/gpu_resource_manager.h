@@ -51,15 +51,14 @@ public:
     void add_env_observer(const IBuffer::WeakPtr& res) override;
     void unregister_env_observers(IGpuResourceObserver* observer) override;
 
-    void defer_texture_destroy(TextureId tid, uint64_t safe_after) override;
-    void defer_buffer_destroy(GpuBuffer handle, uint64_t safe_after) override;
-    void defer_pipeline_destroy(PipelineId pid, uint64_t safe_after) override;
+    void defer_texture_destroy(TextureId tid, uint64_t completion_marker) override;
+    void defer_buffer_destroy(GpuBuffer handle, uint64_t completion_marker) override;
+    void defer_pipeline_destroy(PipelineId pid, uint64_t completion_marker) override;
 
-    void drain_deferred(IRenderBackend& backend, uint64_t present_counter) override;
+    void drain_deferred(IRenderBackend& backend) override;
 
     void on_resource_destroyed(IGpuResource* resource,
-                               uint64_t present_counter,
-                               uint64_t latency_frames) override;
+                               uint64_t completion_marker) override;
 
     void shutdown(IRenderBackend& backend) override;
 
@@ -67,17 +66,17 @@ private:
     struct DeferredTextureDestroy
     {
         TextureId tid;
-        uint64_t safe_after_frame;
+        uint64_t completion_marker;
     };
     struct DeferredBufferDestroy
     {
         GpuBuffer handle;
-        uint64_t safe_after_frame;
+        uint64_t completion_marker;
     };
     struct DeferredPipelineDestroy
     {
         PipelineId pid;
-        uint64_t safe_after_frame;
+        uint64_t completion_marker;
     };
 
     std::unordered_map<ISurface*, TextureId> texture_map_;

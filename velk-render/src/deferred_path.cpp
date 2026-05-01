@@ -316,7 +316,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
                 vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
-                ctx.present_counter + ctx.latency_frames);
+                ctx.defer_marker);
         }
         vs.deferred_output.reset();
     }
@@ -348,7 +348,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         if (ctx.resources) {
             ctx.resources->defer_texture_destroy(
                 vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
-                ctx.present_counter + ctx.latency_frames);
+                ctx.defer_marker);
         }
         vs.shadow_debug.reset();
     }
@@ -461,12 +461,12 @@ void release_deferred_view_state(ViewState& vs, FrameContext& ctx)
     if (vs.deferred_output && ctx.resources) {
         ctx.resources->defer_texture_destroy(
             vs.deferred_output->get_gpu_handle(GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
     }
     if (vs.shadow_debug && ctx.resources) {
         ctx.resources->defer_texture_destroy(
             vs.shadow_debug->get_gpu_handle(GpuResourceKey::Default),
-            ctx.present_counter + ctx.latency_frames);
+            ctx.defer_marker);
     }
 }
 } // namespace

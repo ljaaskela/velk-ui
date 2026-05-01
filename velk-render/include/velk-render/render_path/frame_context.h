@@ -48,8 +48,19 @@ struct FrameContext
     /// concurrent HDR + LDR cameras in the same Renderer pass needs
     /// per-view material variants.
     PixelFormat target_format = PixelFormat::Surface;
+
+    /// GPU completion marker tagging the in-flight frame's submit.
+    /// Use as the `completion_marker` argument when deferring resource
+    /// destroys; once the marker resolves, this frame's GPU work has
+    /// finished and the resource is safe to destroy. Stamped from
+    /// `IRenderBackend::pending_frame_completion_marker()` at the
+    /// start of each `build_frame_passes`.
+    uint64_t defer_marker = 0;
+
+    /// Monotonic CPU-side frame counter, incremented per present.
+    /// Use only as a frame index (e.g. RNG seed in RT shaders), never
+    /// as a GPU-completion proxy — that's what `defer_marker` is for.
     uint64_t present_counter = 0;
-    uint64_t latency_frames = 0;
 
     /// Camera trait of the view currently being dispatched. Set by the
     /// Renderer before each `IViewPipeline::emit` so pipelines can
@@ -69,7 +80,7 @@ struct FrameContext
     /// Convenience: assemble a FrameResolveContext for snippet-registry calls.
     FrameResolveContext make_resolve_context() const
     {
-        return {render_ctx, resources, frame_buffer, present_counter + latency_frames};
+        return {render_ctx, resources, frame_buffer, defer_marker};
     }
 };
 

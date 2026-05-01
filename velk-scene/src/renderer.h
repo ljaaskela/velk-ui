@@ -198,8 +198,7 @@ private:
     // pipeline was last used by which view.
     std::unordered_set<IViewPipeline*> seen_pipelines_;
 
-    static constexpr uint64_t kGpuLatencyFrames = 3;
-    static constexpr uint32_t kDefaultMaxFramesInFlight = kGpuLatencyFrames + 1;
+    static constexpr uint32_t kDefaultMaxFramesInFlight = 4;
     vector<FrameSlot> frame_slots_{kDefaultMaxFramesInFlight};
     uint64_t next_frame_id_ = 1;
     uint64_t present_counter_ = 0;
