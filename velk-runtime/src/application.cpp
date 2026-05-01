@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <thread>
 #include <velk-render/api/render_context.h>
+#include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-runtime/interface/intf_window.h>
 #include <velk-scene/api/camera.h>
 #include <velk-scene/api/element.h>
@@ -253,6 +254,13 @@ void Application::submit(::velk::Frame frame)
     }
 
     double cpu_time = std::chrono::duration<double>(last_prepare_end_ - last_prepare_start_).count();
+    // Exclude time the renderer spent blocked on GPU completion (the
+    // marker wait inside claim_frame_slot) from the overlay's CPU
+    // number — that's GPU-bound stalling, not CPU work.
+    if (auto* internal = interface_cast<IRendererInternal>(renderer_.get())) {
+        cpu_time -= static_cast<double>(internal->consume_last_prepare_gpu_wait_ns()) * 1e-9;
+        if (cpu_time < 0.0) cpu_time = 0.0;
+    }
     double frame_time = std::chrono::duration<double>(frame_end - last_prepare_start_).count();
     tick_overlays(cpu_time, frame_time, frame_end);
 }

@@ -214,6 +214,13 @@ bool VkBackend::init(void* params)
     return true;
 }
 
+void VkBackend::wait_idle()
+{
+    if (initialized_ && device_) {
+        vkDeviceWaitIdle(device_);
+    }
+}
+
 void VkBackend::shutdown()
 {
     if (!initialized_) {
@@ -299,6 +306,10 @@ void VkBackend::shutdown()
     for (uint32_t i = 0; i < kMaxSwapchainImages; ++i) {
         vkDestroySemaphore(device_, image_available_[i], nullptr);
         vkDestroySemaphore(device_, render_finished_[i], nullptr);
+    }
+    if (frame_timeline_) {
+        vkDestroySemaphore(device_, frame_timeline_, nullptr);
+        frame_timeline_ = VK_NULL_HANDLE;
     }
     vkDestroyCommandPool(device_, command_pool_, nullptr);
 
@@ -449,6 +460,7 @@ bool VkBackend::create_device()
     features12.runtimeDescriptorArray = VK_TRUE;
     features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     features12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+    features12.timelineSemaphore = VK_TRUE;
 
     VkPhysicalDeviceFeatures2 features2{};
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -544,6 +556,18 @@ bool VkBackend::create_sync_objects()
         if (vkCreateSemaphore(device_, &sem_ci, nullptr, &render_finished_[i]) != VK_SUCCESS) {
             return false;
         }
+    }
+
+    // Timeline semaphore for per-submit GPU completion tracking.
+    VkSemaphoreTypeCreateInfo timeline_type{};
+    timeline_type.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timeline_type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_type.initialValue = 0;
+    VkSemaphoreCreateInfo timeline_ci{};
+    timeline_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    timeline_ci.pNext = &timeline_type;
+    if (vkCreateSemaphore(device_, &timeline_ci, nullptr, &frame_timeline_) != VK_SUCCESS) {
+        return false;
     }
     return true;
 }
@@ -2543,6 +2567,11 @@ void VkBackend::end_frame()
     auto& sync = frame_sync_[frame_sync_index_];
     vkEndCommandBuffer(sync.command_buffer);
 
+    // Allocate this submit's timeline value. The signal value rides
+    // along on every queue submit below; renderer pulls it via
+    // frame_completion_marker() right after this returns.
+    const uint64_t timeline_value = next_frame_value_++;
+
     if (present_surface_id_ != 0) {
         // Surface was used: submit with swapchain synchronization
         auto it = surfaces_.find(present_surface_id_);
@@ -2550,7 +2579,14 @@ void VkBackend::end_frame()
             auto& sd = it->second;
 
             VkSemaphore wait_sem = image_available_[present_acquire_sem_idx_];
-            VkSemaphore signal_sem = render_finished_[sd.image_index];
+            VkSemaphore signal_sems[2] = { render_finished_[sd.image_index], frame_timeline_ };
+            // Binary semaphore values are ignored; index 1 is the timeline value.
+            uint64_t signal_values[2] = { 0, timeline_value };
+
+            VkTimelineSemaphoreSubmitInfo timeline_info{};
+            timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+            timeline_info.signalSemaphoreValueCount = 2;
+            timeline_info.pSignalSemaphoreValues = signal_values;
 
             // Cover both the raster path (COLOR_ATTACHMENT_OUTPUT) and the
             // RT blit path (TRANSFER) on acquire-semaphore wait.
@@ -2559,20 +2595,21 @@ void VkBackend::end_frame()
 
             VkSubmitInfo submit_info{};
             submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit_info.pNext = &timeline_info;
             submit_info.waitSemaphoreCount = 1;
             submit_info.pWaitSemaphores = &wait_sem;
             submit_info.pWaitDstStageMask = &wait_stage;
             submit_info.commandBufferCount = 1;
             submit_info.pCommandBuffers = &sync.command_buffer;
-            submit_info.signalSemaphoreCount = 1;
-            submit_info.pSignalSemaphores = &signal_sem;
+            submit_info.signalSemaphoreCount = 2;
+            submit_info.pSignalSemaphores = signal_sems;
 
             vkQueueSubmit(graphics_queue_, 1, &submit_info, sync.fence);
 
             VkPresentInfoKHR present_info{};
             present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             present_info.waitSemaphoreCount = 1;
-            present_info.pWaitSemaphores = &signal_sem;
+            present_info.pWaitSemaphores = &signal_sems[0];
             present_info.swapchainCount = 1;
             present_info.pSwapchains = &sd.swapchain;
             present_info.pImageIndices = &sd.image_index;
@@ -2581,17 +2618,45 @@ void VkBackend::end_frame()
         }
     } else {
         // Headless: submit without swapchain synchronization
+        uint64_t signal_value = timeline_value;
+        VkTimelineSemaphoreSubmitInfo timeline_info{};
+        timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timeline_info.signalSemaphoreValueCount = 1;
+        timeline_info.pSignalSemaphoreValues = &signal_value;
+
         VkSubmitInfo submit_info{};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.pNext = &timeline_info;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &sync.command_buffer;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &frame_timeline_;
 
         vkQueueSubmit(graphics_queue_, 1, &submit_info, sync.fence);
     }
 
+    last_frame_value_ = timeline_value;
     frame_sync_index_ = (frame_sync_index_ + 1) % kFrameOverlap;
     frame_open_ = false;
     present_surface_id_ = 0;
+}
+
+uint64_t VkBackend::frame_completion_marker() const
+{
+    return last_frame_value_;
+}
+
+void VkBackend::wait_for_frame_completion(uint64_t marker)
+{
+    if (marker == 0 || !device_ || !frame_timeline_) return;
+
+    VkSemaphoreWaitInfo wait_info{};
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    wait_info.semaphoreCount = 1;
+    wait_info.pSemaphores = &frame_timeline_;
+    wait_info.pValues = &marker;
+
+    vkWaitSemaphores(device_, &wait_info, UINT64_MAX);
 }
 
 // ============================================================================

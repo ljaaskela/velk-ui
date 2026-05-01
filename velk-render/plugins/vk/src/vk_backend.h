@@ -22,6 +22,9 @@ public:
     // IRenderBackend
     bool init(void* params) override;
     void shutdown() override;
+    void wait_idle() override;
+    uint64_t frame_completion_marker() const override;
+    void wait_for_frame_completion(uint64_t marker) override;
 
     uint64_t create_surface(const SurfaceDesc& desc) override;
     void destroy_surface(uint64_t surface_id) override;
@@ -71,6 +74,16 @@ private:
     uint32_t graphics_family_ = 0;
     VmaAllocator allocator_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT debug_messenger_ = VK_NULL_HANDLE;
+
+    // Per-frame GPU completion timeline. Each end_frame's submit signals
+    // this semaphore at `next_frame_value_` and increments. Renderer
+    // grabs the value via frame_completion_marker() right after end_frame
+    // and stores it on its FrameSlot, then calls wait_for_frame_completion
+    // before reusing the slot — replacing the prior CPU-counter heuristic
+    // with a real GPU fence.
+    VkSemaphore frame_timeline_ = VK_NULL_HANDLE;
+    uint64_t next_frame_value_ = 1;
+    uint64_t last_frame_value_ = 0;
 
     // Command submission with double-buffered sync objects.
     // Even with single frame-in-flight, we need 2 sets because the present
