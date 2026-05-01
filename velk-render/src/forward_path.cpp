@@ -111,24 +111,20 @@ void ForwardPath::build_passes(ViewEntry& entry,
     if (render_view.env_batch.material) {
         vector<Batch> env_batches;
         env_batches.push_back(render_view.env_batch);
-        auto env_draws = emit_draw_calls(
+        emit_draw_calls(
+            draw_calls,
             env_batches, *ctx.frame_buffer, *ctx.resources,
             render_view.frame_globals_addr, ctx.observer, mcache,
             default_uv1, resolve, /*frustum=*/nullptr);
-        for (auto& dc : env_draws) {
-            draw_calls.push_back(std::move(dc));
-        }
     }
 
     // Main scene batches.
     if (render_view.batches && !render_view.batches->empty()) {
-        auto main_draws = emit_draw_calls(
+        emit_draw_calls(
+            draw_calls,
             *render_view.batches, *ctx.frame_buffer, *ctx.resources,
             render_view.frame_globals_addr, ctx.observer, mcache,
             default_uv1, resolve, frustum_ptr);
-        for (auto& dc : main_draws) {
-            draw_calls.push_back(std::move(dc));
-        }
     }
 
     GraphPass pass;

@@ -13,6 +13,7 @@
 #include "render_target_cache.h"
 #include "view_preparer.h"
 #include <velk-render/interface/intf_render_graph.h>
+#include <velk-render/frame/render_view.h>
 #include <velk-render/render_path/frame_context.h>
 #include <velk-render/interface/intf_render_path.h>
 #include <velk-render/interface/intf_view_pipeline.h>
@@ -111,6 +112,30 @@ private:
         rect dst_rect{};
     };
     vector<DebugOverlay> debug_overlays_;
+
+    /// Per-frame snapshot of one view's prepare-phase result. Carried
+    /// from build_frame_passes' Phase 1 (rebuild_batches + pipeline
+    /// discovery + BVH state capture) into Phase 2 (pipeline emit
+    /// after RTT passes are in the graph). Reused across frames via
+    /// `prepared_views_`'s capacity to avoid per-frame heap churn.
+    struct PreparedView
+    {
+        ViewSlot* slot = nullptr;
+        RenderView render_view{};
+        IInterface::Ptr camera_trait;
+        vector<IViewPipeline::Ptr> pipelines;
+        uint64_t bvh_nodes_addr = 0;
+        uint64_t bvh_shapes_addr = 0;
+        uint32_t bvh_root = 0;
+        uint32_t bvh_node_count = 0;
+        uint32_t bvh_shape_count = 0;
+    };
+    vector<PreparedView> prepared_views_;
+
+    /// Scratch buffer for per-view pipeline discovery. Cleared and
+    /// reused inside the prepare loop to avoid one heap allocation
+    /// per matched view.
+    vector<IViewPipeline::Ptr> pipelines_scratch_;
 
     // One-shot flag set by request_bvh_log(), consumed in the next
     // BVH-emit cb. The cb walks every mesh instance and prints
