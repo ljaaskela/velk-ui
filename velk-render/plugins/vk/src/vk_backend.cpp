@@ -2751,9 +2751,13 @@ void VkBackend::transition_image_layout(VkCommandBuffer cb, VkImage image, VkIma
     vkCmdPipelineBarrier(cb, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-RenderTargetGroup VkBackend::create_render_target_group(
-    array_view<const PixelFormat> formats, int width, int height, DepthFormat depth)
+RenderTargetGroup VkBackend::create_render_target_group(const TextureGroupDesc& desc)
 {
+    const auto& formats = desc.formats;
+    int width = desc.width;
+    int height = desc.height;
+    DepthFormat depth = desc.depth;
+
     if (formats.size() == 0 || width <= 0 || height <= 0) {
         return 0;
     }

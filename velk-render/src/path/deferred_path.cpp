@@ -201,34 +201,26 @@ uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
 RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int height,
                                                FrameContext& ctx)
 {
-    if (width <= 0 || height <= 0 || !ctx.backend) return 0;
+    if (width <= 0 || height <= 0 || !ctx.resources) return 0;
     if (vs.gbuffer && vs.gbuffer_width == width && vs.gbuffer_height == height) {
         return vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
     }
-    if (vs.gbuffer) {
-        ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
-        vs.gbuffer.reset();
-    }
-    auto group = ctx.backend->create_render_target_group(
-        array_view<const PixelFormat>(kGBufferFormats,
-                                      static_cast<uint32_t>(GBufferAttachment::Count)),
-        width, height,
-        DepthFormat::Default);
-    if (group == 0) return 0;
+    // Drop the old Ptr; resource manager auto-defers the group's
+    // backend handle (which cascades to its attachments on destroy).
+    vs.gbuffer.reset();
 
-    vs.gbuffer = instance().create<IRenderTextureGroup>(ClassId::RenderTextureGroup);
-    if (!vs.gbuffer) {
-        ctx.backend->destroy_render_target_group(group);
-        return 0;
-    }
-    vs.gbuffer->set_gpu_handle(GpuResourceKey::Default, group);
-    vs.gbuffer->set_depth_format(DepthFormat::Default);
-    for (uint32_t i = 0; i < static_cast<uint32_t>(GBufferAttachment::Count); ++i) {
-        vs.gbuffer->set_attachment(
-            i, static_cast<TextureId>(ctx.backend->get_render_target_group_attachment(group, i)));
-    }
+    TextureGroupDesc gdesc{};
+    gdesc.formats = array_view<const PixelFormat>(
+        kGBufferFormats, static_cast<uint32_t>(GBufferAttachment::Count));
+    gdesc.width = width;
+    gdesc.height = height;
+    gdesc.depth = DepthFormat::Default;
+    vs.gbuffer = ctx.resources->create_render_texture_group(gdesc);
+    if (!vs.gbuffer) return 0;
+
     vs.gbuffer_width = width;
     vs.gbuffer_height = height;
+    auto group = vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
 
     if (!vs.worldpos_alias) {
         vs.worldpos_alias = instance().create<IRenderTarget>(ClassId::RenderTexture);
@@ -427,32 +419,15 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
     graph.add_pass(std::move(gp));
 }
 
-namespace {
-template <class ViewState>
-void release_deferred_view_state(ViewState& vs, FrameContext& ctx)
+void DeferredPath::on_view_removed(ViewEntry& entry, FrameContext& /*ctx*/)
 {
-    if (vs.gbuffer && ctx.backend) {
-        ctx.backend->destroy_render_target_group(vs.gbuffer->get_gpu_handle(GpuResourceKey::Default));
-    }
-    // deferred_output and shadow_debug are managed: dropping the Ptrs
-    // (via vs going out of scope) auto-defers the backend handles
-    // through the resource manager observer chain.
-}
-} // namespace
-
-void DeferredPath::on_view_removed(ViewEntry& entry, FrameContext& ctx)
-{
-    auto it = view_states_.find(&entry);
-    if (it == view_states_.end()) return;
-    release_deferred_view_state(it->second, ctx);
-    view_states_.erase(it);
+    // Erase the view state; gbuffer / deferred_output / shadow_debug
+    // Ptrs drop, resource manager auto-defers the backend handles.
+    view_states_.erase(&entry);
 }
 
-void DeferredPath::shutdown(FrameContext& ctx)
+void DeferredPath::shutdown(FrameContext& /*ctx*/)
 {
-    for (auto& [v, vs] : view_states_) {
-        release_deferred_view_state(vs, ctx);
-    }
     view_states_.clear();
     compiled_pipelines_.clear();
 }
