@@ -39,6 +39,40 @@ IRenderTarget::Ptr GpuResourceManager::create_render_texture(const TextureDesc& 
     return rt;
 }
 
+IRenderTextureGroup::Ptr GpuResourceManager::create_render_texture_group(
+    const TextureGroupDesc& desc)
+{
+    if (!backend_ || desc.formats.empty() || desc.width <= 0 || desc.height <= 0) return {};
+    auto group = backend_->create_render_target_group(desc);
+    if (group == 0) return {};
+
+    auto rtg = instance().create<IRenderTextureGroup>(ClassId::RenderTextureGroup);
+    if (!rtg) {
+        backend_->destroy_render_target_group(group);
+        return {};
+    }
+    rtg->set_size(static_cast<uint32_t>(desc.width), static_cast<uint32_t>(desc.height));
+    rtg->set_format(desc.formats[0]);
+    rtg->set_depth_format(desc.depth);
+    rtg->set_gpu_handle(GpuResourceKey::Default, group);
+    for (uint32_t i = 0; i < desc.formats.size(); ++i) {
+        rtg->set_attachment(
+            i, static_cast<TextureId>(backend_->get_render_target_group_attachment(group, i)));
+    }
+
+    // Track for lifecycle: on_resource_destroyed looks up the group
+    // handle by ISurface* and enqueues for deferred destroy.
+    auto* surf = interface_cast<ISurface>(rtg.get());
+    if (surf) {
+        std::lock_guard<std::mutex> lock(deferred_mutex_);
+        group_map_[surf] = group;
+    }
+    if (observer_) {
+        rtg->add_gpu_resource_observer(observer_);
+    }
+    return rtg;
+}
+
 TextureId GpuResourceManager::find_texture(ISurface* surf) const
 {
     auto it = texture_map_.find(surf);
@@ -128,6 +162,15 @@ void GpuResourceManager::drain_deferred(IRenderBackend& backend)
         }
     }
 
+    for (auto it = deferred_groups_.begin(); it != deferred_groups_.end();) {
+        if (backend.is_frame_complete(it->completion_marker)) {
+            backend.destroy_render_target_group(it->handle);
+            it = deferred_groups_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     for (auto it = deferred_buffers_.begin(); it != deferred_buffers_.end();) {
         if (backend.is_frame_complete(it->completion_marker)) {
             backend.destroy_buffer(it->handle);
@@ -153,6 +196,13 @@ void GpuResourceManager::on_resource_destroyed(IGpuResource* resource,
     std::lock_guard<std::mutex> lock(deferred_mutex_);
 
     if (auto* surf = interface_cast<ISurface>(resource)) {
+        // Render-target group: cascading destroy frees its attachments.
+        auto git = group_map_.find(surf);
+        if (git != group_map_.end()) {
+            deferred_groups_.push_back({git->second, completion_marker});
+            group_map_.erase(git);
+            return;
+        }
         auto it = texture_map_.find(surf);
         if (it != texture_map_.end()) {
             deferred_textures_.push_back({it->second, completion_marker});
@@ -186,6 +236,10 @@ void GpuResourceManager::shutdown(IRenderBackend& backend)
             backend.destroy_texture(d.tid);
         }
         deferred_textures_.clear();
+        for (auto& d : deferred_groups_) {
+            backend.destroy_render_target_group(d.handle);
+        }
+        deferred_groups_.clear();
         for (auto& d : deferred_buffers_) {
             backend.destroy_buffer(d.handle);
         }
@@ -200,6 +254,11 @@ void GpuResourceManager::shutdown(IRenderBackend& backend)
         backend.destroy_texture(tid);
     }
     texture_map_.clear();
+
+    for (auto& [key, group] : group_map_) {
+        backend.destroy_render_target_group(group);
+    }
+    group_map_.clear();
 
     for (auto& [key, entry] : buffer_map_) {
         backend.destroy_buffer(entry.handle);

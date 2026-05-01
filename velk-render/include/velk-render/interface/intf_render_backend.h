@@ -73,6 +73,15 @@ struct TextureDesc
     SamplerDesc sampler{};                           ///< Per-texture sampler state (wrap / filter / mipmap). Defaults to Repeat + Linear.
 };
 
+/// Describes a multi-attachment render-target group (MRT) to create.
+struct TextureGroupDesc
+{
+    array_view<const PixelFormat> formats;           ///< Color attachment formats, in declaration order.
+    int width{};                                     ///< Width in pixels (shared by all attachments).
+    int height{};                                    ///< Height in pixels.
+    DepthFormat depth{DepthFormat::None};            ///< Optional depth attachment format.
+};
+
 /// Primitive topology for pipeline creation.
 enum class Topology : uint8_t
 {
@@ -319,9 +328,7 @@ public:
      *
      * @return a `RenderTargetGroup` handle (high bit set), or 0 on failure.
      */
-    virtual RenderTargetGroup create_render_target_group(
-        array_view<const PixelFormat> formats, int width, int height,
-        DepthFormat depth = DepthFormat::None) = 0;
+    virtual RenderTargetGroup create_render_target_group(const TextureGroupDesc& desc) = 0;
 
     /** @brief Destroys a render target group, its attachments, render pass, and framebuffer. */
     virtual void destroy_render_target_group(RenderTargetGroup group) = 0;

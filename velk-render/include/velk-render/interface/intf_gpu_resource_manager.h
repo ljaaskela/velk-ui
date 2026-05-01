@@ -9,6 +9,7 @@
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_render_backend.h>
 #include <velk-render/interface/intf_render_target.h>
+#include <velk-render/interface/intf_render_texture_group.h>
 #include <velk-render/interface/intf_texture_resolver.h>
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
@@ -57,6 +58,14 @@ public:
     /// and paths use this instead of calling `IRenderBackend::create_texture`
     /// directly — they never see a raw `TextureId`.
     virtual IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) = 0;
+
+    /// Creates a multi-attachment render-target group, wraps it in a
+    /// RenderTextureGroup, populates the attachments, and registers it
+    /// for lifecycle tracking. Dropping the last Ptr auto-defers the
+    /// backend group handle for destroy (which cascades to all its
+    /// attachments). Pipelines never see a raw `RenderTargetGroup`.
+    virtual IRenderTextureGroup::Ptr create_render_texture_group(
+        const TextureGroupDesc& desc) = 0;
 
     // Texture mapping
     virtual TextureId find_texture(ISurface* surf) const = 0;

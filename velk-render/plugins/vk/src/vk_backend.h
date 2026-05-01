@@ -43,9 +43,7 @@ public:
     bool read_texture(TextureId texture, vector<uint8_t>& out_pixels,
                       PixelFormat& out_format, uvec2& out_dims) override;
 
-    RenderTargetGroup create_render_target_group(
-        array_view<const PixelFormat> formats, int width, int height,
-        DepthFormat depth = DepthFormat::None) override;
+    RenderTargetGroup create_render_target_group(const TextureGroupDesc& desc) override;
     void destroy_render_target_group(RenderTargetGroup group) override;
     TextureId get_render_target_group_attachment(
         RenderTargetGroup group, uint32_t index) const override;
