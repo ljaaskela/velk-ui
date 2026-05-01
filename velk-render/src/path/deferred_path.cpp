@@ -203,12 +203,6 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
                                                IRenderGraph& graph)
 {
     if (width <= 0 || height <= 0) return 0;
-    if (vs.gbuffer && vs.gbuffer_width == width && vs.gbuffer_height == height) {
-        return vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
-    }
-    // Drop the old Ptr; resource manager auto-defers the group's
-    // backend handle (which cascades to its attachments on destroy).
-    vs.gbuffer.reset();
 
     TextureGroupDesc gdesc{};
     gdesc.formats = array_view<const PixelFormat>(
@@ -216,6 +210,9 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
     gdesc.width = width;
     gdesc.height = height;
     gdesc.depth = DepthFormat::Default;
+    // Per-frame allocation: drop the prior Ptr (manager parks the
+    // group on its pool) and request a fresh one. Pool reuse kicks in
+    // once the parked entry's GPU work has retired.
     vs.gbuffer = graph.resources().create_render_texture_group(gdesc);
     if (!vs.gbuffer) return 0;
 
@@ -302,14 +299,10 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
                                       int w, int h,
                                       IRenderGraph& graph)
 {
-    // Allocate / resize the output storage image. Drop the existing
-    // Ptr on resize; the resource manager auto-defers the backend
-    // handle for destroy via the dtor → observer chain.
-    if (vs.deferred_output &&
-        (vs.deferred_width != w || vs.deferred_height != h)) {
-        vs.deferred_output.reset();
-    }
-    if (!vs.deferred_output) {
+    // Per-frame allocation: drop the prior Ptr (manager parks the
+    // handle on its pool) and request a fresh one each frame. Steady-
+    // state hits the pool once the parked handle's GPU work retires.
+    {
         TextureDesc td{};
         td.width = w;
         td.height = h;
@@ -319,24 +312,16 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         td.format = PixelFormat::RGBA16F;
         td.usage = TextureUsage::Storage;
         vs.deferred_output = graph.resources().create_render_texture(td);
-        vs.deferred_width = w;
-        vs.deferred_height = h;
     }
     if (!vs.deferred_output) return;
 
-    if (vs.shadow_debug &&
-        (vs.shadow_debug_width != w || vs.shadow_debug_height != h)) {
-        vs.shadow_debug.reset();
-    }
-    if (!vs.shadow_debug) {
+    {
         TextureDesc td{};
         td.width = w;
         td.height = h;
         td.format = PixelFormat::RGBA32F;
         td.usage = TextureUsage::Storage;
         vs.shadow_debug = graph.resources().create_render_texture(td);
-        vs.shadow_debug_width = w;
-        vs.shadow_debug_height = h;
     }
 
     uint64_t pipeline_key = ensure_pipeline(ctx);

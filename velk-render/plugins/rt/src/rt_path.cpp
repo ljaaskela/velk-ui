@@ -76,21 +76,16 @@ void RtPath::build_passes(ViewEntry& entry,
 
     auto& vs = view_states_[&entry];
 
-    // (Re)create storage output texture sized to the viewport.
-    // Drop the Ptr; the resource manager auto-defers the backend
-    // handle via the dtor → observer chain.
-    if (vs.rt_output && (vs.width != vp_w || vs.height != vp_h)) {
-        vs.rt_output.reset();
-    }
-    if (!vs.rt_output) {
+    // Per-frame allocation: drop the prior Ptr (manager parks the
+    // handle on its pool) and request a fresh one. Steady-state hits
+    // the pool once the parked handle's GPU work retires.
+    {
         TextureDesc td{};
         td.width = vp_w;
         td.height = vp_h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
         vs.rt_output = graph.resources().create_render_texture(td);
-        vs.width = vp_w;
-        vs.height = vp_h;
     }
     if (!vs.rt_output) {
         return;

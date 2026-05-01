@@ -51,8 +51,6 @@ private:
     struct ViewState
     {
         ::velk::IRenderTarget::Ptr rt_output;
-        int width = 0;
-        int height = 0;
     };
 
     std::unordered_map<ViewEntry*, ViewState> view_states_;

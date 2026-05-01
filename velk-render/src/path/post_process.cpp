@@ -95,25 +95,13 @@ void PostProcess::emit(::velk::ViewEntry& view,
 PostProcess::ensure_intermediate(::velk::ViewEntry& view,
                                  size_t index,
                                  int width, int height,
-                                 ::velk::FrameContext& ctx,
+                                 ::velk::FrameContext& /*ctx*/,
                                  ::velk::IRenderGraph& graph)
 {
     auto& vs = view_states_[&view];
 
-    // If the view's intermediates were sized for a different viewport
-    // they're stale. Tear down and re-allocate from scratch.
-    if (vs.width != width || vs.height != height) {
-        release_view_state(vs, ctx);
-        vs.intermediates.clear();
-        vs.width = width;
-        vs.height = height;
-    }
-
     if (index >= vs.intermediates.size()) {
         vs.intermediates.resize(index + 1);
-    }
-    if (vs.intermediates[index]) {
-        return vs.intermediates[index];
     }
 
     ::velk::TextureDesc td{};
@@ -121,11 +109,11 @@ PostProcess::ensure_intermediate(::velk::ViewEntry& view,
     td.height = height;
     td.format = ::velk::PixelFormat::RGBA8;
     td.usage = ::velk::TextureUsage::Storage;
-    auto target = graph.resources().create_render_texture(td);
-    if (!target) return {};
-
-    vs.intermediates[index] = target;
-    return target;
+    // Drop the prior frame's Ptr (manager parks the handle on its
+    // pool) and request a fresh one. On a steady-state hit the pool
+    // re-issues the parked handle wrapped in a new shell.
+    vs.intermediates[index] = graph.resources().create_render_texture(td);
+    return vs.intermediates[index];
 }
 
 void PostProcess::release_view_state(ViewState& /*vs*/, ::velk::FrameContext& /*ctx*/)

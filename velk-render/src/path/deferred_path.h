@@ -71,16 +71,13 @@ public:
     struct ViewState
     {
         IRenderTextureGroup::Ptr gbuffer;
+        // Recorded after gbuffer creation; consumed by emit_lighting_pass
+        // and emit_gbuffer_pass for viewport sizing.
         int gbuffer_width = 0;
         int gbuffer_height = 0;
 
         IRenderTarget::Ptr deferred_output;
-        int deferred_width = 0;
-        int deferred_height = 0;
-
         IRenderTarget::Ptr shadow_debug;
-        int shadow_debug_width = 0;
-        int shadow_debug_height = 0;
 
         /// RenderTexture alias for the gbuffer worldpos attachment.
         /// Does not own the GPU texture (the group does); exposed via

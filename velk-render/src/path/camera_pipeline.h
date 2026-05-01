@@ -71,8 +71,6 @@ private:
     {
         ::velk::IRenderTarget::Ptr path_output;
         ::velk::IRenderTarget::Ptr post_output;
-        int width = 0;
-        int height = 0;
     };
     std::unordered_map<::velk::ViewEntry*, ViewState> view_states_;
 

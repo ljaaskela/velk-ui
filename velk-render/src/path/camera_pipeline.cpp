@@ -53,13 +53,14 @@ CameraPipeline::ensure_storage_target(::velk::IRenderTarget::Ptr& slot,
                                       ::velk::FrameContext& /*ctx*/,
                                       ::velk::IRenderGraph& graph)
 {
-    if (slot) return slot;
-
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
     td.format = format;
     td.usage = usage;
+    // Per-frame allocation: drop the prior Ptr (manager parks the
+    // handle on its pool) and request a fresh one. Pool reuse kicks
+    // in once the parked handle's GPU work has retired.
     slot = graph.resources().create_render_texture(td);
     return slot;
 }
@@ -98,13 +99,6 @@ void CameraPipeline::emit(::velk::ViewEntry& view,
     int h = render_view.height;
 
     auto& vs = view_states_[&view];
-    if (vs.width != w || vs.height != h) {
-        release_view_state(vs, ctx);
-        vs.path_output.reset();
-        vs.post_output.reset();
-        vs.width = w;
-        vs.height = h;
-    }
 
     /// path_target: RenderTarget so ForwardPath can `begin_pass` it,
     ///   DeferredPath can blit to it, and post-process effects can

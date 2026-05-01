@@ -51,12 +51,10 @@ public:
 private:
     struct ViewState
     {
-        /// One intermediate per non-last effect (last effect writes
-        /// the output target the container was given). Allocated
-        /// lazily, resized when input dimensions change.
+        /// One intermediate per non-last effect. Refreshed each frame:
+        /// the prior Ptr is dropped and a new one acquired from the
+        /// graph's transient pool. Sized to the effect chain length.
         ::velk::vector<::velk::IRenderTarget::Ptr> intermediates;
-        int width = 0;
-        int height = 0;
     };
 
     std::unordered_map<::velk::ViewEntry*, ViewState> view_states_;
