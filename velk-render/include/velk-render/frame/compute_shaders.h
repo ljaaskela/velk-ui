@@ -375,7 +375,7 @@ bool ray_aabb(Ray ray, vec3 bmin, vec3 bmax, float t_max, out float t_hit)
 // Any-hit BVH traversal for shadow rays: early-exit on the first
 // confirmed blocker within t_max. Stack-depth 32 comfortably covers
 // any realistic UI scene depth.
-bool trace_any_hit_bvh(Ray ray, float t_max)
+bool trace_any_hit(Ray ray, float t_max)
 {
     if (pc.globals.bvh_node_count == 0u) return false;
     uint stack[32];
@@ -427,64 +427,11 @@ bool trace_any_hit_bvh(Ray ray, float t_max)
     return false;
 }
 
-// RT shadow: one occlusion ray against the scene BVH. Mirrors
-// rt_shadow.cpp's velk_shadow_rt but walks the acceleration structure.
-float velk_shadow_rt(uint light_idx, vec3 world_pos, vec3 world_normal)
-{
-    Light light = pc.lights.data[light_idx];
-    vec3 L;
-    float t_max;
-    if (light.flags.x == 0u) {
-        L = -light.direction.xyz;
-        t_max = 1e30;
-    } else {
-        vec3 to_light = light.position.xyz - world_pos;
-        t_max = length(to_light);
-        if (t_max < 1e-6) return 1.0;
-        L = to_light / t_max;
-    }
-    // Bias the ray origin toward the light to avoid self-intersection.
-    // Earlier we biased along the normal, which fails for double-sided
-    // thin geometry (awnings, banners) where the visible face's normal
-    // can point away from the light: the bias would push the origin
-    // into the back face and immediately self-shadow. L-biasing always
-    // moves into the lit half-space regardless of which way the normal
-    // happens to face. Magnitude is small to work at meter scale; for
-    // pixel-scale scenes a per-camera or per-light bias would be ideal.
-    // Hybrid N + L bias. Pure L-bias works for axis-aligned rays
-    // (origin moves enough off the receiver in any one axis) but for
-    // tilted rays the L component along the receiver's normal can be
-    // small, leaving the origin essentially on the receiver. Adding an
-    // explicit N-step pushes off the receiver regardless of L's tilt.
-    // Sign on N follows L so we always move toward the lit side, which
-    // also handles thin double-sided geometry (back face whose normal
-    // points away from the light).
-    vec3 nrm = normalize(world_normal);
-    vec3 n_bias = nrm * (sign(dot(nrm, L)) * 0.005);
-    Ray r;
-    r.origin = world_pos + n_bias + L * 0.005;
-    r.dir    = L;
-    // Light-end exclusion zone: ignore occluders in the last 5% of the
-    // ray (5 mm minimum). Without this, point / spot lights mounted
-    // inside a fixture (lamp shade, sconce, hanging bulb) are fully
-    // self-occluded by the fixture geometry and never reach any
-    // surface. 5% covers typical fixture sizes for lights at meter
-    // scale; the 5 mm floor handles small/close lights without going
-    // negative. Directional lights have t_max = 1e30 so the margin
-    // is irrelevant for them.
-    float margin = max(0.005, t_max * 0.05);
-    t_max = max(t_max - margin, 0.0);
-    return trace_any_hit_bvh(r, t_max) ? 0.0 : 1.0;
-}
-
-// Shadow dispatch. Currently only tech_id = 1 (rt_shadow) is wired; any
-// other tech falls through to fully-lit. Extend via composition when
-// more techniques land.
-float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal)
-{
-    if (tech_id == 1u) return velk_shadow_rt(light_idx, world_pos, world_normal);
-    return 1.0;
-}
+// Shadow dispatch is composed at pipeline-build time from the snippet
+// registry's frame_shadow_techs() set. The composer appends each
+// tech's snippet #include plus a velk_eval_shadow switch keyed by the
+// registry id. tech_id 0 means "no shadow technique" and returns 1.0.
+float velk_eval_shadow(uint tech_id, uint light_idx, vec3 world_pos, vec3 world_normal);
 
 // Equirect env sample with explicit mip LOD. The env texture ships
 // with a bilinear-downsampled mip chain as a rough roughness
@@ -673,7 +620,7 @@ void main()
             Ray ao_r;
             ao_r.origin = world_pos + N * 0.01;
             ao_r.dir    = N;
-            ao = trace_any_hit_bvh(ao_r, ao_range) ? 0.0 : 1.0;
+            ao = trace_any_hit(ao_r, ao_range) ? 0.0 : 1.0;
         }
 
         // AO modulates env_diffuse only (the hemisphere-irradiance

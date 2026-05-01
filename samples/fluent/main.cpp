@@ -9,6 +9,7 @@
 #include <velk/api/any.h>
 #include <velk/api/callback.h>
 #include <velk/api/velk.h>
+#include <velk/interface/intf_interface.h>
 
 #include <chrono>
 #include <cmath>
@@ -16,7 +17,6 @@
 #include <velk-render/api/render_context.h>
 #include <velk-render/api/shadow_technique.h>
 #include <velk-render/debug/render_target_dump.h>
-#include <velk-render/gbuffer.h>
 #include <velk-render/interface/intf_camera.h>
 #include <velk-render/interface/intf_render_texture_group.h>
 #include <velk-render/interface/intf_image.h>
@@ -291,6 +291,54 @@ int main(int /*argc*/, char* /*argv*/[])
     poc.enabled = true;
     app.set_performance_overlay(window, poc);
 
+    // F12 dumps WorldPos g-buffer + RT shadow debug image + per-mesh
+    // BVH cb log to ./dumps/. Mirrors the bistro setup so we can debug
+    // the per-instance shadow failures here at fluent speed.
+    auto image_writer =
+        ::velk::instance().create<velk::IImageWriter>(velk::ui::ClassId::ImageEncoder);
+    velk::ScopedHandler key_sub = window.add_on_key_event([&](const velk::ui::KeyEvent& e) {
+        if (e.action != velk::ui::KeyAction::Down || e.key != 301) return; // F12
+        if (!image_writer) return;
+        velk::IRenderContext::Ptr rctx = window.render_context();
+        if (!rctx) return;
+        auto backend = rctx->backend();
+        if (!backend) return;
+        auto renderer = app.renderer();
+        if (!renderer || !camera_3d) return;
+        auto window_surface = window.surface();
+
+        std::error_code mkdir_ec;
+        std::filesystem::create_directories("dumps", mkdir_ec);
+
+        renderer->request_bvh_log();
+
+        auto worldpos_out = renderer->get_named_output(
+            camera_3d, window_surface, "gbuffer.worldpos");
+        velk::TextureId worldpos_id = worldpos_out
+            ? static_cast<velk::TextureId>(
+                  worldpos_out->get_gpu_handle(velk::GpuResourceKey::Default))
+            : 0;
+        if (worldpos_id != 0) {
+            bool ok = velk::render::debug::dump_texture(
+                *backend, worldpos_id, *image_writer, "dumps/worldpos");
+            VELK_LOG(I, "fluent: WorldPos dump %s", ok ? "ok" : "FAILED");
+        }
+
+        auto shadow_out = renderer->get_named_output(
+            camera_3d, window_surface, "shadow.debug");
+        velk::TextureId shadow_dbg_id = shadow_out
+            ? static_cast<velk::TextureId>(
+                shadow_out->get_gpu_handle(velk::GpuResourceKey::Default))
+            : 0;
+        if (shadow_dbg_id != 0) {
+            bool ok = velk::render::debug::dump_texture(
+                *backend, shadow_dbg_id, *image_writer, "dumps/shadow_debug");
+            VELK_LOG(I, "fluent: shadow_debug dump %s", ok ? "ok" : "FAILED");
+            velk::render::debug::log_unique_uvec4_pixels(
+                *backend, shadow_dbg_id, "shadow_debug");
+        }
+    });
+
     auto t0 = std::chrono::steady_clock::now();
     auto tick = [&]() {
         float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - t0).count();
@@ -355,8 +403,11 @@ int main(int /*argc*/, char* /*argv*/[])
             auto* gbuffer_group = gbuffer_out
                 ? gbuffer_out->get_interface<velk::IRenderTextureGroup>()
                 : nullptr;
-            for (uint32_t i = 0; i < 4; ++i) {
-                velk::TextureId tid = gbuffer_group ? gbuffer_group->attachment(i) : 0;
+            const uint32_t att_count = gbuffer_group
+                ? static_cast<uint32_t>(gbuffer_group->attachment_count())
+                : 0;
+            for (uint32_t i = 0; i < att_count; ++i) {
+                velk::TextureId tid = gbuffer_group->attachment(i);
                 if (tid != 0) {
                     renderer->add_debug_overlay(
                         window_surface, tid,

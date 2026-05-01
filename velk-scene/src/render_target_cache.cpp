@@ -53,7 +53,9 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
             w = std::max(static_cast<int>(es->size.width), 1);
             h = std::max(static_cast<int>(es->size.height), 1);
         }
-        if (rte.texture_id != 0 && (rte.width != w || rte.height != h)) {
+        PixelFormat fmt = rte.target->format();
+        if (rte.texture_id != 0 &&
+            (rte.width != w || rte.height != h || rte.format != fmt)) {
             ctx.resources->defer_texture_destroy(
                 rte.texture_id, ctx.present_counter + ctx.latency_frames);
             rte.texture_id = 0;
@@ -62,13 +64,12 @@ void RenderTargetCache::ensure(FrameContext& ctx, BatchBuilder& batch_builder)
             TextureDesc tdesc{};
             tdesc.width = w;
             tdesc.height = h;
-            // Element-cache RTT must match the surface format so the
-            // swapchain-compiled UI pipelines remain render-pass compatible.
-            tdesc.format = PixelFormat::Surface;
+            tdesc.format = fmt;
             tdesc.usage = TextureUsage::RenderTarget;
             rte.texture_id = ctx.backend->create_texture(tdesc);
             rte.width = w;
             rte.height = h;
+            rte.format = fmt;
             if (rte.texture_id != 0) {
                 rte.target->set_gpu_handle(GpuResourceKey::Default, static_cast<uint64_t>(rte.texture_id));
             }
@@ -88,18 +89,19 @@ void RenderTargetCache::emit_passes(FrameContext& ctx, BatchBuilder& batch_build
         if (!forward_path_) return;
     }
 
-    // RTT subtrees render in Surface format regardless of which target
-    // format the active camera path is using. Stash + restore the
-    // FrameContext's format so per-view state set during the camera
-    // loop isn't perturbed.
+    // RTT subtrees render in the format declared by their RenderTexture
+    // (Surface by default, but RGBA16F etc. when the user wants HDR).
+    // Stash + restore the FrameContext's format so per-view state set
+    // during the camera loop isn't perturbed.
     PixelFormat saved_format = ctx.target_format;
-    ctx.target_format = PixelFormat::Surface;
 
     for (auto& rtp : batch_builder.render_target_passes()) {
         auto it = entries_.find(rtp.element);
         if (it == entries_.end()) continue;
         auto& rte = it->second;
         if (!rte.target || rte.texture_id == 0) continue;
+
+        ctx.target_format = rte.format;
 
         FrameGlobals rt_globals{};
         build_ortho_projection(

@@ -59,7 +59,8 @@ layout(location = 4) in vec3 v_world_normal;
 layout(location = 5) flat in uint v_shape_param;
 layout(location = 6) in vec2 v_uv1;
 
-// Canonical G-buffer attachments (see velk-render/gbuffer.h).
+// G-buffer attachment locations. Must match deferred_gbuffer.h's
+// GBufferAttachment enum; coupled to the deferred lighting compute.
 layout(location = 0) out vec4 g_albedo;
 layout(location = 1) out vec4 g_normal;
 layout(location = 2) out vec4 g_world_pos;

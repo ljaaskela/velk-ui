@@ -65,6 +65,7 @@ private:
         TextureId texture_id = 0;
         int width = 0;
         int height = 0;
+        PixelFormat format = PixelFormat::Surface;
         bool dirty = true;
     };
 
