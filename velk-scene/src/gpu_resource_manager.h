@@ -39,6 +39,9 @@ public:
     }
 
     // IGpuResourceManager
+    void set_lifecycle(IRenderBackend* backend, IGpuResourceObserver* observer) override;
+    IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) override;
+
     TextureId find_texture(ISurface* surf) const override;
     void register_texture(ISurface* surf, TextureId tid) override;
 
@@ -78,6 +81,9 @@ private:
         PipelineId pid;
         uint64_t completion_marker;
     };
+
+    IRenderBackend* backend_ = nullptr;
+    IGpuResourceObserver* observer_ = nullptr;
 
     std::unordered_map<ISurface*, TextureId> texture_map_;
     std::unordered_map<IBuffer*, BufferEntry> buffer_map_;

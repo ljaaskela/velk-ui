@@ -8,6 +8,7 @@
 #include <velk-render/interface/intf_gpu_resource.h>
 #include <velk-render/interface/intf_program.h>
 #include <velk-render/interface/intf_render_backend.h>
+#include <velk-render/interface/intf_render_target.h>
 #include <velk-render/interface/intf_texture_resolver.h>
 #include <velk-render/plugin.h>
 #include <velk-render/render_types.h>
@@ -41,6 +42,21 @@ public:
         GpuBuffer handle{};
         size_t size = 0;
     };
+
+    /// Set by the renderer at startup. The manager uses these to create
+    /// backend resources (factory methods below) and to subscribe the
+    /// renderer's observer so dropping the last Ptr to a managed resource
+    /// auto-defers its backend handle for destruction.
+    virtual void set_lifecycle(IRenderBackend* backend,
+                               IGpuResourceObserver* observer) = 0;
+
+    /// Creates a backend texture, wraps it in a RenderTexture, registers
+    /// it for lifecycle tracking, and returns the Ptr. When the last
+    /// reference drops, the backend handle is auto-deferred for destroy
+    /// using the current `pending_frame_completion_marker()`. Pipelines
+    /// and paths use this instead of calling `IRenderBackend::create_texture`
+    /// directly — they never see a raw `TextureId`.
+    virtual IRenderTarget::Ptr create_render_texture(const TextureDesc& desc) = 0;
 
     // Texture mapping
     virtual TextureId find_texture(ISurface* surf) const = 0;
