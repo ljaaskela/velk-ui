@@ -34,16 +34,8 @@ inline constexpr bool is_render_target_group(uint64_t id)
 }
 /// @}
 
-/// Pixel format for textures.
-enum class PixelFormat : uint8_t
-{
-    Surface,    ///< Sentinel: resolves to the swapchain's chosen format. Used where a render target or pipeline wants to follow the surface format.
-    RGBA8,      ///< 4 bytes per pixel, linear color.
-    RGBA8_SRGB, ///< 4 bytes per pixel, sRGB-tagged (auto-linearised on sample).
-    R8,         ///< 1 byte per pixel, glyph atlases.
-    RGBA16F,    ///< 8 bytes per pixel, 16-bit float per channel (HDR).
-    RGBA32F,    ///< 16 bytes per pixel, 32-bit float per channel (precision-critical, e.g. world position).
-};
+// PixelFormat moved to render_types.h alongside sibling format enums
+// (DepthFormat etc.); included transitively via the headers above.
 
 /// Describes a GPU buffer to create.
 struct GpuBufferDesc

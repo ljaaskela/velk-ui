@@ -61,8 +61,12 @@ public:
 private:
     struct Entry
     {
-        IRenderTarget::Ptr target;
-        TextureId texture_id = 0;
+        /// Weak reference to the user-supplied RenderTexture. Strong
+        /// references live on the trait state's `render_target` ObjectRef
+        /// (and any consumer-side bindings). When the wrapper's last
+        /// reference drops, the manager observer chain auto-defers the
+        /// backend handle for destroy — the cache holds no ownership.
+        IRenderTarget::WeakPtr target;
         int width = 0;
         int height = 0;
         PixelFormat format = PixelFormat::Surface;

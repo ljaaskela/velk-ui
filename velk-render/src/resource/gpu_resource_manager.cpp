@@ -87,6 +87,23 @@ void GpuResourceManager::register_texture(ISurface* surf, TextureId tid)
     }
 }
 
+void GpuResourceManager::unregister_texture(ISurface* surf)
+{
+    texture_map_.erase(surf);
+}
+
+TextureId GpuResourceManager::ensure_texture_storage(ISurface* surf, const TextureDesc& desc)
+{
+    if (!surf || !backend_) return 0;
+    TextureId tid = find_texture(surf);
+    if (tid == 0) {
+        tid = backend_->create_texture(desc);
+        if (tid == 0) return 0;
+        register_texture(surf, tid);
+    }
+    return tid;
+}
+
 IGpuResourceManager::BufferEntry* GpuResourceManager::find_buffer(IBuffer* buf)
 {
     auto it = buffer_map_.find(buf);

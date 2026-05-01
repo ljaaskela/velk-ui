@@ -404,19 +404,17 @@ std::unordered_map<IScene*, SceneState> Renderer::consume_scenes(const FrameDesc
                         int th = static_cast<int>(sz.y);
                         const uint8_t* pixels = buf->get_data();
                         if (pixels && tw > 0 && th > 0) {
-                            TextureId tid = resources_->find_texture(surf);
-                            if (tid == 0) {
-                                TextureDesc tdesc{};
-                                tdesc.width = tw;
-                                tdesc.height = th;
-                                tdesc.format = surf->format();
-                                tdesc.sampler = surf->get_sampler_desc();
-                                tid = backend_->create_texture(tdesc);
-                                resources_->register_texture(surf, tid);
+                            TextureDesc tdesc{};
+                            tdesc.width = tw;
+                            tdesc.height = th;
+                            tdesc.format = surf->format();
+                            tdesc.sampler = surf->get_sampler_desc();
+                            TextureId tid = resources_->ensure_texture_storage(surf, tdesc);
+                            if (tid != 0) {
+                                backend_->upload_texture(tid, pixels, tw, th);
+                                buf->clear_dirty();
+                                resources_uploaded = true;
                             }
-                            backend_->upload_texture(tid, pixels, tw, th);
-                            buf->clear_dirty();
-                            resources_uploaded = true;
                         }
                     } else {
                         size_t bsize = buf->get_data_size();
