@@ -3,6 +3,7 @@
 #include <velk/api/object.h>
 #include <velk/api/velk.h>
 #include <velk-render/interface/intf_frame_data_manager.h>
+#include <velk-render/detail/intf_gpu_resource_manager_internal.h>
 #include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_analytic_shape.h>
 #include <velk-render/interface/intf_draw_data.h>
@@ -121,7 +122,7 @@ void ensure_data_buffer_uploaded(IBuffer* buf, const FrameResolveContext& ctx)
     auto* be = ctx.resources->find_buffer(buf);
     bool need_alloc = (be == nullptr);
     if (!need_alloc && be->size != bsize) {
-        ctx.resources->defer_buffer_destroy(be->handle, ctx.completion_marker);
+        defer_buffer_destroy(ctx.resources, be->handle, ctx.completion_marker);
         ctx.resources->unregister_buffer(buf);
         be = nullptr;
         need_alloc = true;
