@@ -5,6 +5,8 @@
 
 #include <unordered_map>
 
+#include <velk-render/detail/intf_render_graph_internal.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_render_graph.h>
 #include <velk-render/plugin.h>
 
@@ -20,11 +22,12 @@ namespace velk::impl {
  * to a backend method via std::visit.
  */
 class RenderGraph final
-    : public ::velk::ext::ObjectCore<RenderGraph, ::velk::IRenderGraph>
+    : public ::velk::ext::ObjectCore<RenderGraph, ::velk::IRenderGraphInternal>
 {
 public:
     VELK_CLASS_UID(::velk::ClassId::RenderGraph, "RenderGraph");
 
+    // IRenderGraph
     bool empty() const override { return passes_.empty(); }
     void clear() override;
     void import(const ::velk::IGpuResource::Ptr& resource) override;
@@ -34,6 +37,11 @@ public:
 
     ::velk::vector<::velk::GraphPass>& passes() override { return passes_; }
     const ::velk::vector<::velk::GraphPass>& passes() const override { return passes_; }
+
+    ::velk::IGpuResourceManager& resources() override;
+
+    // IRenderGraphInternal
+    void init(::velk::IRenderBackend* backend) override;
 
 private:
     /// Per-resource state classifying *what kind* of producer last
@@ -67,6 +75,12 @@ private:
     ::velk::vector<Barrier> barriers_;
     std::unordered_map<::velk::IGpuResource*, ResourceState> states_;
     std::unordered_map<::velk::IGpuResource*, bool> imported_;
+
+    /// Per-frame transient resource manager. Distinct from the
+    /// renderer's persistent manager: pool / aliasing / load-op
+    /// inference (Tier 2 follow-up steps) live here and don't bleed
+    /// into the persistent path. Created lazily in `init()`.
+    ::velk::IGpuResourceManager::Ptr resources_;
 
     /// Classifies a pass by inspecting its ops. The order of checks
     /// reflects the post-write resource state we want to record:

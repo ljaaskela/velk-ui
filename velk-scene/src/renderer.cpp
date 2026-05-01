@@ -323,6 +323,9 @@ Renderer::FrameSlot* Renderer::claim_frame_slot()
     slot->id = next_frame_id_++;
     if (!slot->graph) {
         slot->graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
+        if (auto internal = interface_cast<IRenderGraphInternal>(slot->graph)) {
+            internal->init(backend_.get());
+        }
     }
     slot->graph->clear();
     return slot;
@@ -468,6 +471,9 @@ void Renderer::build_frame_passes(const FrameDesc& desc,
         frame_buffer_->begin_frame(slot.buffer);
         if (!slot.graph) {
             slot.graph = instance().create<IRenderGraph>(ClassId::RenderGraph);
+            if (auto internal = interface_cast<IRenderGraphInternal>(slot.graph)) {
+                internal->init(backend_.get());
+            }
         }
         slot.graph->clear();
 
@@ -756,8 +762,16 @@ Frame Renderer::prepare(const FrameDesc& desc)
 
     last_prepare_gpu_wait_ns_ = 0;
 
-    // Drain any GPU resources whose safe window has elapsed.
+    // Drain any GPU resources whose safe window has elapsed. Both the
+    // renderer's persistent manager and each frame slot's graph-owned
+    // transient manager get a chance to release handles whose GPU
+    // completion markers have resolved.
     drain_deferred(resources_.get(), *backend_);
+    for (auto& slot : frame_slots_) {
+        if (slot.graph) {
+            drain_deferred(&slot.graph->resources(), *backend_);
+        }
+    }
 
     auto* slot = claim_frame_slot();
     active_slot_ = slot;

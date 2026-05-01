@@ -50,17 +50,17 @@ CameraPipeline::ensure_storage_target(::velk::IRenderTarget::Ptr& slot,
                                       int width, int height,
                                       ::velk::TextureUsage usage,
                                       ::velk::PixelFormat format,
-                                      ::velk::FrameContext& ctx)
+                                      ::velk::FrameContext& /*ctx*/,
+                                      ::velk::IRenderGraph& graph)
 {
     if (slot) return slot;
-    if (!ctx.resources) return {};
 
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
     td.format = format;
     td.usage = usage;
-    slot = ctx.resources->create_render_texture(td);
+    slot = graph.resources().create_render_texture(td);
     return slot;
 }
 
@@ -122,10 +122,10 @@ void CameraPipeline::emit(::velk::ViewEntry& view,
 
     auto path_target = ensure_storage_target(vs.path_output, w, h,
                                              ::velk::TextureUsage::RenderTarget,
-                                             ::velk::PixelFormat::RGBA16F, ctx);
+                                             ::velk::PixelFormat::RGBA16F, ctx, graph);
     auto post_target = ensure_storage_target(vs.post_output, w, h,
                                              ::velk::TextureUsage::Storage,
-                                             ::velk::PixelFormat::RGBA16F, ctx);
+                                             ::velk::PixelFormat::RGBA16F, ctx, graph);
     if (!path_target || !post_target) {
         // Allocation failure: fall back to direct rendering.
         path->build_passes(view, render_view, color_target, ctx, graph);

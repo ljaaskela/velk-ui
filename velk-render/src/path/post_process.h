@@ -64,7 +64,8 @@ private:
     ::velk::IRenderTarget::Ptr ensure_intermediate(::velk::ViewEntry& view,
                                                    size_t index,
                                                    int width, int height,
-                                                   ::velk::FrameContext& ctx);
+                                                   ::velk::FrameContext& ctx,
+                                                   ::velk::IRenderGraph& graph);
 
     void release_view_state(ViewState& vs, ::velk::FrameContext& ctx);
 };

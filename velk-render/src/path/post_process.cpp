@@ -83,7 +83,7 @@ void PostProcess::emit(::velk::ViewEntry& view,
 
     auto current = input;
     for (size_t i = 0; i + 1 < effects.size(); ++i) {
-        auto next = ensure_intermediate(view, i, w, h, ctx);
+        auto next = ensure_intermediate(view, i, w, h, ctx, graph);
         if (!next) return;
         effects[i]->emit(view, current, next, ctx, graph);
         current = next;
@@ -95,7 +95,8 @@ void PostProcess::emit(::velk::ViewEntry& view,
 PostProcess::ensure_intermediate(::velk::ViewEntry& view,
                                  size_t index,
                                  int width, int height,
-                                 ::velk::FrameContext& ctx)
+                                 ::velk::FrameContext& ctx,
+                                 ::velk::IRenderGraph& graph)
 {
     auto& vs = view_states_[&view];
 
@@ -115,14 +116,12 @@ PostProcess::ensure_intermediate(::velk::ViewEntry& view,
         return vs.intermediates[index];
     }
 
-    if (!ctx.resources) return {};
-
     ::velk::TextureDesc td{};
     td.width = width;
     td.height = height;
     td.format = ::velk::PixelFormat::RGBA8;
     td.usage = ::velk::TextureUsage::Storage;
-    auto target = ctx.resources->create_render_texture(td);
+    auto target = graph.resources().create_render_texture(td);
     if (!target) return {};
 
     vs.intermediates[index] = target;

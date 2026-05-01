@@ -16,6 +16,7 @@
 #include <velk-render/interface/intf_view_pipeline.h>
 #include <velk-render/render_path/view_entry.h>
 #include <velk-render/detail/intf_gpu_resource_manager_internal.h>
+#include <velk-render/detail/intf_render_graph_internal.h>
 #include <velk-render/detail/intf_renderer_internal.h>
 #include <velk-render/interface/intf_frame_data_manager.h>
 #include <velk-render/interface/intf_frame_snippet_registry.h>

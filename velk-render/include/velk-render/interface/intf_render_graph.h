@@ -7,6 +7,7 @@
 
 #include <velk-render/frame/render_pass.h>
 #include <velk-render/interface/intf_gpu_resource.h>
+#include <velk-render/interface/intf_gpu_resource_manager.h>
 #include <velk-render/interface/intf_render_backend.h>
 
 namespace velk {
@@ -110,6 +111,22 @@ public:
      */
     virtual vector<GraphPass>& passes() = 0;
     virtual const vector<GraphPass>& passes() const = 0;
+
+    /**
+     * @brief Per-frame transient resource manager owned by the graph.
+     *
+     * Pipelines that allocate intermediate render targets / groups /
+     * buffers go through this manager, distinct from the renderer's
+     * persistent `IGpuResourceManager`. With Tier 2 + aliasing, the
+     * graph re-binds the physical handles backing these allocations
+     * to compact non-overlapping lifetimes onto a shared pool.
+     *
+     * Use the persistent manager (`FrameContext::resources`) for
+     * resources that outlive a frame (mesh buffers, image textures,
+     * pipelines). Use the graph's manager for resources whose
+     * lifetime is bounded by the frame.
+     */
+    virtual IGpuResourceManager& resources() = 0;
 };
 
 } // namespace velk
