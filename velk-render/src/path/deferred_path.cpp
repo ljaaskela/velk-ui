@@ -199,9 +199,10 @@ uint64_t DeferredPath::ensure_pipeline(FrameContext& ctx)
 }
 
 RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int height,
-                                               FrameContext& ctx)
+                                               FrameContext& /*ctx*/,
+                                               IRenderGraph& graph)
 {
-    if (width <= 0 || height <= 0 || !ctx.resources) return 0;
+    if (width <= 0 || height <= 0) return 0;
     if (vs.gbuffer && vs.gbuffer_width == width && vs.gbuffer_height == height) {
         return vs.gbuffer->get_gpu_handle(GpuResourceKey::Default);
     }
@@ -215,7 +216,7 @@ RenderTargetGroup DeferredPath::ensure_gbuffer(ViewState& vs, int width, int hei
     gdesc.width = width;
     gdesc.height = height;
     gdesc.depth = DepthFormat::Default;
-    vs.gbuffer = ctx.resources->create_render_texture_group(gdesc);
+    vs.gbuffer = graph.resources().create_render_texture_group(gdesc);
     if (!vs.gbuffer) return 0;
 
     vs.gbuffer_width = width;
@@ -249,7 +250,7 @@ void DeferredPath::build_passes(ViewEntry& entry,
 
     auto& vs = view_states_[&entry];
 
-    auto gbuffer_handle = ensure_gbuffer(vs, render_view.width, render_view.height, ctx);
+    auto gbuffer_handle = ensure_gbuffer(vs, render_view.width, render_view.height, ctx, graph);
     if (gbuffer_handle == 0) return;
 
     emit_gbuffer_pass(entry, vs, render_view, ctx, graph);
@@ -317,7 +318,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         // separate post-process effect attached to the camera pipeline.
         td.format = PixelFormat::RGBA16F;
         td.usage = TextureUsage::Storage;
-        vs.deferred_output = ctx.resources->create_render_texture(td);
+        vs.deferred_output = graph.resources().create_render_texture(td);
         vs.deferred_width = w;
         vs.deferred_height = h;
     }
@@ -333,7 +334,7 @@ void DeferredPath::emit_lighting_pass(ViewEntry& /*entry*/, ViewState& vs,
         td.height = h;
         td.format = PixelFormat::RGBA32F;
         td.usage = TextureUsage::Storage;
-        vs.shadow_debug = ctx.resources->create_render_texture(td);
+        vs.shadow_debug = graph.resources().create_render_texture(td);
         vs.shadow_debug_width = w;
         vs.shadow_debug_height = h;
     }

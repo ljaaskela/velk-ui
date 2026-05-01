@@ -81,7 +81,8 @@ private:
         int width, int height,
         ::velk::TextureUsage usage,
         ::velk::PixelFormat format,
-        ::velk::FrameContext& ctx);
+        ::velk::FrameContext& ctx,
+        ::velk::IRenderGraph& graph);
 
     void release_view_state(ViewState& vs, ::velk::FrameContext& ctx);
 

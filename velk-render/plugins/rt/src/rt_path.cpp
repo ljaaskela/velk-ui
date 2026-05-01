@@ -88,7 +88,7 @@ void RtPath::build_passes(ViewEntry& entry,
         td.height = vp_h;
         td.format = PixelFormat::RGBA8;
         td.usage = TextureUsage::Storage;
-        vs.rt_output = ctx.resources->create_render_texture(td);
+        vs.rt_output = graph.resources().create_render_texture(td);
         vs.width = vp_w;
         vs.height = vp_h;
     }

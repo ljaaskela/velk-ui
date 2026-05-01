@@ -98,7 +98,7 @@ private:
     uint64_t ensure_pipeline(FrameContext& ctx);
 
     RenderTargetGroup ensure_gbuffer(ViewState& vs, int width, int height,
-                                     FrameContext& ctx);
+                                     FrameContext& ctx, IRenderGraph& graph);
 
     void emit_gbuffer_pass(ViewEntry& view, ViewState& vs,
                            const RenderView& render_view, FrameContext& ctx,

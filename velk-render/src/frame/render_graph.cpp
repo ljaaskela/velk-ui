@@ -1,6 +1,31 @@
 #include "frame/render_graph.h"
 
+#include <velk/api/velk.h>
+#include <velk/interface/intf_interface.h>
+
+#include <velk-render/detail/intf_gpu_resource_manager_internal.h>
+#include <velk-render/plugin.h>
+
 namespace velk::impl {
+
+void RenderGraph::init(::velk::IRenderBackend* backend)
+{
+    if (!resources_) {
+        resources_ = ::velk::instance().create<::velk::IGpuResourceManager>(
+            ::velk::ClassId::GpuResourceManager);
+    }
+    if (auto* internal = interface_cast<
+            ::velk::IGpuResourceManagerInternal>(resources_.get())) {
+        internal->init(backend);
+    }
+}
+
+::velk::IGpuResourceManager& RenderGraph::resources()
+{
+    // Accessing transient resources before init() is a programming
+    // error. Renderer wires init() right after creating the graph.
+    return *resources_;
+}
 
 void RenderGraph::clear()
 {
