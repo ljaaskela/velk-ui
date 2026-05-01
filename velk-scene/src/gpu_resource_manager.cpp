@@ -5,11 +5,15 @@
 
 namespace velk {
 
-void GpuResourceManager::set_lifecycle(IRenderBackend* backend,
-                                       IGpuResourceObserver* observer)
+void GpuResourceManager::set_lifecycle(IRenderBackend* backend)
 {
     backend_ = backend;
-    observer_ = observer;
+}
+
+void GpuResourceManager::on_gpu_resource_destroyed(IGpuResource* resource)
+{
+    on_resource_destroyed(
+        resource, backend_ ? backend_->pending_frame_completion_marker() : 0);
 }
 
 IRenderTarget::Ptr GpuResourceManager::create_render_texture(const TextureDesc& desc)
@@ -33,9 +37,7 @@ IRenderTarget::Ptr GpuResourceManager::create_render_texture(const TextureDesc& 
     // Subscribe the renderer's observer so the rt's dtor triggers
     // on_resource_destroyed, which auto-defers `tid` for destroy with
     // the current pending_frame_completion_marker().
-    if (observer_) {
-        rt->add_gpu_resource_observer(observer_);
-    }
+    rt->add_gpu_resource_observer(this);
     return rt;
 }
 
@@ -67,9 +69,7 @@ IRenderTextureGroup::Ptr GpuResourceManager::create_render_texture_group(
         std::lock_guard<std::mutex> lock(deferred_mutex_);
         group_map_[surf] = group;
     }
-    if (observer_) {
-        rtg->add_gpu_resource_observer(observer_);
-    }
+    rtg->add_gpu_resource_observer(this);
     return rtg;
 }
 
@@ -121,11 +121,11 @@ void GpuResourceManager::add_env_observer(const IBuffer::WeakPtr& res)
     observed_env_resources_.push_back(res);
 }
 
-void GpuResourceManager::unregister_env_observers(IGpuResourceObserver* observer)
+void GpuResourceManager::unregister_env_observers()
 {
     for (auto& weak : observed_env_resources_) {
         if (auto res = weak.lock()) {
-            res->remove_gpu_resource_observer(observer);
+            res->remove_gpu_resource_observer(this);
         }
     }
     observed_env_resources_.clear();
